@@ -174,3 +174,5 @@ table.forge td { white-space: nowrap; }
 
 .saves .slot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
 .saves .slot:last-of-type { border-bottom: 0; }
+
+.pill.season { margin-top: 6px; display: inline-block; }

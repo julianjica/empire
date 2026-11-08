@@ -22,6 +22,7 @@ const TOP_EXTRAS = [];
 //   CITY_EXTRAS (city) — chips in the city header · REALM_EXTRAS (empire) — lines on Diplomacy realm cards
 //   MARKET_EXTRAS (city) — cards appended to the Market tab
 const CITY_EXTRAS = [], REALM_EXTRAS = [], MARKET_EXTRAS = [];
+if (G.seasonChip) CITY_EXTRAS.push(G.seasonChip);
 const extras = (list, ...a) => list.map(f => { try { return f(...a) || ''; } catch (e) { console.error(e); return ''; } }).join('');
 const runMountHooks = () => { for (const h of MOUNT_HOOKS) { try { h(UI.tab); } catch (e) { console.error(e); } } };
 

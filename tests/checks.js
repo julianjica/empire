@@ -107,4 +107,16 @@ ok('catchUp ignores speed', Math.abs(s.time-t0-600)<5, (s.time-t0).toFixed(0));
   try { G.slowHooks.forEach(h=>h(s,1)); } finally { G.power=pr; }
   ok('a losing AI realm makes peace', G.aiRel(s,'a1','a2').status==='peace', JSON.stringify(G.aiRel(s,'a1','a2')));
 }
+
+{ // seasons change harvests and marching, and each people feels them differently
+  const s=G.newGame({name:'T',race:'hearth'}); const c=G.capital(s,'p');
+  const at=(idx)=>{ s.time=idx*7200*G.pace(s).time+60; return G.mod(s,'p',c,'grain'); };
+  const spring=at(0), autumn=at(2), winter=at(3);
+  ok('autumn harvest beats winter', autumn>spring && winter<spring, 'spring '+spring.toFixed(2)+' autumn '+autumn.toFixed(2)+' winter '+winter.toFixed(2));
+  ok('winter slows marches', (s.time=3*7200+60, G.mod(s,'p',null,'travel'))<1);
+  const d=G.newGame({name:'T',race:'delver'}); const dc=G.capital(d,'p'); d.time=3*7200+60; s.time=3*7200+60;
+  ok('Deepdelvers barely feel winter', G.mod(d,'p',null,'travel')>G.mod(s,'p',null,'travel'));
+  s.time=0; s.lastSeason=0; s.time=3*7200+60; s.pending=[]; G.slowHooks.forEach(h=>h(s,0.2));
+  ok('winter brings a decision or a warning', s.log.some(l=>/Winter/.test(l.text)));
+}
 `);

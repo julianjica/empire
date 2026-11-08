@@ -109,8 +109,23 @@ const renderStart = () => {
       </select></label>
       <button class="primary" data-act="begin" style="padding:10px">Found your realm</button>
     </div>
+    ${savesHtml(false)}
   </div>`;
 };
+// save slots + export/import (start screen and Empire tab)
+const savesHtml = inGame => {
+  const slots = [1, 2, 3].map(n => {
+    const i = G.slotInfo(n);
+    return `<div class="slot"><b>Slot ${n}</b> ${i ? `<span>${esc(i.realm)} · ${DATA.races[i.race].name} · ${i.cities} cit${i.cities === 1 ? 'y' : 'ies'} · ${clockOf(i.time)}<br><span class="muted" style="font-size:11px">saved ${new Date(i.savedAt).toLocaleString()}</span></span>` : '<span class="muted">empty</span>'}
+      <span class="spacer"></span>${inGame ? `<button class="small" data-act="saveSlot" data-n="${n}">Save here</button>` : ''}${i ? `<button class="small ${inGame ? '' : 'primary'}" data-act="loadSlot" data-n="${n}">Load</button><button class="small" data-act="clearSlot" data-n="${n}" title="Delete this save">✕</button>` : ''}</div>`;
+  }).join('');
+  return `<div class="card saves"><h3>💾 Saved realms</h3>
+    <p class="muted" style="font-size:12.5px;margin-top:0">The game autosaves in this browser every 15 seconds. Keep extra copies in slots, or export a file to back up or move your realm to another browser.</p>
+    ${slots}
+    <div class="row" style="margin-top:8px">${inGame ? '<button class="small" data-act="exportSave">⬇️ Export to file</button>' : ''}<button class="small" data-act="importSave">⬆️ Import from file</button><input type="file" id="importFile" accept=".json,application/json" style="display:none"></div></div>`;
+};
+const clockOf = t => {
+  return `${Math.floor(t / 3600)}h ${Math.floor(t % 3600 / 60)}m played`; };
 const readStart = () => {
   const v = id => document.getElementById(id).value;
   Object.assign(UI.start, { name: v('sName'), city: v('sCity'), hero: v('sHero'), pace: v('sPace'), mode: v('sMode'), difficulty: v('sDiff') });
@@ -416,15 +431,29 @@ const renderEmpire = () => {
   const ren = G.renown(S, 'p'), need = G.nextCityRenown(S, 'p');
   const cities = G.citiesOf(S, 'p');
   const goods = visibleGoods().slice(0, 7);
-  return `${S.victory ? '<div class="banner win">👑 Every rival has fallen. You rule the realm! (You may keep playing.)</div>' : ''}
-  <div class="card"><h3>👑 ${esc(emp.name)}</h3>
+  return `<div class="card"><h3>👑 ${esc(emp.name)}</h3>
     <p>${R.name}: ${R.perks.join(' · ')}</p>
     <p>⭐ Renown <b>${ren}</b> — from building levels, victories (${emp.wins || 0} × 3) and conquests (${emp.conquests || 0} × 25).
     ${need === Infinity ? 'You have reached the greatest size a realm can hold.' : `Your next city needs <b>${need}</b> renown. Train Settlers at a Town Hall of level 5+ and send them to open land.`}</p>
     <p class="muted">${DATA.pace[S.settings.pace].name} pace · ${DATA.modes[S.settings.mode].name}: ${DATA.modes[S.settings.mode].desc} · Rival pressure ${Math.round(G.aiPressure(S) * 100)}%</p>
   </div>
   <div class="card"><h3>Cities</h3><table><tr><th>City</th><th>Tier</th><th>People</th>${goods.map(g => `<th>${DATA.goods[g].icon}</th>`).join('')}<th>Troops</th></tr>
-    ${cities.map(c => `<tr><td><button class="link" data-act="city" data-c="${c.id}">${esc(c.name)}</button></td><td>${G.tier(c).name}</td><td>${fmt(c.pop)}</td>${goods.map(g => `<td>${fmt(c.res[g] || 0)}</td>`).join('')}<td>${G.unitsCount(c.units)}</td></tr>`).join('')}</table></div>`;
+    ${cities.map(c => `<tr><td><button class="link" data-act="city" data-c="${c.id}">${esc(c.name)}</button></td><td>${G.tier(c).name}</td><td>${fmt(c.pop)}</td>${goods.map(g => `<td>${fmt(c.res[g] || 0)}</td>`).join('')}<td>${G.unitsCount(c.units)}</td></tr>`).join('')}</table></div>
+  ${wondersHtml()}
+  ${savesHtml(true)}`;
+};
+const wondersHtml = () => {
+  if (!G.wonderOf) return '';
+  const rows = Object.values(S.empires).filter(e => !e.dead).map(e => {
+    const w = G.wonderOf(S, e.id);
+    return `<tr><td>${w.icon} <b>${esc(w.name)}</b><div class="muted" style="font-size:11.5px">${esc(e.id === 'p' ? 'Your realm' : e.name)}${w.city && (e.id === 'p' || S.explored[w.city.y * S.map + w.city.x]) ? ' · ' + esc(w.city.name) : ''}</div></td>
+      <td style="min-width:120px"><div class="bar"><i style="width:${w.level * 10}%;background:${e.color}"></i></div><span class="muted" style="font-size:12px">stage ${w.level}/${G.WONDER_STAGES}${w.building ? ' · building' : ''}</span></td></tr>`;
+  }).join('');
+  const mine = G.wonderOf(S, 'p');
+  return `<div class="card"><h3>🏛️ The race for a wonder</h3>
+    <p style="font-size:13px;margin-top:0">${esc(DATA.wonders[S.empires.p.race].desc)}</p>
+    <p class="muted" style="font-size:12.5px">${S.settings.mode === 'conquest' ? 'The first realm to finish all 10 stages wins the game.' : 'In Endless mode a finished wonder brings glory (+200 renown) and its boons.'} It needs a realm of 3 cities and a city with Town Hall 12, Academy 5 and Warehouse 14. Rivals grow hostile toward anyone close to finishing, and catapults can wreck stages.${mine.city ? '' : ' Find it under Wonder in the City tab.'}</p>
+    <table>${rows}</table></div>`;
 };
 
 const renderHelp = () => `<div class="card help"><h2>How to play</h2>
@@ -459,6 +488,18 @@ Object.assign(TABS, {
   help: { label: '❔ How to play', render: renderHelp },
 });
 
+const endgameBanner = () => {
+  if (S.gameOver === 'wonder') {
+    const e = S.empires[S.gameOverBy] || {}; const w = DATA.wonders[e.race] || {};
+    return `<div class="banner lose">The ${esc(e.name || 'rival')} completed ${esc(w.name || 'their wonder')}. Their legend eclipses yours — the game is lost.<div class="row" style="justify-content:center;margin-top:8px"><button class="primary" data-act="continueEndless">Play on in Endless mode</button><button data-act="newgame">Start a new game</button></div></div>`;
+  }
+  if (S.victory && !S.victorySeen) {
+    const msg = S.victory === 'wonder' ? `${esc(DATA.wonders[S.empires.p.race].name)} stands complete. Your people's legend will outlast the ages!` : 'Every rival crown has fallen. The realm is yours!';
+    return `<div class="banner win">👑 Victory! ${msg}<div class="row" style="justify-content:center;margin-top:8px"><button class="primary" data-act="dismissVictory">Keep playing</button><button data-act="newgame">Start a new game</button></div></div>`;
+  }
+  return '';
+};
+
 // ---------------------------------------------------------------------
 // render
 // ---------------------------------------------------------------------
@@ -483,7 +524,7 @@ const render = (force) => {
   const logEl = $app.querySelector('.log');
   const logScroll = logEl ? logEl.scrollTop : 0;
   const tab = TABS[UI.tab] || TABS.city;
-  $app.innerHTML = renderTop(city) + `<div class="layout">${renderSide(city)}<main>${tab.render(city)}</main>${renderRight()}</div>`;
+  $app.innerHTML = renderTop(city) + `<div class="layout">${renderSide(city)}<main>${endgameBanner()}${tab.render(city)}</main>${renderRight()}</div>`;
   window.scrollTo(0, scroll);
   const logEl2 = $app.querySelector('.log');
   if (logEl2) logEl2.scrollTop = logScroll;
@@ -520,6 +561,36 @@ Object.assign(act, {
   readAll: () => { S.reports.forEach(r => r.read = true); render(true); },
   forge: d => { toast(G.startUpgrade(S, UI.city, d.u, d.k) || `The smiths set to work on ${DATA.units[d.u].name} ${d.k === 'a' ? 'weapons' : 'armour'}`); render(true); },
   cancelForge: () => { G.cancelUpgrade(S, UI.city); render(true); },
+  saveSlot: d => { toast(G.saveSlot(S, +d.n) || `Saved to slot ${d.n}`); render(true); },
+  loadSlot: d => {
+    if (S && !confirm(`Load slot ${d.n}? Your current game stays in the autosave only until the next save overwrites it — save it to a slot first if you want to keep it.`)) return;
+    const st = G.loadSlot(+d.n);
+    if (!st) { toast('That save could not be read'); return; }
+    S = st; S.realLast = Date.now(); UI.city = (G.citiesOf(S, 'p')[0] || {}).id; UI.tab = 'city'; UI.sel = null; G.save(S); render(true); toast(`Loaded slot ${d.n}`);
+  },
+  clearSlot: d => { if (confirm(`Delete the save in slot ${d.n}? This cannot be undone.`)) { G.clearSlot(+d.n); render(true); if (!S) renderStart(); } },
+  exportSave: () => {
+    const blob = new Blob([G.serialize(S)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ember-crown-${S.empires.p.name.replace(/[^\w]+/g, '-').toLowerCase()}-${Math.floor(S.time / 60)}min.json`;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  },
+  importSave: () => {
+    const input = document.getElementById('importFile');
+    input.onchange = () => {
+      const f = input.files[0]; if (!f) return;
+      f.text().then(txt => {
+        let st = null; try { st = G.deserialize(txt); } catch (e) { st = null; }
+        if (!st) { toast('That file is not an Ember & Crown save'); return; }
+        if (S && !confirm('Replace your current game with the imported realm?')) return;
+        S = st; S.realLast = Date.now(); UI.city = (G.citiesOf(S, 'p')[0] || {}).id; UI.tab = 'city'; UI.sel = null; G.save(S); render(true); toast(`Imported ${S.empires.p.name}`);
+      });
+    };
+    input.click();
+  },
+  continueEndless: () => { S.settings.mode = 'endless'; S.gameOver = null; S.gameOverBy = null; G.log(S, 'p', 'The game continues in Endless mode.', 'info'); render(true); },
+  dismissVictory: () => { S.victorySeen = true; render(true); },
   dismiss: d => { toast(G.dismiss(S, UI.city, d.u, +d.n) || `${d.n} ${DATA.units[d.u].name} returned to work`); render(true); },
   save: () => { toast(G.save(S) ? 'Saved' : 'Could not save'); },
   newgame: () => { if (confirm('Abandon this realm and start a new game? Your current save will be erased.')) { G.wipe(); S = null; render(true); } },

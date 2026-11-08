@@ -171,3 +171,6 @@ details.counters summary { cursor: pointer; color: var(--accent); }
 .calam.good { border-color: var(--good); background: color-mix(in srgb, var(--good) 8%, var(--panel)); }
 
 table.forge td { white-space: nowrap; }
+
+.saves .slot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+.saves .slot:last-of-type { border-bottom: 0; }

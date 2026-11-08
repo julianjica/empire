@@ -288,6 +288,8 @@ G.buildStatus = (s, city, type) => {
     if (G.lvl(city, rb) < rl) return { ...res, ok: false, locked: true, reason: `Needs ${DATA.buildings[rb].name} ${rl}` };
   }
   if (type !== 'townhall' && level > G.lvl(city, 'townhall') * 2 + 2) return { ...res, ok: false, reason: `Needs Town Hall ${Math.ceil((level - 2) / 2)}` };
+  if (b.minCities && G.citiesOf(s, city.owner).length < b.minCities) return { ...res, ok: false, locked: true, reason: `Needs a realm of ${b.minCities} cities` };
+  if (b.realmUnique && Object.values(s.cities).some(c => c.owner === city.owner && c !== city && (G.lvl(c, type) || c.buildQueue.some(q => q.type === type)))) return { ...res, ok: false, locked: true, reason: 'Already raised in another of your cities' };
   if (city.buildQueue.length >= G.buildSlots(city)) return { ...res, ok: false, reason: 'Queue full' };
   if (!G.canAfford(s, city, cost)) return { ...res, ok: false, reason: 'Not enough goods', poor: true };
   return res;
@@ -876,7 +878,7 @@ G.resolveMove = (s, m) => {
     let hits = Math.min(5, Math.floor(G.wreckPower(r.attLeft) / 6));
     const wrecked = {};
     while (hits-- > 0) {
-      const opts = Object.keys(city.buildings).filter(b => city.buildings[b] > (b === 'townhall' ? 1 : 0) && b !== 'wall');
+      const opts = Object.keys(city.buildings).filter(b => city.buildings[b] > (b === 'townhall' ? 1 : 0) && b !== 'wall' && !DATA.buildings[b].wonder);
       if (!opts.length) break;
       const b = G.pick(opts);
       city.buildings[b]--; if (!city.buildings[b]) delete city.buildings[b];
@@ -1412,28 +1414,57 @@ G.newGame = (opts) => {
 // ---------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------
+// serialise / deserialise a game (special tiles stored as indices, not copies)
+G.serialize = s => {
+  const special = s.special;
+  s.special = special.map(t => G.tileIdx(s, t));
+  try { return JSON.stringify(s); } finally { s.special = special; }
+};
+// bring any v2 save up to date: fill fields added by later features, so updates never wipe games
+G.migrate = s => {
+  s.rivers = s.rivers || G.genRivers(s);
+  for (const k of ['calamities', 'pending', 'offers', 'moves', 'reports', 'log']) s[k] = s[k] || [];
+  for (const k of ['intel', 'stats', 'airel', 'rel']) s[k] = s[k] || {};
+  s.explored = s.explored || new Array(s.map * s.map).fill(1);
+  for (const c of Object.values(s.cities)) {
+    c.oases = c.oases || []; c.mods = c.mods || []; c.train = c.train || {}; c.refineOff = c.refineOff || {};
+    c.buildQueue = c.buildQueue || []; c.units = c.units || {}; c.taxPolicy = c.taxPolicy || 'normal';
+    for (const g of DATA.goodOrder) c.res[g] = c.res[g] || 0;
+  }
+  for (const e of Object.values(s.empires)) { e.upgrades = e.upgrades || {}; e.traditions = e.traditions || []; e.culture = e.culture || 0; e.cultureTotal = e.cultureTotal || 0; }
+  s.saveRev = SAVE_REV;
+  return s;
+};
+const SAVE_REV = 3;     // bump when migrate() learns something new
+G.deserialize = json => {
+  const s = JSON.parse(json);
+  if (!s || s.version !== G.VERSION || !Array.isArray(s.tiles) || !s.empires || !s.empires.p) return null;
+  s.special = (s.special || []).map(i => typeof i === 'number' ? s.tiles[i] : s.tiles[i.y * s.map + i.x]);
+  return G.migrate(s);
+};
 G.save = s => {
   s.realLast = Date.now();
-  try {
-    const special = s.special;
-    s.special = special.map(t => G.tileIdx(s, t));   // store indices, not tile copies
-    const json = JSON.stringify(s);
-    s.special = special;
-    localStorage.setItem(G.SAVE_KEY, json);
-    return true;
-  } catch (e) { return false; }
+  try { localStorage.setItem(G.SAVE_KEY, G.serialize(s)); return true; } catch (e) { return false; }
 };
 G.load = () => {
+  try { const raw = localStorage.getItem(G.SAVE_KEY); return raw ? G.deserialize(raw) : null; } catch (e) { return null; }
+};
+// three manual save slots alongside the autosave
+G.SLOT_KEY = n => 'emberCrown_slot_' + n;
+G.saveSlot = (s, n) => {
+  s.realLast = Date.now();
+  try { localStorage.setItem(G.SLOT_KEY(n), G.serialize(s)); return null; } catch (e) { return 'Could not save (browser storage full?)'; }
+};
+G.loadSlot = n => { try { const raw = localStorage.getItem(G.SLOT_KEY(n)); return raw ? G.deserialize(raw) : null; } catch (e) { return null; } };
+G.slotInfo = n => {
   try {
-    const raw = localStorage.getItem(G.SAVE_KEY);
+    const raw = localStorage.getItem(G.SLOT_KEY(n));
     if (!raw) return null;
     const s = JSON.parse(raw);
-    if (!s || s.version !== G.VERSION) return null;
-    s.special = s.special.map(i => s.tiles[i]);
-    if (!s.rivers) s.rivers = G.genRivers(s);
-    return s;
+    return { realm: s.empires.p.name, race: s.empires.p.race, time: s.time, savedAt: s.realLast, cities: Object.values(s.cities).filter(c => c.owner === 'p').length };
   } catch (e) { return null; }
 };
+G.clearSlot = n => { try { localStorage.removeItem(G.SLOT_KEY(n)); } catch (e) { } };
 G.wipe = () => { try { localStorage.removeItem(G.SAVE_KEY); localStorage.removeItem('emberCrown_save_v1'); } catch (e) { } };
 
 G.catchUp = s => {

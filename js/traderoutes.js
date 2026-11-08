@@ -347,18 +347,16 @@
       if (G.unitsCount(m.units)) pushLeg(s, m, 'back', to, from, {}, m.units, from.id);
       return;
     }
-    // foreign: unload, take payment in goods (gold if they run short), both realms earn trade income
+    // foreign: unload and load the agreed goods (from their stores, the rest from their merchants, as with
+    // diplomacy's merchant offers), and both realms earn trade income
     const partner = s.empires[to.owner], me = s.empires[r.owner];
     const share = Math.min(1, sum(m.cargo) / Math.max(1, sum(r.goods.give)));
     G.gain(s, to, m.cargo);
     const back = {};
     for (const [g, n] of Object.entries(r.goods.take)) {
       const want = Math.floor(n * share);
-      const pay = Math.max(0, Math.min(want, Math.floor(to.res[g] || 0)));
-      if (pay > 0) { back[g] = pay; to.res[g] -= pay; }
-      const short = (want - pay) * DATA.goods[g].value;
-      const gold = Math.floor(Math.min(short, Math.max(0, partner.gold)));
-      if (gold > 0) { back.gold = (back.gold || 0) + gold; partner.gold -= gold; }
+      if (want > 0) back[g] = want;
+      to.res[g] = Math.max(0, (to.res[g] || 0) - want);
     }
     const inc = G.routeIncome(s, from, to);
     me.gold += inc; partner.gold += inc;
@@ -494,11 +492,11 @@
     const [pc, ac] = best;
     const capP = G.storageCap(s, pc), capA = G.storageCap(s, ac);
     // they ask for what they lack and the player has; they offer a specialty they hold
-    const gives = RAW.filter(g => (pc.res[g] || 0) > capP * 0.3).sort((x, y) => (ac.res[x] || 0) / capA - (ac.res[y] || 0) / capA);
+    const gives = RAW.filter(g => (pc.res[g] || 0) > Math.min(capP * 0.3, 1000)).sort((x, y) => (ac.res[x] || 0) / capA - (ac.res[y] || 0) / capA);
     const takes = G.routeTakeGoods(s, 'p', aiId).filter(g => SPECIALTY[s.empires[aiId].race].includes(g) && !gives.slice(0, 1).includes(g));
     const give = gives[0], take = takes.sort((x, y) => (ac.res[y] || 0) - (ac.res[x] || 0))[0];
     if (!give || !take) return null;
-    const n = Math.max(50, Math.min(G.caravanCap(s, pc), Math.round(capP * 0.15 / 50) * 50));
+    const n = Math.max(50, Math.min(G.caravanCap(s, pc), Math.round(Math.min(capP * 0.15, (pc.res[give] || 0) * 0.4) / 50) * 50));
     const q = G.routeQuote(s, pc, ac, give, n, take);
     if (q.take < 1) return null;
     return { ai: aiId, from: pc.id, to: ac.id, give: { [give]: n }, takeGood: take, take: q.take, every: T.defaultEvery, income: q.income };

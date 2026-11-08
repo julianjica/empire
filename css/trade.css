@@ -1,1 +1,33 @@
-/* trade routes */
+/* trade routes: Market tab card and Diplomacy realm line */
+.tr-card .tr-sub { font-size: 12px; }
+.tr-card p.tr-sub { margin: 6px 0; }
+.tr-scroll { overflow-x: auto; }
+.tr-table { width: 100%; font-size: 13px; }
+.tr-table td { vertical-align: top; }
+.tr-table .tr-ctl { min-width: 210px; }
+.tr-table .tr-ctl .row { gap: 4px; margin-bottom: 3px; }
+.tr-escort { font-size: 12px; }
+.tr-escort select { max-width: 150px; font-size: 12px; padding: 2px 4px; }
+.tr-escort input { width: 58px; font-size: 12px; padding: 2px 4px; }
+.tr-realm-pill { font-size: 11px; padding: 0 6px; }
+.tr-risk { display: inline-block; padding: 0 7px; border-radius: 99px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); white-space: nowrap; }
+.tr-risk-low { color: var(--good); border-color: var(--good); }
+.tr-risk-mid { color: var(--warn); border-color: var(--warn); }
+.tr-risk-high { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.tr-form { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.tr-form h4 { margin: 0 0 6px; }
+.tr-form label { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.tr-form input[type=number] { width: 80px; }
+.tr-quote { margin-top: 6px; font-size: 13px; line-height: 1.7; }
+.tr-quote button { margin-left: 6px; }
+.tr-realm-line { margin-top: 6px; font-size: 13px; }
+@media (max-width: 640px) {
+  .tr-form select { max-width: 100%; }
+  /* each route becomes a small block instead of a wide table row */
+  .tr-table, .tr-table tbody, .tr-table tr, .tr-table td { display: block; width: auto; }
+  .tr-table tr.tr-head { display: none; }
+  .tr-table tr { border-top: 1px solid var(--line); padding: 6px 0; }
+  .tr-table td { border: 0; padding: 2px 0; }
+  .tr-table td[data-l]::before { content: attr(data-l) ': '; color: var(--muted); font-size: 12px; }
+  .tr-table .tr-ctl { min-width: 0; }
+}

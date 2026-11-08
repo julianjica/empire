@@ -45,7 +45,7 @@ const orig=(s,a,b)=>noTrade(s,()=>G.hostility(s,a,b));
 }
 
 // ---- foreign routes: exchange, income both ways, opinion ----
-{ const s=fresh(); const c=G.capital(s,'p'); c.buildings.market=4; c.res.ore=3000; c.res.timber=0; const a=aiCity(s,'a1');
+{ const s=fresh(); const c=G.capital(s,'p'); c.buildings.market=4; c.res.ore=3000; c.res.timber=0; const a=aiCity(s,'a1'); a.res.timber=0; // empty stores: their merchants still deliver the agreed amount
   const rel=G.rel(s,'a1');
   rel.opinion=-10; ok('refused when opinion < 0', typeof G.createRoute(s,'p',c.id,a.id,{give:{ore:300},takeGood:'timber'})==='string');
   rel.opinion=0; rel.status='war'; ok('refused at war', typeof G.createRoute(s,'p',c.id,a.id,{give:{ore:300},takeGood:'timber'})==='string');
@@ -65,7 +65,7 @@ const orig=(s,a,b)=>noTrade(s,()=>G.hostility(s,a,b));
   const gotTimber=c.res.timber-tim0;
   const inc=G.routeIncome(s,c,a);
   ok('AI received the goods', a.res.ore>=aOre+290 || a.res.ore>=G.storageCap(s,a)-1, Math.round(aOre)+' -> '+Math.round(a.res.ore));
-  ok('player received the return leg', bl && bl.cargo.timber===q.take && gotTimber>=q.take*0.99, 'timber +'+Math.round(gotTimber)+' / '+q.take);
+  ok('player received the full return leg even from empty stores', bl && bl.cargo.timber===q.take && gotTimber>=q.take*0.99, 'timber +'+Math.round(gotTimber)+' / '+q.take);
   ok('both realms earned trade income', inc>0 && r.trips===1 && r.income===inc && s.empires.p.tradeIncome===inc && s.empires.a1.tradeIncome>=inc && s.empires.p.gold>pg, 'income '+inc+' route '+r.income+' p '+s.empires.p.tradeIncome+' a1 '+Math.round(s.empires.a1.tradeIncome)+' trips '+r.trips+' p gold '+Math.round(pg)+' -> '+Math.round(s.empires.p.gold));
   const op0=rel.opinion; const t0=r.trips;
   n=0; while(r.trips<t0+2 && n++<400) run(s,10);

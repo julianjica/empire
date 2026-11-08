@@ -21,13 +21,14 @@
     townhall: [10.6, 10.6, 2.8, 2.8],
     smelter: [5.0, 5.0, 2.4, 2.4], smithy: [8.3, 5.0, 2.4, 2.4], armory: [5.0, 8.3, 2.4, 2.4],
     bakery: [7.8, 7.8, 1.9, 1.9], runeforge: [7.8, 7.8, 1.9, 1.9], heartgrove: [7.8, 7.8, 1.9, 1.9],
-    warpit: [13.0, 4.9, 2.8, 2.8], barracks: [16.3, 4.9, 3.0, 2.6], stable: [16.4, 8.4, 2.8, 2.6],
-    market: [14.4, 14.4, 2.6, 2.6], warehouse: [17.5, 12.9, 2.0, 2.4], academy: [12.9, 17.5, 2.4, 2.0],
+    warpit: [13.0, 4.9, 2.7, 2.6], barracks: [16.3, 4.9, 3.0, 2.6], stable: [16.4, 8.4, 2.8, 2.6], workshop: [13.0, 7.7, 2.7, 1.7],
+    tavern: [12.85, 14.55, 1.45, 2.5], theatre: [14.55, 12.85, 2.5, 1.45], temple: [17.6, 17.6, 1.9, 1.9],
+    market: [14.6, 14.6, 2.4, 2.4], warehouse: [17.5, 12.9, 2.0, 2.4], academy: [12.9, 17.5, 2.4, 2.0],
     houses: [4.8, 12.9, 6.2, 6.4],
     mine: [1.0, 1.2, 2.6, 2.4], quarry: [15.0, 0.6, 3.4, 2.6], lumber: [0.6, 15.0, 2.6, 3.4],
     farm: [20.8, 20.8, 2.3, 2.3],
   };
-  const DRILL = [13.0, 8.3, 2.8, 2.7];
+  const DRILL = [13.0, 9.55, 2.7, 1.6];
   const POND = [18.3, 18.3];
   const COTTAGES = [[8.75, 13.1], [8.75, 15.3], [6.9, 13.1], [6.9, 15.3], [8.75, 17.55], [5.0, 13.1], [5.0, 15.3], [6.9, 17.55], [5.0, 17.55]];
   const WALL_A = 4, WALL_B = 20, GATE0 = 11.3, GATE1 = 12.7;
@@ -39,7 +40,7 @@
     [[14.1, 12], [16.05, 12], [17.25, 12], [20.5, 12], [23.3, 12]],
     [[12, 14.1], [12, 14.75], [12, 16.95], [12, 17.25], [12, 20.5], [12, 23.3]],
     [[12, 7.6], [7.6, 7.6], [4.6, 7.6]], [[7.6, 4.6], [7.6, 7.6], [7.6, 12]],
-    [[12, 8.0], [16.05, 8.0], [19.5, 8.0]], [[16.05, 4.6], [16.05, 8.0], [16.05, 12]],
+    [[16.05, 8.0], [19.5, 8.0]], [[16.05, 4.6], [16.05, 8.0], [16.05, 12]],
     [[12, 14.75], [8.45, 14.75], [6.6, 14.75], [4.6, 14.75]], [[12, 16.95], [8.45, 16.95], [6.6, 16.95], [4.6, 16.95]],
     [[6.6, 12], [6.6, 14.75], [6.6, 16.95], [6.6, 19.4]], [[8.45, 12], [8.45, 14.75], [8.45, 16.95], [8.45, 19.4]],
     [[17.25, 12], [17.25, 17.25], [12, 17.25]],
@@ -1055,6 +1056,183 @@
     return 22 + band * 4;
   };
 
+  // ---- siege workshop, tavern, temple, theatre, and a fallback for unknown types ----
+  function wheel(gx, gy, z, r = 3) { const [x, y] = P(gx, gy, z); circ(x, y, r, '#6a4a30', OUT); circ(x, y, r * 0.35, '#3a2a20'); line([x - r, y], [x + r, y], '#4a3020', 0.7); line([x, y - r], [x, y + r], '#4a3020', 0.7); }
+  function siegeRam(gx, gy, done) { // wheeled frame with a slung log; done 0..1 = how far it is built
+    const fc = '#7a5434';
+    box(gx, gy, 1.1, 0.5, 3, 2, fc);
+    for (const [wx, wy] of [[gx + 0.15, gy + 0.5], [gx + 0.95, gy + 0.5]]) wheel(wx, wy, 3, 3.2);
+    if (done > 0.3) for (const u of [0.1, 1.0]) { line(P(gx + u, gy + 0.05, 5), P(gx + u, gy + 0.25, 16), fc, 1.3); line(P(gx + u, gy + 0.45, 5), P(gx + u, gy + 0.25, 16), fc, 1.3); }
+    if (done > 0.5) log(gx - 0.2, gx + 1.25, gy + 0.25, 9, 2);
+    if (done > 0.8) poly([P(gx, gy + 0.05, 5), P(gx + 1.1, gy + 0.05, 5), P(gx + 1.1, gy + 0.25, 17), P(gx, gy + 0.25, 17)], RACE === 'ash' ? '#a9784e' : '#8a6a44');
+  }
+  function siegeCatapult(gx, gy, done) {
+    const fc = '#7a5434';
+    box(gx, gy, 0.9, 0.6, 3, 2, fc);
+    for (const [wx, wy] of [[gx + 0.15, gy + 0.6], [gx + 0.75, gy + 0.6]]) wheel(wx, wy, 3, 3);
+    if (done > 0.3) { line(P(gx + 0.35, gy + 0.1, 5), P(gx + 0.45, gy + 0.3, 15), fc, 1.4); line(P(gx + 0.55, gy + 0.5, 5), P(gx + 0.45, gy + 0.3, 15), fc, 1.4); }
+    if (done > 0.6) { const a = P(gx + 0.9, gy + 0.3, 6), b = P(gx + 0.05, gy + 0.3, 22); line(a, b, '#5a4030', 1.8); c.beginPath(); c.arc(b[0], b[1] - 1, 2.4, 0, TAU); c.fillStyle = F('#8a7a6a'); c.fill(); }
+  }
+  BLD.workshop = ([x, y, w, d], L, band) => {
+    // open carpentry shed at the back, race-roofed
+    const sx = x + 0.1, sy = y + 0.1, sw = 1.3, sd = 1.0, H = 13 + band * 2;
+    for (const [px, py] of [[sx, sy + sd], [sx + sw, sy + sd], [sx + sw, sy]]) line(P(px, py), P(px, py, H), STY.beam, 1.6);
+    box(sx, sy, sw, 0.12, 0, H, RACE === 'delver' ? STY.stone : STY.wood);
+    const roof = RACE === 'ash' ? STY.thatch : RACE === 'sylvan' ? STY.roof : RACE === 'delver' ? STY.roof : STY.roof;
+    if (RACE === 'delver') box(sx - 0.05, sy - 0.05, sw + 0.1, sd + 0.1, H, 3, STY.stone2);
+    else poly([P(sx - 0.08, sy - 0.08, H + 6), P(sx + sw + 0.08, sy - 0.08, H + 6), P(sx + sw + 0.08, sy + sd + 0.1, H), P(sx - 0.08, sy + sd + 0.1, H)], roofCol(roof));
+    box(sx + 0.2, sy + 0.4, 0.7, 0.3, 0, 5, '#9a7046');              // workbench
+    logPile(x + 1.55, y + 0.15, 0.9, 3);                               // timber stacks
+    if (L >= 5) logPile(x + 1.55, y + 0.75, 0.9, 2);
+    const done = 0.35 + 0.65 * Math.min(1, L / 8);
+    if (band % 2 === 0 || band >= 2) siegeRam(x + 0.25, y + d - 0.6, done); 
+    if (band % 2 === 1 || band >= 2) siegeCatapult(x + w - 1.05, y + d - 0.75, done);
+    if (RACE === 'ash') skull(...P(sx + sw, sy + sd, H + 1), 0.8);
+    if (RACE === 'sylvan') { const [lx, ly] = P(sx + sw, sy + sd, H - 2); lantern(lx, ly, 1.4); }
+    return H + 10;
+  };
+  function signBoard(gx, gy, z, col, motif) {
+    const [sx, sy] = P(gx, gy, z); line([sx, sy], [sx + 6, sy - 2], STY.beam, 1.2);
+    poly([[sx + 3, sy - 1], [sx + 9, sy - 3], [sx + 9, sy + 3], [sx + 3, sy + 5]], col);
+    if (motif === 'mug') { poly([[sx + 4.8, sy], [sx + 7, sy - 0.7], [sx + 7, sy + 2.5], [sx + 4.8, sy + 3.2]], '#e2b84a', null); }
+    if (motif === 'horn') line([sx + 4.5, sy + 2.5], [sx + 8, sy - 1], '#ece2c8', 1.4);
+  }
+  BLD.tavern = ([x, y, w, d], L, band) => {
+    let top;
+    if (RACE === 'sylvan') {
+      top = hallSylvan(x, y + 0.1, w, w, 18, Math.max(1, band), {});
+      const pts = [[x + 0.2, y + 1.7], [x + 1.2, y + 1.7], [x + 1.2, y + 2.4], [x + 0.2, y + 2.4]];
+      for (const [gx, gy] of pts) line(P(gx, gy), P(gx, gy, 12), STY.beam, 1.1);
+      for (let i = 0; i < 4; i++) { const a = P(...pts[i], 12), b = P(...pts[(i + 1) % 4], 12); line(a, b, '#3a2a20', 0.5); for (let k = 1; k < 3; k++) lantern(a[0] + (b[0] - a[0]) * k / 3, a[1] + (b[1] - a[1]) * k / 3 + 3, 1.2); }
+      box(x + 0.45, y + 1.85, 0.5, 0.3, 0, 4, STY.wood);
+      return top;
+    }
+    if (RACE === 'ash') {
+      top = cone(x + w / 2, y + 0.85, 0.72, 0, 30 + band * 3, STY.thatch);
+      const [dx, dy] = P(x + w / 2 + 0.25, y + 1.5); poly([[dx - 3, dy], [dx + 3, dy], [dx, dy - 9]], '#2a1e18', null);
+      banner(x + 0.1, y + 1.6, 0, 22, STY.flag);
+      firePit(x + 0.75, y + 2.1, 0.75);
+      const [rx, ry] = P(x + 0.75, y + 2.1); line([rx - 7, ry - 9], [rx + 7, ry - 9], '#3a2a20', 1.2); c.beginPath(); c.ellipse(rx, ry - 9, 3.5, 2, 0, 0, TAU); c.fillStyle = F('#8a4a2a'); c.fill();
+      return top + 4;
+    }
+    if (RACE === 'delver') {
+      top = hallDelver(x + 0.05, y + 0.1, w - 0.1, d - 0.5, 15 + band * 2, Math.min(band, 2), { chim: 'house' });
+      for (let k = 0; k < 3; k++) { const [sx, sy] = P(x + w - 0.05, y + 0.5 + k * 0.6, 9); circ(sx, sy, 2.6, ['#8a5a3a', '#6d7a80', '#a0522d'][k], OUT); circ(sx, sy, 0.8, '#d9b44a'); }
+      signBoard(x + 0.2, y + d - 0.4, 13, '#c9a874', 'horn');
+      barrel(x + 0.3, y + d - 0.15); barrel(x + 0.55, y + d - 0.1);
+      return top;
+    }
+    top = hallHearth(x + 0.05, y + 0.1, w - 0.1, d - 0.5, 15 + band * 2, Math.min(band, 2), { axis: 'y', chim: 'house' });
+    signBoard(x + w - 0.05, y + 0.6, 12, '#c9a874', 'mug');
+    barrel(x + 0.3, y + d - 0.15); barrel(x + 0.55, y + d - 0.1);
+    box(x + 0.85, y + d - 0.3, 0.45, 0.12, 0, 3, STY.wood);
+    return top;
+  };
+  BLD.temple = ([x, y, w, d], L, band) => {
+    const cx = x + w / 2, cy = y + d / 2;
+    if (RACE === 'hearth') { // chapel with a steeple
+      const b = box(x + 0.15, y + 0.55, 1.4, 1.0, 0, 15 + band * 2, band >= 2 ? STY.stone2 : STY.wall);
+      if (band >= 2) courses(b, 4, shade(STY.stone2, -0.15)); else timber(b, STY.beam);
+      door(b, 'L', 0.7, 0.3, 9); for (const u of [0.25, 0.5, 0.75]) win(b, 'R', u, 6, 0.12, 7);
+      lampDot(...P(x + 0.85, y + 1.55, 12), 2, '#4b5a6b', '#ffc95c');
+      gable(b, 10, band >= 1 ? STY.roof : STY.thatch, 'x', band >= 1 ? 'tile' : 'thatch');
+      const tH = 26 + band * 6;
+      const t = box(x + 1.15, y + 0.15, 0.55, 0.55, 0, tH, band >= 2 ? STY.stone2 : STY.wall);
+      win(t, 'L', 0.275, tH - 9, 0.14, 5); win(t, 'R', 0.275, tH - 9, 0.14, 5);
+      const zt = cone(x + 1.425, y + 0.425, 0.42, tH, 18 + band * 3, '#5a6a7a');
+      const [kx, ky] = P(x + 1.425, y + 0.425, zt); line([kx, ky], [kx, ky - 6], '#d9b44a', 1.2); line([kx - 2, ky - 4], [kx + 2, ky - 4], '#d9b44a', 1.2);
+      return zt + 6;
+    }
+    if (RACE === 'delver') { // ancestor shrine carved in stone
+      const b = box(x + 0.1, y + 0.1, w - 0.2, w - 0.2, 0, 6, STY.stone);
+      box(x + 0.35, y + 0.35, w - 0.7, w - 0.7, 6, 4, STY.stone2);
+      // the ancestor: a seated stone king
+      const sx = cx - 0.25, sy = cy - 0.25;
+      const body = box(sx, sy, 0.5, 0.45, 10, 14 + band * 3, '#9a948a');
+      const hh = 10 + 14 + band * 3;
+      box(sx + 0.08, sy + 0.08, 0.34, 0.3, hh, 7, '#a8a299');
+      const [fx, fy] = P(sx + 0.25, sy + 0.38, hh + 3.5); line([fx - 2, fy], [fx + 2, fy], '#5a544e', 0.8); line([fx - 1.6, fy + 2.5], [fx + 1.6, fy + 2.5], '#5a544e', 1); // carved face
+      poly([P(sx + 0.05, sy + 0.38, hh + 7), P(sx + 0.45, sy + 0.38, hh + 7), P(sx + 0.25, sy + 0.38, hh + 12)], '#c9a03a');   // crown
+      lamp(onL(body, 0.1, 0.4, 6, 7.2), '#4fc3f7', '#9cf0ff');
+      for (const [gx, gy] of [[x + 0.3, y + w - 0.3], [x + w - 0.3, y + 0.3]]) { box(gx - 0.1, gy - 0.1, 0.2, 0.2, 6, 6, '#6f6a64'); rec('fires', { x: P(gx, gy, 12)[0], y: P(gx, gy, 12)[1], s: 0.5 }); rec('lights', { x: P(gx, gy, 14)[0], y: P(gx, gy, 14)[1], r: 22 }); }
+      void b;
+      return hh + 14;
+    }
+    if (RACE === 'sylvan') { // moonwell shrine
+      for (let k = 0; k < 6; k++) { const a = k / 6 * TAU + 0.3; const gx = cx + Math.cos(a) * 0.82, gy = cy + Math.sin(a) * 0.82; box(gx - 0.08, gy - 0.08, 0.16, 0.16, 0, 14 + (k % 2) * 4, '#e6e4dc'); }
+      cyl(cx, cy, 0.5, 0, 4, '#c3bfa6', '#d8d4bc');
+      const [wx, wy, rx, ry] = ell(cx, cy, 4, 0.4);
+      c.beginPath(); c.ellipse(wx, wy, rx, ry, 0, 0, TAU); c.fillStyle = GLOW ? '#cfefff' : '#9fd8f0'; c.fill();
+      rec('sparks', { x: wx, y: wy - 2, kind: 'moon' }); rec('lights', { x: wx, y: wy, r: 34, col: 'grove' });
+      treeDecid(x + 0.25, y + 0.35, 0.9, true);
+      return 26;
+    }
+    // ash: bone totem shrine
+    for (let k = 0; k < 10; k++) { const a = k / 10 * TAU; const [bx, by] = P(cx + Math.cos(a) * 0.8, cy + Math.sin(a) * 0.8); line([bx, by], [bx + 1, by - 7], '#ece2c8', 1.6); }
+    const H = 34 + band * 5;
+    const [tx, ty] = P(cx, cy);
+    poly([[tx - 3, ty], [tx + 3, ty], [tx + 2.5, ty - H], [tx - 2.5, ty - H]], '#5a4030');
+    for (let k = 0; k < 3; k++) skull(tx, ty - 9 - k * 9, 1.05);
+    line([tx - 3, ty - H + 2], [tx - 9, ty - H - 6], '#ece2c8', 2); line([tx + 3, ty - H + 2], [tx + 9, ty - H - 6], '#ece2c8', 2);
+    poly([[tx - 2, ty - H], [tx + 2, ty - H], [tx, ty - H - 6]], STY.flag);
+    firePit(cx + 0.55, cy + 0.6, 0.6);
+    return H + 8;
+  };
+  BLD.theatre = ([x, y, w, d], L, band) => {
+    const crowd = n => { for (let i = 0; i < n; i++) { const u = (i + 0.5) / n; const [px, py] = P(x + 0.2 + u * (w - 0.4), y + 0.25 + (i % 2) * 0.18, 3 + (i % 2) * 2); person(px, py, STY.cloth[i % STY.cloth.length], 0.8); } };
+    const audience = Math.min(10, 3 + L);
+    if (RACE === 'delver') { // stone amphitheatre: tiers step down towards the stage
+      const cx = x + w / 2, cy = y + d - 0.15;
+      for (let k = 0; k < 3; k++) {
+        const r = 1.2 - k * 0.32, z = 8 - k * 3;
+        const [ex, ey, rx, ry] = ell(cx, cy, z, r);
+        c.beginPath(); c.moveTo(ex - rx, ey + z); c.lineTo(ex - rx, ey); c.ellipse(ex, ey, rx, ry, 0, Math.PI, TAU); c.lineTo(ex + rx, ey + z); c.closePath();
+        c.fillStyle = F(shade(STY.stone2, -0.06 * k)); c.fill(); c.strokeStyle = F(OUT); c.lineWidth = 0.7; c.stroke();
+      }
+      crowd(audience);
+      const st = box(cx - 0.45, cy - 0.35, 0.9, 0.35, 0, 3, STY.stone);
+      void st;
+      for (const u of [-0.4, 0.4]) box(cx + u - 0.06, cy - 0.4, 0.12, 0.12, 0, 16, '#a8a299');
+      return 22;
+    }
+    if (RACE === 'ash') { // fighting ring with an audience
+      const cx = x + w / 2, cy = y + d / 2;
+      crowd(audience);
+      const post = [];
+      for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; post.push([cx + Math.cos(a) * 0.62, cy + Math.sin(a) * 0.55]); }
+      const [ex, ey, rx, ry] = ell(cx, cy, 0, 0.58); c.beginPath(); c.ellipse(ex, ey, rx, ry, 0, 0, TAU); c.fillStyle = F(SNOW ? '#e0dcd4' : '#c9a878'); c.fill();
+      for (let k = 0; k < 8; k++) { const a = P(...post[k], 7), b = P(...post[(k + 1) % 8], 7); line(P(...post[k]), a, '#4a3426', 1.6); line(a, b, '#c9a874', 0.8); }
+      const [fx, fy] = P(cx, cy); person(fx - 5, fy, '#a3221b'); person(fx + 5, fy, '#6d4c8d');
+      line([fx - 3, fy - 5], [fx + 1, fy - 8], '#c8ccd2', 1); line([fx + 3, fy - 5], [fx - 1, fy - 8], '#c8ccd2', 1);
+      banner(x + 0.1, y + 0.1, 0, 22, STY.flag); banner(x + w - 0.1, y + d - 0.1, 0, 22, STY.flag);
+      rec('pit', { x: fx, y: fy - 2, rx: 6, ry: 3 });
+      return 26;
+    }
+    crowd(audience);
+    const sx = x + w / 2 - 0.6, sy = y + d - 0.75;
+    if (RACE === 'sylvan') { // living-wood stage under arching boughs
+      cyl(x + w / 2, sy + 0.35, 0.6, 0, 3, STY.wood, shade(STY.wood, 0.15));
+      for (const s of [-1, 1]) { const b0 = P(x + w / 2 + s * 0.6, sy + 0.35), tp = P(x + w / 2, sy + 0.3, 24); c.beginPath(); c.moveTo(...b0); c.quadraticCurveTo(b0[0] + s * 2, tp[1] - 4, tp[0], tp[1]); c.strokeStyle = F(STY.beam); c.lineWidth = 2.4; c.stroke(); }
+      canopy(x + w / 2, sy + 0.3, 30, 0.45);
+      for (const s of [-1, 1]) { const [lx, ly] = P(x + w / 2 + s * 0.45, sy + 0.35, 16); lantern(lx, ly, 1.4); }
+      return 40;
+    }
+    // hearth: timber playhouse stage with curtains
+    const b = box(sx, sy, 1.2, 0.6, 0, 4, STY.wood);
+    for (const [px, py] of [[sx, sy + 0.6], [sx + 1.2, sy + 0.6], [sx + 1.2, sy]]) line(P(px, py, 4), P(px, py, 18), STY.beam, 1.4);
+    poly([P(sx + 0.05, sy + 0.6, 17), P(sx + 0.3, sy + 0.6, 17), P(sx + 0.22, sy + 0.6, 5), P(sx + 0.05, sy + 0.6, 5)], '#a3221b', null);
+    poly([P(sx + 0.9, sy + 0.6, 17), P(sx + 1.15, sy + 0.6, 17), P(sx + 1.15, sy + 0.6, 5), P(sx + 0.98, sy + 0.6, 5)], '#a3221b', null);
+    gable({ x: sx, y: sy, w: 1.2, d: 0.6, z: 0, h: 18, col: STY.wall }, 7, band >= 1 ? STY.roof : STY.thatch, 'x', band >= 1 ? 'tile' : 'thatch');
+    const [px2, py2] = P(sx + 0.6, sy + 0.4, 4); person(px2, py2, '#3f6fa8', 0.9);
+    flagpole(sx + 1.2, sy, 25, 8);
+    void b;
+    return 34;
+  };
+  BLD.generic = ([x, y, w, d], L, band) => {
+    const ww = Math.min(w - 0.3, 1.8), dd = Math.min(d - 0.3, 1.5);
+    return hall(x + 0.15, y + 0.15, ww, dd, 13 + band * 2, Math.min(band, 2), { axis: ww >= dd ? 'x' : 'y' });
+  };
+
   // ------------------------------------------------------------------
   // construction, empty plots
   // ------------------------------------------------------------------
@@ -1255,13 +1433,13 @@
     if (sail) { line([x, y - 2], [x, y - 18], '#4a3020', 1); poly([[x + 0.5, y - 17], [x + 8, y - 5], [x + 0.5, y - 5]], '#f2ead6'); }
   }
   function drawLakes() {
+    const ring = (z, off) => { const out = []; for (let u = z.a; u <= z.b + 0.001; u += 0.25) out.push(P(...edgePt(z.e, Math.max(0, lakeDepth(z, u) + off), u))); out.push(P(...edgePt(z.e, 0, z.b)), P(...edgePt(z.e, 0, z.a))); return out; };
+    for (const z of REG.lakes) poly(ring(z, 0.35), SNOW ? '#e8ecee' : '#d8c89a', null);
+    for (const z of REG.lakes) poly(ring(z, 0), waterCol(), null);
+    for (const z of REG.lakes) poly(ring(z, -0.8), SEASON === 3 ? '#dcebf3' : '#3f7fa8', null);
     for (const z of REG.lakes) {
-      const shore = [], water = [], inner = [];
-      for (let u = z.a; u <= z.b + 0.001; u += 0.25) { const dd = lakeDepth(z, u); shore.push(P(...edgePt(z.e, dd + 0.35, u))); water.push(P(...edgePt(z.e, dd, u))); inner.push(P(...edgePt(z.e, Math.max(0, dd - 0.8), u))); }
-      const e0 = P(...edgePt(z.e, 0, z.b)), e1 = P(...edgePt(z.e, 0, z.a));
-      poly([...shore, e0, e1], SNOW ? '#e8ecee' : '#d8c89a', null);
-      poly([...water, e0, e1], waterCol(), null);
-      poly([...inner, e0, e1], SEASON === 3 ? '#dcebf3' : '#3f7fa8', null);
+      const water = [];
+      for (let u = z.a; u <= z.b + 0.001; u += 0.25) water.push(P(...edgePt(z.e, lakeDepth(z, u), u)));
       c.beginPath(); c.moveTo(...water[0]); for (const p of water) c.lineTo(...p); c.strokeStyle = F(SNOW ? '#ffffff' : '#9cc8e0'); c.lineWidth = 1.2; c.stroke();
       for (let u = z.a + 0.6; u < z.b - 0.4; u += 0.9) if (Math.abs(u - 12) > 0.8) reeds(...edgePt(z.e, lakeDepth(z, u) + 0.15, u));
       // pier (at the road's end when the road runs into the water) and boats
@@ -1376,7 +1554,7 @@
     if (REG.river) drawRiver();
     drawLakes();
     // pond (or a bonfire ring for Ashborn)
-    if (RACE !== 'ash') {
+    if (RACE !== 'ash' && !DATA.buildings.temple) {
       const [px, py, rx, ry] = ell(POND[0], POND[1], 0, 0.95);
       c.beginPath(); c.ellipse(px, py, rx + 2, ry + 1.5, 0, 0, TAU); c.fillStyle = F(SNOW ? '#c8ccd0' : '#8a7a5a'); c.fill();
       c.beginPath(); c.ellipse(px, py, rx, ry, 0, 0, TAU); c.fillStyle = F(SEASON === 3 ? '#cfe2ee' : '#4f8fb8'); c.fill();
@@ -1441,11 +1619,16 @@
     const hits = REC ? REC.hits : [];
     const addHit = (type, pts, depth) => { if (REC) hits.push({ type, pts, depth }); };
 
-    const types = Object.keys(SLOT).filter(t => DATA.buildings[t]);
+    // buildings this view has no slot for get a spare outer-ring plot, so nothing ever vanishes
+    const planted = REG.fields.slice(0, fieldCount(city)), usedR = Object.values(REG.slots);
+    const spare = OUTER_SITES.map(o => o.r).filter(r => !usedR.includes(r) && !rectWet(REG, r, 0.1) && !planted.some(f => overlapR(f, r, 0.1)));
+    const GEN = {};
+    for (const t of Object.keys(DATA.buildings)) if (!SLOT[t] && !REG.slots[t]) { const r = spare.shift(); if (r) GEN[t] = r; }
+    const types = Object.keys(DATA.buildings).filter(t => SLOT[t] || GEN[t]);
     for (const t of types) {
       const st = G.buildStatus(S, city, t);
       if (st.hidden) continue;
-      const s = slotOf(t), L = G.lvl(city, t), band = bandOf(L), q = qOf(t);
+      const s = GEN[t] || slotOf(t), L = G.lvl(city, t), band = bandOf(L), q = qOf(t);
       const active = q.some(e => e.start <= S.time);
       if (t === 'houses') {
         const n = L ? clampv(Math.ceil(L / 2.2), 1, 9) : 0;
@@ -1469,7 +1652,7 @@
       }
       if (t !== 'quarry' && t !== 'warpit') push(-1, () => shadow(x + 0.2, y + 0.2, w - 0.4, d - 0.4, 0.5 + band * 0.25));
       push(depth, () => {
-        const h = BLD[t](s, L, band);
+        const h = (BLD[t] || BLD.generic)(s, L, band);
         if (q.length) scaffold(x + 0.15, y + 0.15, w - 0.3, d - 0.3, Math.min(h, 30), active);
         if (t === 'mine') addHit(t, hullBox(x - 0.2, y + d - 1.2, w * 0.75, 1.6, h), depth); else addHit(t, hullBox(x, y, w, d, h), depth);
         if (t === 'farm') REG.fields.slice(0, fieldCount(city)).forEach(f => addHit('farm', quad(...f), f[0] + f[1]));
@@ -1499,7 +1682,7 @@
       else { firePit(gx, gy, 1); }
     });
     // Ashborn bonfire in the pond spot
-    if (RACE === 'ash') push(POND[0] + POND[1], () => { firePit(POND[0], POND[1], 1.4); for (let k = 0; k < 5; k++) { const a = k / 5 * TAU + 0.3; skull(...P(POND[0] + Math.cos(a) * 0.8, POND[1] + Math.sin(a) * 0.8, 3), 0.8); } });
+    if (RACE === 'ash' && !DATA.buildings.temple) push(POND[0] + POND[1], () => { firePit(POND[0], POND[1], 1.4); for (let k = 0; k < 5; k++) { const a = k / 5 * TAU + 0.3; skull(...P(POND[0] + Math.cos(a) * 0.8, POND[1] + Math.sin(a) * 0.8, 3), 0.8); } });
     if (RACE === 'ash') { for (const [gx, gy] of [[6.25, 16.2], [8.1, 14.5]]) if (G.lvl(city, 'houses') >= 3) push(gx + gy, () => firePit(gx, gy, 0.7)); }
     // sylvan lantern posts along the main roads
     if (RACE === 'sylvan') for (const [gx, gy] of [[12.65, 16.5], [12.65, 19.0], [16.5, 12.65], [19.0, 12.65], [11.35, 7.0], [7.0, 11.35]]) push(gx + gy, () => { const [lx, ly] = P(gx, gy); line([lx, ly], [lx, ly - 14], '#6e5136', 1.3); line([lx, ly - 14], [lx + 4, ly - 14], '#6e5136', 1); lantern(lx + 4, ly - 10, 1.6); });
@@ -1539,7 +1722,7 @@
     const DENS = { forest: 1, mountain: 0.5, hills: 0.5, fertile: 0.32, plains: 0.22, lake: 0.2 };
     const raceMul = RACE === 'sylvan' ? 1.25 : RACE === 'ash' ? 0.65 : 1;
     const nfld = fieldCount(city);
-    const outer = ['mine', 'quarry', 'lumber', 'farm'].map(slotOf);
+    const outer = ['mine', 'quarry', 'lumber', 'farm'].map(slotOf).concat(Object.values(GEN));
     const blocked = (gx, gy) => {
       if (gx < 0.5 || gy < 0.5 || gx > N - 0.5 || gy > N - 0.5) return true;
       if (gx > 3.3 && gy > 3.3 && gx < 20.7 && gy < 20.7) return true;
@@ -1653,7 +1836,7 @@
     const emp = S.empires[city.owner];
     const se = G.season(S).index;
     REG = computeRegion(city);
-    return [city.id, emp.race, se, city.terrain, REG.sig, JSON.stringify(city.buildings), (city.buildQueue || []).map(q => q.type + q.level + (q.start <= S.time ? 'a' : 'w')).join(','), city.starving ? 1 : 0, cssW, cssH, dpr].join('|');
+    return [city.id, emp.race, se, city.terrain, REG.sig, Object.keys(DATA.buildings).length, JSON.stringify(city.buildings), (city.buildQueue || []).map(q => q.type + q.level + (q.start <= S.time ? 'a' : 'w')).join(','), city.starving ? 1 : 0, cssW, cssH, dpr].join('|');
   }
   function sizeCanvas(host) {
     const w = Math.max(280, Math.floor(host.clientWidth || 600));
@@ -1813,12 +1996,12 @@
     // soldiers drilling
     const troops = Object.values(city.units || {}).reduce((a, b) => a + (b > 0 ? b : 0), 0);
     if (troops > 0 && G.lvl(city, 'barracks') > 0) {
-      const n = Math.min(12, Math.ceil(troops / 8));
-      const cols = 4, march = Math.sin(t * 0.7) * 0.55;
+      const n = Math.min(8, Math.ceil(troops / 8));
+      const cols = 4, march = Math.sin(t * 0.7) * 0.2;
       const step = Math.abs(Math.sin(t * 0.7)) < 0.95;
       for (let i = n - 1; i >= 0; i--) {
         const r = Math.floor(i / cols), k = i % cols;
-        const gx = DRILL[0] + 0.5 + k * 0.6 + march, gy = DRILL[1] + 0.5 + r * 0.6;
+        const gx = DRILL[0] + 0.45 + k * 0.6 + march, gy = DRILL[1] + 0.45 + r * 0.6;
         const [x, y] = P(gx, gy);
         soldier(x, y, STY.flag, step ? t * 6 + r : 0, Math.sin(t * 0.7 + Math.PI / 2) > 0 ? 1 : -1);
       }
@@ -1873,6 +2056,7 @@
       if (s.kind === 'rune') { const p = 0.55 + 0.45 * Math.sin(t * 2.4 + s.x * 0.3); glowDot(s.x, s.y, 9, 'rgba(110,210,255,A)', (0.25 + la * 0.5) * p); }
       else if (s.kind === 'grove') {
         for (let k = 0; k < 10; k++) { const ph = (t * 0.12 + k / 10) % 1; const a = k * 2.4 + t * 0.3; const x = s.x + Math.cos(a) * s.r * 0.8 * (0.4 + ph * 0.6), y = s.y + s.r * 0.3 - ph * s.r * 1.3; glowDot(x, y, 3.5, 'rgba(190,255,210,A)', (0.35 + la * 0.5) * Math.sin(ph * Math.PI)); }
+      } else if (s.kind === 'moon') { const p = 0.6 + 0.4 * Math.sin(t * 1.7); glowDot(s.x, s.y, 16, 'rgba(190,230,255,A)', (0.3 + la * 0.6) * p); for (let k = 0; k < 4; k++) { const ph = (t * 0.25 + k / 4) % 1; glowDot(s.x + Math.cos(k * 1.9) * 4, s.y - ph * 22, 2.5, 'rgba(220,240,255,A)', Math.sin(ph * Math.PI) * (0.4 + la * 0.5)); }
       } else if (s.kind === 'star') { glowDot(s.x, s.y, 6, 'rgba(190,230,255,A)', (0.3 + la * 0.6) * (0.6 + 0.4 * Math.sin(t * 3 + s.x))); }
       else if (s.kind === 'water') { for (let k = 0; k < 3; k++) { const ph = (t * 0.6 + k / 3) % 1; const x = s.x + Math.cos(k * 2.1 + Math.floor(t * 0.6 + k / 3)) * s.rx * 0.6, y = s.y + Math.sin(k * 1.7 + Math.floor(t * 0.6 + k / 3)) * s.ry * 0.5; X.fillStyle = `rgba(255,255,255,${0.8 * Math.sin(ph * Math.PI)})`; X.fillRect(x - 1.5, y - 0.4, 3, 0.8); X.fillRect(x - 0.4, y - 1.5, 0.8, 3); } }
     }

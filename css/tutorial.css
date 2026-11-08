@@ -1,1 +1,73 @@
-/* Tutorial styles */
+/* Tutorial coach card, spotlight and top-bar buttons */
+
+.tut-coach {
+  position: fixed; right: 16px; bottom: 16px; z-index: 40;
+  width: 340px; max-width: calc(100vw - 32px); max-height: min(70vh, 520px); overflow: auto;
+  background: var(--panel); color: var(--ink);
+  border: 1px solid var(--accent); border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+  padding: 12px 14px 10px; font-size: 13.5px; line-height: 1.45;
+  display: none;
+}
+.tut-coach.on { display: block; animation: tut-in .25s ease-out; }
+.tut-coach.min { width: auto; padding: 0; border: 0; background: none; box-shadow: none; overflow: visible; }
+@keyframes tut-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.tut-head { display: flex; align-items: center; gap: 6px; }
+.tut-step { font-size: 11.5px; color: var(--muted); letter-spacing: .02em; text-transform: uppercase; }
+.tut-sp { flex: 1; }
+.tut-x { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 4px; }
+.tut-x:hover { color: var(--ink); }
+.tut-title { margin: 4px 0 6px; font-family: var(--font, inherit); font-size: 16px; }
+.tut-body p { margin: 0 0 8px; }
+.tut-hint { display: block; color: var(--muted); font-size: 12.5px; margin: 0 0 8px; }
+.tut-flash { color: var(--good, #4a8a3a); font-weight: 600; font-size: 12.5px; margin-top: 2px; }
+
+.tut-dots { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 8px; }
+.tut-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.tut-dots i.past { background: var(--accent2); opacity: .6; }
+.tut-dots i.cur { background: var(--accent); transform: scale(1.25); }
+
+.tut-actions { display: flex; align-items: center; gap: 6px; }
+.tut-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 12px; }
+.tut-foot .link { color: var(--muted); font-size: 12px; }
+.tut-foot .link:hover { color: var(--accent); }
+
+.tut-pill {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+  border-radius: 99px; padding: 7px 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
+}
+
+/* spotlight: a fixed ring over the target, gently dimming the rest; never blocks clicks */
+.tut-spot {
+  position: fixed; z-index: 39; pointer-events: none; display: none;
+  border-radius: 10px; border: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(20, 14, 8, .16);
+  transition: left .2s, top .2s, width .2s, height .2s;
+}
+.tut-spot.on { display: block; animation: tut-pulse 1.6s ease-in-out infinite; }
+@keyframes tut-pulse {
+  0%, 100% { box-shadow: 0 0 0 9999px rgba(20, 14, 8, .16), 0 0 0 0 rgba(217, 138, 78, .65); }
+  50%      { box-shadow: 0 0 0 9999px rgba(20, 14, 8, .16), 0 0 0 8px rgba(217, 138, 78, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tut-spot.on, .tut-coach.on { animation: none; }
+  .tut-spot { transition: none; }
+}
+
+/* top-bar buttons */
+.tut-q { font-weight: 700; min-width: 28px; }
+.tut-bell.on { border-color: var(--accent); }
+
+/* phones: a bottom sheet */
+@media (max-width: 700px) {
+  .tut-coach {
+    left: 0; right: 0; bottom: 0; width: auto; max-width: none;
+    max-height: 42vh; border-radius: 14px 14px 0 0; border-width: 1px 0 0;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  .tut-coach.min { left: auto; right: 12px; bottom: 12px; padding: 0; }
+  .tut-title { font-size: 15px; }
+  /* leave room so the sheet never hides the end of the page */
+  body:has(.tut-coach.on:not(.min)) { padding-bottom: 42vh; }
+}

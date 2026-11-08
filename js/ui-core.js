@@ -196,6 +196,9 @@ const prodLine = (city, type, e) => {
     case 'barracks': case 'stable': return L ? `Trains ${Math.round(3 * (L - 1))}% faster` : '';
     case 'warpit': return L ? `−${3 * L}% training time, +${L}% attack` : '';
     case 'academy': return L ? 'Research in the 📚 Research tab' : '';
+    case 'tavern': return L ? `+${3 * L} happiness` : '';
+    case 'temple': return L ? `+${2 * L} happiness · +${2 * L} culture/min` : '';
+    case 'theatre': return L ? `+${(1.5 * L).toFixed(1)} happiness · +${3 * L} culture/min` : '';
   }
   return '';
 };

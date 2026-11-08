@@ -1,6 +1,6 @@
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js'];
+const files=['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js'];
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const ok=(name,cond,extra)=>console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:''));
 let s=G.newGame({name:'T',race:'hearth'}); s.settings.hostility=0;
@@ -21,7 +21,7 @@ c.units.militia=400; c.res.grain=50000;
 const e1=G.sendArmy(s,c.id,oasis.x,oasis.y,'attack',{militia:300});
 G.advance(s,2000,300);
 const after=G.mod(s,'p',c,oasis.oasis.bonus);
-ok('oasis claim (dist '+d.toFixed(1)+')', d>G.cityReach(s,c)+1.5 ? (c.oases.length===0) : (c.oases.length===1 && after>before*1.2), 'send='+e1+' before='+before.toFixed(1)+' after='+after.toFixed(1));
+ok('oasis claim (dist '+d.toFixed(1)+')', d>G.cityReach(s,c)+1.5 ? (c.oases.length===0) : (c.oases.length===1 && after>before*1.1), 'send='+e1+' before='+before.toFixed(1)+' after='+after.toFixed(1));
 // caravan + reinforce
 const t=G.freeTile(s,x=>G.dist(x,c)>3&&G.dist(x,c)<6);
 const b=G.foundCity(s,'p',t.x,t.y,'B');

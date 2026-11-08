@@ -19,6 +19,7 @@ G.hostileHooks = [];    // fn(s, attackerOwner, defenderOwner, type)
 G.aiHooks = [];         // fn(s, emp, dtMin)
 G.moveHandlers = {};    // type -> fn(s, m)
 G.newGameHooks = [];    // fn(s, opts)
+G.aiBuildFilters = [];  // fn(s, city, type) -> false to keep the AI's generic build picker away from a building
 G.hostility = (s, aiId, target) => 1;   // replaced by diplomacy
 
 // ---------------------------------------------------------------------
@@ -717,6 +718,7 @@ const transferCity = (s, city, newOwner, garrison) => {
   city.train = {};
   city.units = garrison;
   city.mods = [];
+  city.taxPolicy = 'normal'; city.placated = 0;
   for (const t of ['bakery', 'runeforge', 'heartgrove', 'warpit']) {
     if (DATA.buildings[t].race !== s.empires[newOwner].race) delete city.buildings[t];
   }
@@ -1099,6 +1101,7 @@ const aiBuildChoice = (s, city) => {
   for (const t of DATA.buildingOrder) {
     const st = G.buildStatus(s, city, t);
     if (st.hidden || st.maxed || st.locked) continue;
+    if (G.aiBuildFilters.some(f => !f(s, city, t))) continue;
     const L = G.lvl(city, t);
     let w = 20 + rnd(0, 18);
     switch (t) {

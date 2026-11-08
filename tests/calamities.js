@@ -1,6 +1,6 @@
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-eval(['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js'].map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
+eval(['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js'].map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const ok=(n,c,x)=>console.log((c?'PASS ':'FAIL ')+n+(x?' '+x:''));
 for (const kind of Object.keys(DATA.calamities)) {
   const s=G.newGame({name:'T',race:'hearth'}); s.settings.hostility=0;

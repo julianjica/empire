@@ -172,7 +172,7 @@ G.slowHooks.push((s, dtMin) => {
       const t = G.freeTile(s, x => pcs.every(c => G.dist(c, x) >= 8) && Object.values(s.cities).every(c => G.dist(c, x) >= 4));
       if (!t) continue;
       const L = G.clamp(Math.round(1 + s.time / (1800 * G.pace(s).time)), 2, 12);
-      e.dead = false; e.gold = 300 * L; e.wins = 0; e.conquests = 0;
+      e.dead = false; e.gold = 300 * L; e.wins = 0; e.conquests = 0; e.culture = 0; e.cultureTotal = 0; e.traditions = []; e.upgrades = {}; e.renownBonus = 0;
       e.name = 'Reborn ' + DATA.aiRulers[e.race];
       const c = G.foundCity(s, e.id, t.x, t.y, DATA.aiNames[e.race][G.rint(0, 5)]);
       for (const b of ['townhall', 'houses', 'warehouse', 'farm', 'lumber', 'quarry', 'mine', 'barracks', 'wall', 'smelter', 'armory']) c.buildings[b] = Math.max(1, L - (b === 'townhall' ? 0 : 1));

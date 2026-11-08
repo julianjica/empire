@@ -18,6 +18,11 @@ const TABS = {};              // key -> { label, render(city), badge?() }
 const MOUNT_HOOKS = [];
 // Small HTML snippets other modules add to the top bar (sound toggle, notifications…): fn() -> html
 const TOP_EXTRAS = [];
+// More extension points, each an array of fn(...) -> html:
+//   CITY_EXTRAS (city) — chips in the city header · REALM_EXTRAS (empire) — lines on Diplomacy realm cards
+//   MARKET_EXTRAS (city) — cards appended to the Market tab
+const CITY_EXTRAS = [], REALM_EXTRAS = [], MARKET_EXTRAS = [];
+const extras = (list, ...a) => list.map(f => { try { return f(...a) || ''; } catch (e) { console.error(e); return ''; } }).join('');
 const runMountHooks = () => { for (const h of MOUNT_HOOKS) { try { h(UI.tab); } catch (e) { console.error(e); } } };
 
 // ---------------------------------------------------------------------
@@ -247,6 +252,7 @@ const renderCity = city => {
     </div>
     ${siteHtml(G.site(S, city), true)}
     ${typeof cityExtrasHtml === 'function' ? cityExtrasHtml(city) : ''}
+    ${extras(CITY_EXTRAS, city)}
     <div class="row muted" style="margin-top:6px;font-size:13px">
       <span title="Housing ${e.popCap}: ${e.civCap} left for civilians after ${Math.max(0, e.soldiers - e.quarters)} soldiers beyond the barracks quarters">👥 ${Math.floor(city.pop)} citizens (${e.workersReq} needed as workers) · 🛡️ ${e.soldiers} enrolled · 🏠 ${e.popCap} housing</span>·
       <span title="A city's reach grows with its population: how far it sees and which oases it can hold">🧭 reach ${G.cityReach(S, city).toFixed(1)} tiles</span>·
@@ -380,7 +386,7 @@ const renderMoves = () => {
 
 const renderMarket = city => {
   const L = G.lvl(city, 'market');
-  if (!L) return `<div class="card"><h3>⚖️ Market</h3><p class="muted">Build a Market in ${esc(city.name)} (Town Hall 3) to trade goods for gold and send caravans to your other cities. Foreign merchants also visit — see the 🕊️ Diplomacy tab.</p></div>`;
+  if (!L) return `<div class="card"><h3>⚖️ Market</h3><p class="muted">Build a Market in ${esc(city.name)} (Town Hall 3) to trade goods for gold and send caravans to your other cities. Foreign merchants also visit — see the 🕊️ Diplomacy tab.</p></div>` + extras(MARKET_EXTRAS, city);
   return `<div class="card"><h3>⚖️ Market of ${esc(city.name)} <span class="muted" style="font-size:13px">level ${L}</span></h3>
     <p class="muted" style="font-size:12.5px">Gold in treasury: 🪙 ${fmt(S.empires.p.gold)}. Higher market levels narrow the gap between buying and selling.</p>
     <table><tr><th>Good</th><th>Stock</th><th>Sell for</th><th>Buy for</th><th>Amount</th><th></th></tr>
@@ -389,7 +395,7 @@ const renderMarket = city => {
       return `<tr><td>${DATA.goods[g].icon} ${DATA.goods[g].name}</td><td>${fmt(city.res[g] || 0)}</td><td>🪙 ${r.sell.toFixed(2)}</td><td>🪙 ${r.buy.toFixed(2)}</td>
         <td><input type="number" min="0" step="50" data-k="${k}" value="${esc(UI.form[k] || 100)}"></td>
         <td class="row"><button class="small" data-act="sell" data-g="${g}">Sell</button><button class="small" data-act="buy" data-g="${g}">Buy</button></td></tr>`;
-    }).join('')}</table></div>`;
+    }).join('')}</table></div>` + extras(MARKET_EXTRAS, city);
 };
 
 const reportBody = r => {

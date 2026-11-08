@@ -95,6 +95,7 @@ const renderDiplomacy = city => {
     const k = 'gift_' + e.id;
     return `<div class="card"><div class="row"><span class="dot" style="background:${e.color};width:14px;height:14px;border-radius:50%;display:inline-block"></span><h3 style="margin:0">${esc(e.name)}</h3><span class="pill">${DATA.races[e.race].name}</span><span class="pill ${si.color}">${e.dead ? 'Fallen' : si.name}</span><span class="spacer"></span>${e.dead ? '' : `<span class="muted">${G.citiesOf(S, e.id).length} cities · ${comp}</span>`}</div>
       ${e.dead ? '<p class="muted">This realm has fallen.' + (S.settings.mode === 'endless' ? ' A new dynasty may rise in time.' : '') + '</p>' : `
+      ${extras(REALM_EXTRAS, e)}
       <div style="margin:8px 0">Opinion of you: <b>${G.opinionWord(r.opinion)}</b> (${Math.round(r.opinion)})<div class="bar opinion"><i style="width:${(r.opinion + 100) / 2}%;background:${r.opinion >= 0 ? 'var(--good)' : 'var(--bad)'}"></i></div></div>
       <div class="row">
         <input type="number" min="0" step="50" data-k="${k}" value="${esc(UI.form[k] || 100)}"><button class="small" data-act="diplo" data-a="gift" data-e="${e.id}">🎁 Send gold</button>

@@ -1,7 +1,7 @@
 // Wonders and save management. Run from the repo root: node tests/endgame.js
 const fs = require('fs');
 global.localStorage = { _: {}, getItem(k) { return this._[k] ?? null; }, setItem(k, v) { this._[k] = String(v); }, removeItem(k) { delete this._[k]; } };
-eval(['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js'].map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
+eval(['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js'].map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
 let fails = 0;
 const ok = (n, c, x) => { if (!c) fails++; console.log((c ? 'PASS ' : 'FAIL ') + n + (x ? ' ' + x : '')); };
 const rich = c => { for (const g of DATA.goodOrder) c.res[g] = 1e6; };

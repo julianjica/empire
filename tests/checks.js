@@ -1,6 +1,6 @@
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js'];
+const files=['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js'];
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const ok=(name,cond,extra)=>console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:''));
 let s=G.newGame({name:'T',race:'hearth'}); s.settings.hostility=0;

@@ -196,7 +196,17 @@ G.econ = (s, city, awayUnits) => {
 // ---------------------------------------------------------------------
 // Military helpers
 // ---------------------------------------------------------------------
-G.unitStats = (s, owner, u) => (u === 'hero' && G.heroStats && owner) ? G.heroStats(s, owner) : DATA.units[u];
+// unit stats for an owner: heroes are dynamic, and forge upgrades raise attack/defense per unit type
+G.unitStats = (s, owner, u) => {
+  if (u === 'hero' && G.heroStats && owner) return G.heroStats(s, owner);
+  const d = DATA.units[u];
+  const up = owner && s.empires[owner] && s.empires[owner].upgrades && s.empires[owner].upgrades[u];
+  if (!up) return d;
+  const a = 1 + 0.04 * (up.a || 0), df = 1 + 0.04 * (up.d || 0);
+  return { ...d, atk: d.atk * a, defI: d.defI * df, defC: d.defC * df };
+};
+G.wallBreak = units => Object.entries(units || {}).reduce((a, [u, n]) => a + (DATA.units[u].wallBreak || 0) * n, 0);
+G.wreckPower = units => Object.entries(units || {}).reduce((a, [u, n]) => a + (DATA.units[u].wreck || 0) * n, 0);
 G.unitsCount = units => Object.values(units || {}).reduce((a, b) => a + b, 0);
 G.addUnits = (into, from) => { for (const [u, n] of Object.entries(from || {})) if (n > 0) into[u] = (into[u] || 0) + n; return into; };
 G.atkPower = (s, owner, units) => Object.entries(units).reduce((a, [u, n]) => a + G.unitStats(s, owner, u).atk * n, 0);
@@ -213,7 +223,7 @@ G.trainTime = (s, city, unit) => {
 };
 
 // people each unit takes from the population (heroes and wild creatures take none)
-G.unitPop = u => { const d = DATA.units[u]; if (!d || !d.at) return 0; if (d.pop !== undefined) return d.pop; return u === 'settlers' ? 5 : u === 'herald' ? 2 : d.type === 'cav' ? 2 : 1; };
+G.unitPop = u => { const d = DATA.units[u]; if (!d || !d.at) return 0; if (d.pop !== undefined) return d.pop; return u === 'settlers' ? 5 : u === 'herald' ? 2 : d.type === 'siege' ? 3 : d.type === 'cav' ? 2 : d.req >= 10 ? 2 : 1; };
 G.popOf = units => Object.entries(units || {}).reduce((a, [u, n]) => a + G.unitPop(u) * n, 0);
 G.soldiers = (s, city, away) => {
   let n = G.popOf(city.units);
@@ -248,7 +258,7 @@ G.pay = (s, city, cost, mult = 1) => {
 };
 G.gain = (s, city, goods, frac = 1) => {
   const cap = G.storageCap(s, city);
-  for (const [g, v] of Object.entries(goods)) {
+  for (const [g, v] of Object.entries(goods || {})) {
     if (g === 'gold') s.empires[city.owner].gold += v * frac;
     else city.res[g] = Math.min(Math.max(cap, city.res[g] || 0), (city.res[g] || 0) + v * frac);
   }
@@ -645,8 +655,8 @@ G.previewBattle = (s, city, tile, units, mode) => {
   return { known: true, estimated: !intel, age: intel ? s.time - intel.t : null, ...r };
 };
 
-G.cityDefense = (s, city) => {
-  const wall = G.lvl(city, 'wall');
+G.cityDefense = (s, city, wallBreak = 0) => {
+  const wall = Math.max(0, G.lvl(city, 'wall') - wallBreak);
   const mult = (1 + 0.05 * wall * G.mod(s, city.owner, city, 'wall')) * (1 + 0.02 * G.lvl(city, 'runeforge'));
   return { mult, flat: 10 + 5 * G.lvl(city, 'townhall') };
 };
@@ -849,21 +859,40 @@ G.resolveMove = (s, m) => {
   if (!city || city.owner === m.owner) { G.sendHome(s, m, m.units); return; }
   const defEmp = s.empires[city.owner];
   for (const h of G.hostileHooks) h(s, m.owner, city.owner, m.type);
-  const cd = G.cityDefense(s, city);
+  const brk = G.wallBreak(m.units);
+  const wallBefore = G.lvl(city, 'wall');
+  const cd = G.cityDefense(s, city, brk);
   let defMult = cd.mult;
   if (city.units.hero && G.heroDefense) defMult *= G.heroDefense(s, city.owner);
   const defHad = { ...city.units };
   const r = G.battle(s, m.owner, m.units, attMult, city.owner, city.units, defMult, cd.flat, mode);
+  // siege: surviving rams damage the wall, surviving catapults wreck buildings
+  const siegeNotes = [];
+  if (r.win && mode === 'attack') {
+    const wallHit = Math.min(G.lvl(city, 'wall'), Math.floor(G.wallBreak(r.attLeft) * 0.5));
+    if (wallHit > 0) { city.buildings.wall -= wallHit; siegeNotes.push(`Rams broke the wall down by ${wallHit} level${wallHit > 1 ? 's' : ''}.`); }
+    let hits = Math.min(5, Math.floor(G.wreckPower(r.attLeft) / 6));
+    const wrecked = {};
+    while (hits-- > 0) {
+      const opts = Object.keys(city.buildings).filter(b => city.buildings[b] > (b === 'townhall' ? 1 : 0) && b !== 'wall');
+      if (!opts.length) break;
+      const b = G.pick(opts);
+      city.buildings[b]--; if (!city.buildings[b]) delete city.buildings[b];
+      wrecked[b] = (wrecked[b] || 0) + 1;
+    }
+    if (Object.keys(wrecked).length) siegeNotes.push('Catapults wrecked ' + Object.entries(wrecked).map(([b, n]) => `${DATA.buildings[b].name} (−${n})`).join(', ') + '.');
+  }
+  if (brk > 0 && wallBefore > 0) siegeNotes.unshift(`Siege engines negated ${Math.min(brk, wallBefore).toFixed(1)} wall levels during the assault.`);
   city.units = r.defLeft;
   let loot = {};
   if (G.unitsCount(r.attLeft)) loot = takeLoot(city.res, G.econ(s, city).protect, G.carryOf(s, m.owner, r.attLeft));
-  let extra = '';
+  let extra = siegeNotes.join(' ');
   if (r.win && G.unitsCount(defHad) > 0) me.wins = (me.wins || 0) + 1; else if (!r.win) defEmp.wins = (defEmp.wins || 0) + 1;
   for (const h of G.battleHooks) h(s, { m, r, site: 'city', defOwner: city.owner, city, defHad });
   if (m.type === 'conquer' && r.win && (r.attLeft.herald || 0) > 0) {
     const drop = rint(20, 32) * r.attLeft.herald;
     city.loyalty -= drop;
-    extra = `Loyalty of ${city.name} fell by ${drop} to ${Math.max(0, Math.round(city.loyalty))}.`;
+    extra = (extra ? extra + ' ' : '') + `Loyalty of ${city.name} fell by ${drop} to ${Math.max(0, Math.round(city.loyalty))}.`;
     if (city.loyalty <= 0) {
       const oldOwner = city.owner;
       const garrison = { ...r.attLeft }; delete garrison.herald;
@@ -1077,8 +1106,10 @@ const aiBuildChoice = (s, city) => {
       case 'houses': w += city.pop >= e.popCap * 0.9 ? 70 : 5; break;
       case 'warehouse': w += nearCap ? 60 : 0; break;
       case 'townhall': w += 25 + (L <= 3 ? 20 : 0); break;
-      case 'lumber': case 'quarry': w += 28 - L; break;
-      case 'mine': w += 22 - L; break;
+      case 'lumber': w += 28 - L + ((city.res.timber || 0) < e.cap * 0.15 ? 25 : 0); break;
+      case 'quarry': w += 28 - L + ((city.res.stone || 0) < e.cap * 0.15 ? 25 : 0); break;
+      case 'mine': w += 22 - L + ((city.res.ore || 0) < e.cap * 0.15 ? 20 : 0); break;
+      case 'workshop': w += G.aiPressure(s) > 0.6 ? 10 + emp.aggr * 15 - L * 2 : -30; break;
       case 'smelter': w += 22 - L; break;
       case 'smithy': w += (city.res.tools || 0) < 20 ? 30 : 5; break;
       case 'armory': w += 22 - L + emp.aggr * 10; break;
@@ -1099,6 +1130,35 @@ const aiBuildChoice = (s, city) => {
   return null;
 };
 
+// share of cavalry attack among the armies of hostile realms near this city
+const threatCavShare = (s, city) => {
+  let inf = 0, cav = 0;
+  for (const o of Object.values(s.cities)) {
+    if (o.owner === city.owner || dist(o, city) > 12 || G.hostility(s, city.owner, o.owner) <= 0.3) continue;
+    for (const [u, n] of Object.entries(o.units)) { const d = DATA.units[u]; if (!d.at) continue; if (d.type === 'cav') cav += d.atk * n; else inf += d.atk * n; }
+  }
+  return inf + cav > 0 ? cav / (inf + cav) : 0.3;
+};
+
+// when a city is about to be hit, nearby cities of the same realm send defenders if they can arrive in time
+const aiDefend = (s, empId) => {
+  for (const m of s.moves) {
+    if (m.owner === empId || m.aiHelped || !['raid', 'attack', 'conquer'].includes(m.type)) continue;
+    const tile = G.tileAt(s, m.x, m.y);
+    const target = tile.city && s.cities[tile.city];
+    if (!target || target.owner !== empId) continue;
+    m.aiHelped = true;
+    const left = m.arrive - s.time;
+    const helpers = G.citiesOf(s, empId).filter(c => c !== target).sort((a, b) => dist(a, target) - dist(b, target));
+    for (const c of helpers.slice(0, 2)) {
+      const def = {};
+      for (const [u, n] of Object.entries(c.units)) { const d = DATA.units[u]; if (d.at && d.type !== 'civ' && d.type !== 'siege' && (d.defI + d.defC) / 2 >= d.atk * 0.9) def[u] = Math.floor(n * 0.5); }
+      if (!G.unitsCount(def)) continue;
+      if (G.travelTime(s, empId, c, target, G.slowest(s, empId, def)) < left) G.sendArmy(s, c.id, target.x, target.y, 'reinforce', def);
+    }
+  }
+};
+
 const aiTrain = (s, city) => {
   const emp = s.empires[city.owner];
   const race = DATA.races[emp.race];
@@ -1112,7 +1172,14 @@ const aiTrain = (s, city) => {
   const opts = race.units.filter(u => G.trainStatus(s, city, u).ok);
   if (!opts.length) return;
   const wantAtk = Math.random() < emp.aggr * (0.5 + G.aiPressure(s));
-  const unit = opts.sort((a, b) => wantAtk ? DATA.units[b].atk - DATA.units[a].atk : (DATA.units[b].defI + DATA.units[b].defC) - (DATA.units[a].defI + DATA.units[a].defC))
+  // value per unit of cost: attackers by attack; defenders by the defence that answers the nearby threat's cavalry share
+  const cs = threatCavShare(s, city);
+  const price = u => Object.entries(DATA.units[u].cost).reduce((a, [g, v]) => a + v * (g === 'gold' ? 1 : DATA.goods[g].value), 0) || 1;
+  const val = u => { const d = DATA.units[u]; return (wantAtk ? d.atk : d.defI * (1 - cs) + d.defC * cs) / price(u); };
+  let pool = opts.filter(u => DATA.units[u].type !== 'siege');
+  // siege engines: some, once the realm means business
+  if (wantAtk && G.aiPressure(s) > 0.6 && Math.random() < 0.25) { const sg = opts.filter(u => DATA.units[u].type === 'siege'); if (sg.length) pool = sg; }
+  const unit = pool.sort((a, b) => val(b) - val(a))
     .find(u => G.maxAffordable(s, city, DATA.units[u].cost) >= 1 && !(city.train[DATA.units[u].at] || []).length);
   if (!unit) return;
   const st = G.trainStatus(s, city, unit);
@@ -1164,7 +1231,7 @@ const aiWar = (s, empId) => {
     const off = {};
     for (const [u, n] of Object.entries(c.units)) {
       const d = DATA.units[u];
-      if (d.type !== 'civ' && d.type !== 'hero' && n > 0 && d.atk >= (d.defI + d.defC) / 2 * 0.8) off[u] = Math.floor(n * 0.8);
+      if (d.type !== 'civ' && d.type !== 'hero' && d.type !== 'siege' && n > 0 && d.atk >= (d.defI + d.defC) / 2 * 0.8) off[u] = Math.floor(n * 0.8);
     }
     const A = G.atkPower(s, empId, off) * G.mod(s, empId, null, 'atk');
     if (A < 250) continue;
@@ -1185,7 +1252,7 @@ const aiWar = (s, empId) => {
       if (hate <= 0) continue;
       if (o.owner === 'p' && (pressure <= 0 || s.time - (o.lastRaided || -1e9) < 1200 * G.pace(s).time / Math.max(0.3, pressure)
         || s.time - (emp.lastHitP || -1e9) < 900 * G.pace(s).time / Math.max(0.4, pressure))) continue;
-      const cd = G.cityDefense(s, o);
+      const cd = G.cityDefense(s, o, G.wallBreak(Object.fromEntries(Object.entries(c.units).filter(([u]) => DATA.units[u].type === 'siege'))));
       const d = G.defPower(s, o.owner, o.units) * cd.mult * G.mod(s, o.owner, null, 'def') + cd.flat;
       const p = o.owner === 'p' ? pressure * s.settings.hostility : 0.6;
       if (A > d * 1.3 && Math.random() < emp.aggr * hate * p) {
@@ -1200,6 +1267,8 @@ const aiWar = (s, empId) => {
     if (dist(c, t) > (t.far || 13)) continue;
     const army = { ...off };
     if (t.type === 'conquer') army.herald = 1;
+    const tt0 = G.tileAt(s, t.x, t.y);
+    if (tt0.city && G.lvl(s.cities[tt0.city], 'wall') >= 4) for (const [u, n] of Object.entries(c.units)) if (DATA.units[u].type === 'siege' && n > 0) army[u] = n;
     if (!G.sendArmy(s, c.id, t.x, t.y, t.type, army)) {
       const tt = G.tileAt(s, t.x, t.y);
       if (tt.city) { s.cities[tt.city].lastRaided = s.time; if (s.cities[tt.city].owner === 'p') emp.lastHitP = s.time; }
@@ -1217,6 +1286,7 @@ const aiThink = (s, dtMin) => {
       aiMarket(s, city);
     }
     aiExpand(s, emp.id);
+    aiDefend(s, emp.id);
     emp.warClock = (emp.warClock || 0) + dtMin;
     if (emp.warClock > 1.5 * G.pace(s).time) { emp.warClock = 0; aiWar(s, emp.id); }
     for (const h of G.aiHooks) h(s, emp, dtMin);

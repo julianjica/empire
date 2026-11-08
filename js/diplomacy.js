@@ -67,13 +67,38 @@ G.hostility = (s, aiId, target) => {
     if (target === lead) return 2;          // gang up on the leader
     return 0.3;                             // and leave each other alone
   }
+  const ar = G.aiRel(s, aiId, target).status;
+  const base = ar === 'war' ? 1.6 : ar === 'peace' ? 0.15 : 1;
   const r = G.rel(s, aiId);
-  if ((r.enemies[target] || 0) > s.time) return 1.8;           // helping their ally (the player)
-  if (r.status === 'alliance' && G.rel(s, target).status === 'war') return 1.5;
+  if ((r.enemies[target] || 0) > s.time) return 1.8;
+  if (r.status === 'alliance' && G.rel(s, target).status === 'war') return Math.max(base, 1.5);
   if (r.status === 'alliance' && G.rel(s, target).status === 'alliance') return 0.3;
-  return 1;
+  return base;
 };
-
+// relations among AI realms: { status: neutral|war|peace, since }
+G.aiRel = (s, a, b) => {
+  s.airel = s.airel || {};
+  const k = a < b ? a + '|' + b : b + '|' + a;
+  return s.airel[k] = s.airel[k] || { status: 'neutral', since: 0 };
+};
+const neighbours = (s, a, b) => G.citiesOf(s, a).some(c => G.citiesOf(s, b).some(o => G.dist(c, o) <= 9));
+G.slowHooks.push((s, dtMin) => {
+  const ais = Object.values(s.empires).filter(e => e.id !== 'p' && !e.dead);
+  const pace = G.pace(s).time;
+  for (let i = 0; i < ais.length; i++) for (let j = i + 1; j < ais.length; j++) {
+    const A = ais[i], B = ais[j], r = G.aiRel(s, A.id, B.id);
+    const pa = G.power(s, A.id), pb = G.power(s, B.id), ratio = Math.min(pa, pb) / Math.max(1, Math.max(pa, pb));
+    const age = s.time - r.since;
+    const say = (txt, kind) => { if (G.citiesOf(s, A.id).concat(G.citiesOf(s, B.id)).some(c => s.explored[c.y * s.map + c.x])) G.log(s, 'p', txt, kind || 'warn'); };
+    if (r.status === 'neutral' && G.aiPressure(s) > 0.2 && neighbours(s, A.id, B.id) && ratio > 0.55 && Math.random() < dtMin / (70 * pace) * ((A.aggr + B.aggr) / 1.2)) {
+      r.status = 'war'; r.since = s.time; say(`⚔️ The ${A.name} and the ${B.name} are at war.`);
+    } else if (r.status === 'war' && age > 2400 * pace && (ratio < 0.6 || Math.random() < dtMin / (90 * pace))) {
+      r.status = 'peace'; r.since = s.time; say(`🕊️ The ${A.name} and the ${B.name} have made peace.`, 'info');
+    } else if (r.status === 'peace' && age > 5400 * pace && Math.random() < dtMin / (120 * pace)) {
+      r.status = 'neutral'; r.since = s.time;
+    }
+  }
+});
 G.hostileHooks.push((s, att, def, type) => {
   if (att === 'p' && def !== 'p') {
     const r = G.rel(s, def);

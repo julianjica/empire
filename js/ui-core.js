@@ -225,6 +225,7 @@ const renderCity = city => {
       <span title="Loyalty falls when heralds attack; it recovers over time">🏳️ Loyalty ${Math.round(city.loyalty)}%</span>
     </div>
     ${siteHtml(G.site(S, city), true)}
+    ${typeof cityExtrasHtml === 'function' ? cityExtrasHtml(city) : ''}
     <div class="row muted" style="margin-top:6px;font-size:13px">
       <span title="Housing ${e.popCap}: ${e.civCap} left for civilians after ${Math.max(0, e.soldiers - e.quarters)} soldiers beyond the barracks quarters">👥 ${Math.floor(city.pop)} citizens (${e.workersReq} needed as workers) · 🛡️ ${e.soldiers} enrolled · 🏠 ${e.popCap} housing</span>·
       <span title="A city's reach grows with its population: how far it sees and which oases it can hold">🧭 reach ${G.cityReach(S, city).toFixed(1)} tiles</span>·
@@ -271,7 +272,8 @@ const renderCity = city => {
 // ---------------------------------------------------------------------
 // Military tab
 // ---------------------------------------------------------------------
-const statLine = u => `<div class="stats"><span title="Attack">⚔️ <b>${u.atk}</b></span><span title="Defense vs infantry">🛡️ <b>${u.defI}</b></span><span title="Defense vs cavalry">🐎🛡️ <b>${u.defC}</b></span><span title="Speed">💨 <b>${u.spd}</b></span><span title="Plunder carried">🎒 <b>${u.carry}</b></span><span title="Grain per minute">🌾 <b>${u.upkeep}</b></span></div>`;
+const upBadge = u => { const a = G.upgradeLevel(S, 'p', u, 'a'), d = G.upgradeLevel(S, 'p', u, 'd'); return a || d ? `<span class="pill good" title="Forge upgrades: weapons ${a}, armour ${d}">⚒️ ${a}/${d}</span>` : ''; };
+const statLine = u => `<div class="stats"><span title="Attack">⚔️ <b>${Math.round(u.atk)}</b></span><span title="Defense vs infantry">🛡️ <b>${Math.round(u.defI)}</b></span><span title="Defense vs cavalry">🐎🛡️ <b>${Math.round(u.defC)}</b></span><span title="Speed">💨 <b>${u.spd}</b></span><span title="Plunder carried">🎒 <b>${u.carry}</b></span><span title="Grain per minute">🌾 <b>${u.upkeep}</b></span></div>`;
 
 const renderMilitary = city => {
   const parts = [];
@@ -284,12 +286,15 @@ const renderMilitary = city => {
       <ul>
         <li><b>Attack</b> ⚔️ of infantry and ranged units is blocked by the defenders' <b>🛡️ defense vs infantry</b>; cavalry attack is blocked by <b>🐎🛡️ defense vs cavalry</b>. Defenders use a blend matching your army's mix.</li>
         <li>So: answer enemy cavalry with pike- and spear-type units (high 🐎🛡️); answer infantry hordes with shield units (high 🛡️). Attack walls and pikes with a mix that targets their weaker defense.</li>
+        <li><b>Siege engines</b> (Siege Workshop): rams negate enemy wall levels during an assault and damage the wall if you win; catapults wreck buildings after a won assault. They're slow and weak in a fight — escort them.</li>
+        <li><b>Forge upgrades</b> at the Armory raise a unit type's attack or defence by 4% per level.</li>
         <li><b>Raids</b> trade lighter losses on both sides for less certainty; <b>attacks</b> wipe out the losing side. Walls, research and a hero multiply defense.</li>
         <li>The World map send form shows the <b>expected outcome</b> once you have scouted the target.</li>
       </ul></details>
     <p class="muted" style="font-size:12.5px;margin-bottom:0">Walls and Town Hall: ×${cd.mult.toFixed(2)} and +${cd.flat} defense. Research: ×${G.mod(S, 'p', null, 'atk').toFixed(2)} attack, ×${G.mod(S, 'p', null, 'def').toFixed(2)} defense.</p>
   </div>`);
 
+  parts.push(renderForge(city));
   const byBuilding = {};
   for (const u of G.unitsFor(S, city)) (byBuilding[DATA.units[u].at] = byBuilding[DATA.units[u].at] || []).push(u);
   for (const [bt, units] of Object.entries(byBuilding)) {
@@ -304,10 +309,10 @@ const renderMilitary = city => {
         const st = G.trainStatus(S, city, u);
         const key = 'train_' + city.id + '_' + u;
         return `<div class="card unit ${st.locked ? 'locked' : ''}">
-          <div class="row"><span style="font-size:24px">${d.icon}</span><b>${d.name}</b><span class="pill">${{ cav: 'cavalry', ranged: 'ranged', civ: 'civilian', inf: 'infantry' }[d.type]}</span><span class="spacer"></span><span class="muted">have ${city.units[u] || 0}</span></div>
+          <div class="row"><span style="font-size:24px">${d.icon}</span><b>${d.name}</b><span class="pill">${{ cav: 'cavalry', ranged: 'ranged', civ: 'civilian', inf: 'infantry', siege: 'siege' }[d.type]}</span>${upBadge(u)}<span class="spacer"></span><span class="muted">have ${city.units[u] || 0}</span></div>
           <div class="desc muted" style="font-size:12.5px">${d.desc}</div>
-          ${statLine(d)}
-          ${costHtml(G.unitPop(u) ? { ...d.cost } : d.cost, city)}<div class="muted" style="font-size:12px">👥 takes ${G.unitPop(u)} citizen${G.unitPop(u) === 1 ? '' : 's'}${!st.locked && st.byPop < Infinity && st.byPop <= G.maxAffordable(S, city, d.cost) ? ' · <span class="warn">limited by population</span>' : ''}</div>
+          ${statLine(G.unitStats(S, 'p', u))}${d.wallBreak ? `<div class="stats"><span>🧱 negates ${d.wallBreak} wall levels each</span></div>` : ''}${d.wreck ? `<div class="stats"><span>🏚️ wrecks buildings after a won assault</span></div>` : ''}
+          ${costHtml(d.cost, city)}<div class="muted" style="font-size:12px">👥 takes ${G.unitPop(u)} citizen${G.unitPop(u) === 1 ? '' : 's'}${!st.locked && st.byPop < Infinity && st.byPop <= G.maxAffordable(S, city, d.cost) ? ' · <span class="warn">limited by population</span>' : ''}</div>
           ${st.locked ? `<div class="warn" style="font-size:12px">${st.reason}</div>` : `<div class="row">
             <input type="number" min="1" data-k="${key}" value="${esc(UI.form[key] || 1)}">
             <button class="small" data-act="maxTrain" data-u="${u}" data-k="${key}">max ${st.max}</button>
@@ -317,6 +322,20 @@ const renderMilitary = city => {
       }).join('')}</div></div>`);
   }
   return parts.join('');
+};
+
+const renderForge = city => {
+  const L = G.lvl(city, 'armory');
+  const f = city.forge;
+  const units = DATA.races[S.empires.p.race].units;
+  if (!L) return `<div class="card"><h3>⚒️ Forge upgrades</h3><p class="muted">Build an Armory in ${esc(city.name)} to improve your troops' weapons and armour (+4% per level, up to 10, for the whole realm). The Armory level caps the upgrade level.</p></div>`;
+  return `<div class="card"><h3>⚒️ Forge upgrades <span class="muted" style="font-size:13px">Armory ${L} · +4% per level for the whole realm</span></h3>
+    ${f ? `<div class="queue-item"><div>${DATA.units[f.unit].icon} ${DATA.units[f.unit].name} ${f.kind === 'a' ? 'weapons' : 'armour'} → ${f.level}<div class="bar"><i style="width:${pct(S.time - f.start, f.end - f.start)}%"></i></div></div><span class="muted">${fmtTime(realSecs(f.end - S.time))}</span><button class="small" data-act="cancelForge" title="Refund 50%">✕</button></div>` : ''}
+    <table class="forge"><tr><th>Unit</th><th>⚔️ Weapons</th><th>🛡️ Armour</th></tr>
+    ${units.map(u => { const d = DATA.units[u]; const cell = kind => { const st = G.forgeStatus(S, city.id, u, kind); const lv = G.upgradeLevel(S, 'p', u, kind);
+        return `<td><b>${lv}</b>/10 ${st.maxed ? '' : `<button class="small ${st.ok ? 'primary' : ''}" data-act="forge" data-u="${u}" data-k="${kind}" ${st.ok ? '' : 'disabled'} title="${esc(st.reason || '')} · ${Object.entries(st.cost).map(([g, v]) => gName(g) + ' ' + v).join(', ')} · ${fmtTime(realSecs(st.time))}">+1</button>`}</td>`; };
+      return `<tr><td>${d.icon} ${d.name}</td>${cell('a')}${cell('d')}</tr>`; }).join('')}</table>
+    <p class="muted" style="font-size:12px;margin-bottom:0">Hover a +1 button for its cost and time. One upgrade at a time per Armory; any city with an Armory can forge.</p></div>`;
 };
 
 // ---------------------------------------------------------------------
@@ -493,6 +512,8 @@ Object.assign(act, {
   buy: d => { toast(G.trade(S, UI.city, d.g, parseInt(UI.form['mkt_' + d.g] || 100, 10), 'buy')); render(true); },
   report: d => { UI.openReport = UI.openReport === d.r ? null : d.r; const r = S.reports.find(x => x.id === d.r); if (r) r.read = true; render(true); },
   readAll: () => { S.reports.forEach(r => r.read = true); render(true); },
+  forge: d => { toast(G.startUpgrade(S, UI.city, d.u, d.k) || `The smiths set to work on ${DATA.units[d.u].name} ${d.k === 'a' ? 'weapons' : 'armour'}`); render(true); },
+  cancelForge: () => { G.cancelUpgrade(S, UI.city); render(true); },
   dismiss: d => { toast(G.dismiss(S, UI.city, d.u, +d.n) || `${d.n} ${DATA.units[d.u].name} returned to work`); render(true); },
   save: () => { toast(G.save(S) ? 'Saved' : 'Could not save'); },
   newgame: () => { if (confirm('Abandon this realm and start a new game? Your current save will be erased.')) { G.wipe(); S = null; render(true); } },

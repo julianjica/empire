@@ -59,7 +59,7 @@ const renderTilePanel = (city, t, vis) => {
   }
   const c = t.city && S.cities[t.city];
   const camp = t.camp && S.camps[t.camp];
-  const head = `<h3>${c ? esc(c.name) : camp ? '⛺ Brigand camp' : t.oasis ? '🏝️ Oasis' : t.ruin ? '🏚️ Ruins' : terr.name}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${d.toFixed(1)} tiles from ${esc(city.name)}</div>`;
+  const head = `<h3>${c ? esc(c.name) : camp ? (camp.kind ? { wyrm: "🐉 The Wyrm's lair", undead: '💀 Horde of the restless dead', star: '☄️ Crater of a fallen star' }[camp.kind] : '⛺ Brigand camp') : t.oasis ? '🏝️ Oasis' : t.ruin ? '🏚️ Ruins' : terr.name}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${d.toFixed(1)} tiles from ${esc(city.name)}</div>`;
   const cals = G.calamitiesAt ? G.calamitiesAt(S, t.x, t.y) : [];
   const calHtml = cals.map(q => { const def = DATA.calamities[q.kind]; return `<div class="calam ${def.bad ? 'bad' : 'good'}">${def.icon} <b>${def.name}</b> · ${fmtTime(realSecs(q.end - S.time))} left<br><span style="font-size:12px">${def.text}</span></div>`; }).join('');
   if (terr.impassable) return head + calHtml + '<p class="muted">Deep waters. Nothing can be built here.</p>';

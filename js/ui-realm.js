@@ -105,6 +105,9 @@ const renderDiplomacy = city => {
       </div>`}
     </div>`;
   }).join('')}
+  ${(() => { const al = realms.filter(e => !e.dead); const rows = [];
+      for (let i = 0; i < al.length; i++) for (let j = i + 1; j < al.length; j++) { const r = G.aiRel(S, al[i].id, al[j].id); rows.push(`<tr><td>${esc(al[i].name)}</td><td>${esc(al[j].name)}</td><td class="${DATA.statusInfo[r.status].color}">${DATA.statusInfo[r.status].name}</td></tr>`); }
+      return rows.length ? `<div class="card"><h3>Relations among your rivals</h3><table>${rows.join('')}</table>${S.leader && S.leader !== 'p' ? `<p class="warn" style="font-size:12.5px">The ${esc(S.empires[S.leader].name)} towers over the others; the rest are banding together against it.</p>` : S.leader === 'p' ? '<p class="warn" style="font-size:12.5px">Your power towers over the others — they are banding together against you.</p>' : ''}</div>` : ''; })()}
   <div class="card muted" style="font-size:12.5px">At peace or allied, a realm will not attack you; allies turn on whoever attacks you. Attacking, raiding or getting caught scouting lowers opinion; breaking a treaty angers every realm. Strong realms may demand tribute from you — and you from the weak.</div>`;
 };
 

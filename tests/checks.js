@@ -1,6 +1,6 @@
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/engine.js','js/research.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js'];
+const files=['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js'];
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const ok=(name,cond,extra)=>console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:''));
 let s=G.newGame({name:'T',race:'hearth'}); s.settings.hostility=0;
@@ -64,5 +64,40 @@ ok('catchUp ignores speed', Math.abs(s.time-t0-600)<5, (s.time-t0).toFixed(0));
   c.units.militia=60; const ec=G.econ(s,c); ok('soldiers beyond quarters reduce civilian housing', ec.civCap < ec.popCap, 'popCap '+ec.popCap+' civCap '+ec.civCap+' quarters '+ec.quarters);
   const pb=c.pop; G.dismiss(s,c.id,'militia',10); ok('dismiss returns people', c.pop===pb+10 && c.units.militia===50);
   c.pop=20; const r1=G.cityReach(s,c); c.pop=400; const r2=G.cityReach(s,c); ok('reach grows with population', r2>r1, r1.toFixed(2)+' -> '+r2.toFixed(2));
+}
+
+{ // siege: rams negate walls, survivors damage walls, catapults wreck buildings
+  const s=G.newGame({name:'T',race:'hearth'}); s.settings.hostility=0; const c=G.capital(s,'p');
+  const ai=Object.values(s.cities).find(x=>x.owner!=='p'); ai.buildings.wall=10; ai.buildings.townhall=6; ai.buildings.farm=8; ai.units={axeguard:60};
+  const noRam=G.previewBattle(s,c,G.tileAt(s,ai.x,ai.y),{knight:50},'attack');
+  const cdA=G.cityDefense(s,ai), cdB=G.cityDefense(s,ai,G.wallBreak({ram_h:40}));
+  ok('rams reduce wall defence', cdB.mult<cdA.mult, cdA.mult.toFixed(2)+' -> '+cdB.mult.toFixed(2));
+  c.units={knight:300,ram_h:40,treb_h:40}; c.res.grain=1e6;
+  G.sendArmy(s,c.id,ai.x,ai.y,'attack',{knight:300,ram_h:40,treb_h:40}); G.advance(s,3600,400);
+  const rep=s.reports.find(r=>/Assault/.test(r.title));
+  ok('siege damages wall and buildings', rep && /Rams broke the wall/.test(rep.body.extra) && /Catapults wrecked/.test(rep.body.extra), rep&&rep.body.extra);
+}
+{ // forge upgrades raise unit stats for the realm
+  const s=G.newGame({name:'T',race:'hearth'}); const c=G.capital(s,'p'); c.buildings.armory=3; Object.assign(c.res,{weapons:500,tools:500,iron:500,stone:2000}); s.empires.p.gold=1e4;
+  const a0=G.unitStats(s,'p','militia').atk;
+  ok('start upgrade', G.startUpgrade(s,c.id,'militia','a')===null);
+  ok('one job per armory', !!G.startUpgrade(s,c.id,'militia','d'));
+  G.advance(s,1200,100);
+  const a1=G.unitStats(s,'p','militia').atk;
+  ok('upgrade applied', a1>a0 && G.upgradeLevel(s,'p','militia','a')===1, a0+' -> '+a1.toFixed(1));
+  ok('upgrade capped by armory level', (()=>{ s.empires.p.upgrades.militia.a=3; return !!G.forgeStatus(s,c.id,'militia','a').reason; })());
+}
+{ // AI defends: nearby cities reinforce a city under attack
+  const s=G.newGame({name:'T',race:'hearth'}); const id='a1'; const cap=G.capital(s,id);
+  const t=G.freeTile(s,x=>G.dist(x,cap)>=2.5&&G.dist(x,cap)<=3.2); const c2=G.foundCity(s,id,t.x,t.y,'Helper'); c2.units={ironshield:40};
+  const pc=G.capital(s,'p'); pc.units={militia:20}; pc.res.grain=1e5;   // slow infantry: help can arrive first
+  G.sendArmy(s,pc.id,cap.x,cap.y,'raid',{militia:20});
+  G.advance(s,30,3);
+  ok('AI reinforces threatened city', s.moves.some(m=>m.owner===id&&m.type==='reinforce'), JSON.stringify(s.moves.filter(m=>m.owner===id).map(m=>m.type)));
+}
+{ // AI realms make war and peace among themselves
+  let changed=false, tries=0;
+  while(!changed && tries++<3){ const s=G.newGame({name:'T',race:'hearth'}); G.advance(s,12*3600,2000); changed=Object.values(s.airel||{}).some(r=>r.since>0); if(changed) console.log('   airel', JSON.stringify(s.airel)); }
+  ok('AI-AI relations evolve (war/peace)', changed);
 }
 `);

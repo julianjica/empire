@@ -44,11 +44,11 @@ DATA.races = {
   hearth: {
     name: 'Hearthfolk', adj: 'Hearthfolk', color: '#c0392b',
     blurb: 'Patient farmers and shrewd traders of the river valleys. Their mills turn grain into bread that feeds three mouths where grain feeds one, and their markets drive the hardest bargains.',
-    perks: ['+25% grain', '+20% taxes', 'Better market rates, caravans carry 50% more', 'Bakery: grain → bread (feeds 3×, +50% growth)', 'Knights need bread'],
+    perks: ['+25% grain', '+20% taxes', 'Better market rates, caravans carry 50% more', 'Bakery: grain → bread (feeds 3×, +50% growth)', 'Knights and Royal Guards need bread'],
     mult: { grain: 1.25 },
     bonus: { tax: 1.2, market: 0.1, caravan: 1.5 },
     unique: 'bakery',
-    units: ['militia', 'pikeman', 'crossbow', 'knight'],
+    units: ['militia', 'pikeman', 'crossbow', 'outrider', 'knight', 'royalguard', 'ram_h', 'treb_h'],
     recipes: {},
   },
   delver: {
@@ -58,7 +58,7 @@ DATA.races = {
     mult: { ore: 1.4, stone: 1.25, grain: 0.85 },
     bonus: { refine: 1.3, wall: 1.5, protect: 0.2, storage: 1.15 },
     unique: 'runeforge',
-    units: ['axeguard', 'ironshield', 'boltcaster', 'boarrider'],
+    units: ['axeguard', 'ironshield', 'boltcaster', 'goatrider', 'boarrider', 'runeguard', 'ram_d', 'treb_d'],
     recipes: {},
   },
   sylvan: {
@@ -68,7 +68,7 @@ DATA.races = {
     mult: { timber: 1.4, ore: 0.75 },
     bonus: { popGrowth: 1.4, housing: 1.15, vision: 1.3, travel: 1.1 },
     unique: 'heartgrove',
-    units: ['warden', 'thornguard', 'longbow', 'stagrider'],
+    units: ['warden', 'thornguard', 'longbow', 'winddancer', 'stagrider', 'groveguard', 'ram_s', 'treb_s'],
     recipes: {
       armory: { in: { timber: 3 }, out: { weapons: 1 }, rate: 1.5 },
     },
@@ -80,7 +80,7 @@ DATA.races = {
     mult: { stone: 0.85 },
     bonus: { carry: 1.4, trainTime: 0.75, upkeep: 0.85 },
     unique: 'warpit',
-    units: ['raider', 'slinger', 'brute', 'wolfrider'],
+    units: ['raider', 'slinger', 'brute', 'shaman', 'wolfrider', 'warlordblade', 'ram_a', 'treb_a'],
     recipes: {
       armory: { in: { ore: 2, stone: 1 }, out: { weapons: 1 }, rate: 1.5 },
     },
@@ -171,6 +171,11 @@ DATA.buildings = {
     cost: { timber: 110, stone: 80, grain: 40 },
     desc: 'Trade goods for gold, and send caravans between your cities. Higher levels give better rates and bigger caravans.', req: { townhall: 3 },
   },
+  workshop: {
+    name: 'Siege Workshop', icon: '🪵', max: 20, time: 40, growth: 1.4,
+    cost: { timber: 400, stone: 250, iron: 80, grain: 150 },
+    desc: 'Carpenters and engineers build rams to break walls and catapults to wreck buildings.', req: { townhall: 8, barracks: 5, smithy: 5 },
+  },
   academy: {
     name: 'Academy', icon: '📚', max: 20, time: 30, growth: 1.38,
     cost: { timber: 160, stone: 140, grain: 80, gold: 60 },
@@ -205,13 +210,13 @@ DATA.buildings = {
     req: { townhall: 3, barracks: 3 },
   },
 };
-DATA.buildingOrder = ['townhall', 'houses', 'warehouse', 'academy', 'farm', 'lumber', 'quarry', 'mine', 'smelter', 'smithy', 'armory',
+DATA.buildingOrder = ['townhall', 'houses', 'warehouse', 'academy', 'workshop', 'farm', 'lumber', 'quarry', 'mine', 'smelter', 'smithy', 'armory',
   'bakery', 'runeforge', 'heartgrove', 'warpit', 'barracks', 'stable', 'wall', 'market'];
 DATA.buildingGroups = [
   { name: 'Settlement', list: ['townhall', 'houses', 'warehouse', 'market', 'academy'] },
   { name: 'Raw goods', list: ['farm', 'lumber', 'quarry', 'mine'] },
   { name: 'Workshops', list: ['smelter', 'smithy', 'armory', 'bakery', 'runeforge', 'heartgrove'] },
-  { name: 'Military', list: ['barracks', 'stable', 'warpit', 'wall'] },
+  { name: 'Military', list: ['barracks', 'stable', 'workshop', 'warpit', 'wall'] },
 ];
 
 // City tiers by Town Hall level
@@ -254,6 +259,26 @@ DATA.units = {
   slinger:   { name: 'Slinger',      icon: '🪃', type: 'ranged', atk: 40,  defI: 30, defC: 20, spd: 7,  carry: 35,  upkeep: 0.6, time: 26, at: 'barracks', req: 3, cost: { grain: 45, gold: 25, weapons: 2 }, desc: 'Stones from afar; useful on the walls too.' },
   brute:     { name: 'Brute',        icon: '🪨', type: 'inf',    atk: 60,  defI: 25, defC: 20, spd: 6,  carry: 50,  upkeep: 0.8, time: 30, at: 'barracks', req: 5, cost: { grain: 60, gold: 30, weapons: 3 }, desc: 'Huge, angry, hard to stop.' },
   wolfrider: { name: 'Wolf Rider',   icon: '🐺', type: 'cav',    atk: 105, defI: 25, defC: 20, spd: 17, carry: 110, upkeep: 1.6, time: 55, at: 'stable',   req: 1, cost: { grain: 120, gold: 100, weapons: 6 }, desc: 'The terror of the steppe.' },
+  // ---- light cavalry, elites and siege (wallBreak: wall levels negated per ram; wreck: building damage per engine) ----
+  outrider:  { name: 'Outrider',      icon: '🏇', type: 'cav',    atk: 45,  defI: 20, defC: 30, spd: 16, carry: 100, upkeep: 1.0, time: 40, at: 'stable',   req: 3, cost: { grain: 80, gold: 60, weapons: 3 }, desc: 'Fast riders for raiding and running down stragglers.' },
+  royalguard:{ name: 'Royal Guard',   icon: '👑', type: 'inf',    atk: 70,  defI: 85, defC: 75, spd: 5,  carry: 40,  upkeep: 1.4, time: 70, at: 'barracks', req: 10, cost: { grain: 150, gold: 130, weapons: 6, tools: 4, bread: 10 }, desc: 'The crown\'s finest, drilled from childhood. Strong in every role.' },
+  ram_h:     { name: 'Battering Ram', icon: '🪵', type: 'siege',  atk: 40,  defI: 25, defC: 15, spd: 3,  carry: 0,   upkeep: 1.2, time: 90, at: 'workshop', req: 1, cost: { timber: 300, iron: 40, grain: 100, gold: 80 }, wallBreak: 0.25, desc: 'A roofed ram. Each one weakens the enemy wall during the assault.' },
+  treb_h:    { name: 'Trebuchet',     icon: '🎯', type: 'siege',  atk: 70,  defI: 15, defC: 10, spd: 2,  carry: 0,   upkeep: 1.5, time: 120, at: 'workshop', req: 5, cost: { timber: 400, stone: 200, iron: 80, gold: 120 }, wreck: 1, desc: 'Hurls stones over walls. Survivors of a won battle wreck enemy buildings.' },
+
+  goatrider: { name: 'Crag Rider',    icon: '🐐', type: 'cav',    atk: 50,  defI: 40, defC: 30, spd: 12, carry: 70,  upkeep: 1.1, time: 45, at: 'stable',   req: 3, cost: { grain: 90, gold: 60, weapons: 3 }, desc: 'Sure-footed riders on giant mountain goats.' },
+  runeguard: { name: 'Runeguard',     icon: '💠', type: 'inf',    atk: 80,  defI: 115, defC: 95, spd: 4, carry: 40,  upkeep: 1.6, time: 80, at: 'barracks', req: 10, cost: { grain: 150, gold: 140, weapons: 5, runesteel: 5 }, desc: 'Champions in rune-etched plate. Nearly immovable.' },
+  ram_d:     { name: 'Bore Engine',   icon: '⚙️', type: 'siege',  atk: 45,  defI: 35, defC: 25, spd: 3,  carry: 0,   upkeep: 1.2, time: 90, at: 'workshop', req: 1, cost: { timber: 200, iron: 80, stone: 100, gold: 80 }, wallBreak: 0.35, desc: 'A steam-driven drill that chews through walls faster than any ram.' },
+  treb_d:    { name: 'Thunder Mortar',icon: '💥', type: 'siege',  atk: 90,  defI: 20, defC: 15, spd: 2,  carry: 0,   upkeep: 1.6, time: 130, at: 'workshop', req: 5, cost: { iron: 160, stone: 200, tools: 10, gold: 140 }, wreck: 1.2, desc: 'Blackpowder and runes. Shatters towers.' },
+
+  winddancer:{ name: 'Wind Dancer',   icon: '🍃', type: 'cav',    atk: 55,  defI: 25, defC: 35, spd: 18, carry: 80,  upkeep: 1.0, time: 40, at: 'stable',   req: 3, cost: { grain: 80, gold: 60, weapons: 2, heartwood: 1 }, desc: 'Riders who seem to vanish between the trees.' },
+  groveguard:{ name: 'Grove Keeper',  icon: '🌲', type: 'inf',    atk: 90,  defI: 100, defC: 105, spd: 3, carry: 0,  upkeep: 1.5, time: 90, at: 'barracks', req: 10, cost: { grain: 120, gold: 120, heartwood: 8 }, desc: 'An awakened tree-giant that marches to war.' },
+  ram_s:     { name: 'Rootbreaker',   icon: '🌳', type: 'siege',  atk: 45,  defI: 30, defC: 20, spd: 3,  carry: 0,   upkeep: 1.0, time: 90, at: 'workshop', req: 1, cost: { timber: 350, heartwood: 6, grain: 100, gold: 60 }, wallBreak: 0.25, desc: 'Living roots that pry stones apart.' },
+  treb_s:    { name: 'Thornhurler',   icon: '🌵', type: 'siege',  atk: 65,  defI: 20, defC: 15, spd: 3,  carry: 0,   upkeep: 1.2, time: 110, at: 'workshop', req: 5, cost: { timber: 450, heartwood: 8, gold: 100 }, wreck: 0.9, desc: 'A great bent tree that flings thorned boulders.' },
+
+  shaman:    { name: 'Ash Shaman',    icon: '🔮', type: 'ranged', atk: 55,  defI: 35, defC: 30, spd: 6,  carry: 20,  upkeep: 0.9, time: 45, at: 'barracks', req: 7, cost: { grain: 80, gold: 70, weapons: 2 }, desc: 'Calls down ash and fire from behind the lines.' },
+  warlordblade:{ name: 'Warlord\'s Blade', icon: '🗡️', type: 'inf', atk: 125, defI: 40, defC: 35, spd: 6, carry: 70, upkeep: 1.5, time: 70, at: 'barracks', req: 10, cost: { grain: 140, gold: 120, weapons: 8 }, desc: 'The warlord\'s sworn killers. All offence.' },
+  ram_a:     { name: 'Skull Ram',     icon: '💀', type: 'siege',  atk: 50,  defI: 20, defC: 10, spd: 4,  carry: 0,   upkeep: 1.0, time: 70, at: 'workshop', req: 1, cost: { timber: 250, ore: 120, grain: 80, gold: 50 }, wallBreak: 0.3, desc: 'Crude, cheap and terrifying.' },
+  treb_a:    { name: 'Rock Flinger',  icon: '🪨', type: 'siege',  atk: 75,  defI: 15, defC: 10, spd: 3,  carry: 0,   upkeep: 1.2, time: 100, at: 'workshop', req: 5, cost: { timber: 350, stone: 250, ore: 80, gold: 80 }, wreck: 1, desc: 'Ogres heave boulders from a giant sling.' },
   // Common
   settlers:  { name: 'Settlers',     icon: '🧺', type: 'civ',    atk: 0,   defI: 10, defC: 10, spd: 5,  carry: 0,   upkeep: 1,   time: 120, at: 'townhall', req: 5, cost: { grain: 600, timber: 600, stone: 500, gold: 400, tools: 20 }, desc: 'Families ready to found a new city on an empty tile.' },
   herald:    { name: 'Herald',       icon: '📯', type: 'civ',    atk: 30,  defI: 20, defC: 20, spd: 5,  carry: 0,   upkeep: 2,   time: 180, at: 'townhall', req: 8, cost: { grain: 800, gold: 1500, weapons: 30, tools: 30 }, desc: 'Sent with a conquering army. Each victory with a surviving herald lowers a city\'s loyalty; at zero it swears to you.' },

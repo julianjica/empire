@@ -1,7 +1,7 @@
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
 const race=process.argv[2]||'hearth';
-eval(['js/data.js','js/engine.js','js/research.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js'].map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
+eval(['js/data.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js'].map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const s=G.newGame({name:'T',race});
 let idle=0; const qt={};
 const u0=DATA.races[race].units[0];

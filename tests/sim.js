@@ -2,7 +2,7 @@
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
 const pace=process.argv[2]||'standard', hours=+(process.argv[3]||4), bot=process.argv[4]||'basic';
-const files=['js/data.js','js/engine.js',...['js/research.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js'].filter(f=>fs.existsSync(f))];
+const files=['js/data.js','js/engine.js',...['js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js'].filter(f=>fs.existsSync(f))];
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const s=G.newGame({name:'Test',race:'hearth',pace});
 const t0=Date.now();

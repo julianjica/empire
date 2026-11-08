@@ -169,3 +169,5 @@ details.counters summary { cursor: pointer; color: var(--accent); }
 .calam { margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid var(--line); font-size: 13px; }
 .calam.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--panel)); }
 .calam.good { border-color: var(--good); background: color-mix(in srgb, var(--good) 8%, var(--panel)); }
+
+table.forge td { white-space: nowrap; }

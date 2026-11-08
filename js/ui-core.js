@@ -16,6 +16,8 @@ const TABS = {};              // key -> { label, render(city), badge?() }
 // Persistent canvases (world map, city view) re-attach themselves after every
 // render through these hooks: fn(tabKey) is called once the DOM is rebuilt.
 const MOUNT_HOOKS = [];
+// Small HTML snippets other modules add to the top bar (sound toggle, notifications…): fn() -> html
+const TOP_EXTRAS = [];
 const runMountHooks = () => { for (const h of MOUNT_HOOKS) { try { h(UI.tab); } catch (e) { console.error(e); } } };
 
 // ---------------------------------------------------------------------
@@ -133,6 +135,7 @@ const renderTop = city => {
       <span class="spacer"></span>
       <span class="muted" title="${DATA.pace[S.settings.pace].name} pace · ${DATA.modes[S.settings.mode].name}">${calendar()} · ${clock(S.time)}</span>
       <label class="muted">Speed <select id="speedSel">${[1, 2, 5, 10, 25].map(v => `<option value="${v}" ${S.settings.speed === v ? 'selected' : ''}>${v}×</option>`).join('')}</select></label>
+      ${TOP_EXTRAS.map(f => { try { return f() || ''; } catch (e) { return ''; } }).join('')}
       <button class="small" data-act="save">Save</button>
       <button class="small" data-act="newgame">New game</button>
     </div>

@@ -60,9 +60,10 @@ const renderTilePanel = (city, t, vis) => {
   const c = t.city && S.cities[t.city];
   const camp = t.camp && S.camps[t.camp];
   const head = `<h3>${c ? esc(c.name) : camp ? (camp.kind ? { wyrm: "🐉 The Wyrm's lair", undead: '💀 Horde of the restless dead', star: '☄️ Crater of a fallen star' }[camp.kind] : '⛺ Brigand camp') : t.oasis ? '🏝️ Oasis' : t.ruin ? '🏚️ Ruins' : terr.name}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${d.toFixed(1)} tiles from ${esc(city.name)}</div>`;
+  const islandNote = !terr.impassable && !G.landReachable(S, city, t) ? `<div class="calam good">🏝️ <b>Across the water</b> — no land route from ${esc(city.name)}. Send ships with your army: Transport Cogs from a coastal city's Harbor carry troops and settlers (30 citizens each).</div>` : '';
   const cals = G.calamitiesAt ? G.calamitiesAt(S, t.x, t.y) : [];
   const calHtml = cals.map(q => { const def = DATA.calamities[q.kind]; return `<div class="calam ${def.bad ? 'bad' : 'good'}">${def.icon} <b>${def.name}</b> · ${fmtTime(realSecs(q.end - S.time))} left<br><span style="font-size:12px">${def.text}</span></div>`; }).join('');
-  if (terr.impassable) return head + calHtml + '<p class="muted">Deep waters. Nothing can be built here.</p>';
+  if (terr.impassable) return head + calHtml + '<p class="muted">Open water. Nothing can be built here, but ships sail across it.</p>';
   if (t.x === city.x && t.y === city.y) return head + '<p>This is your selected city.</p>';
 
   let info = '', modes = [];
@@ -96,7 +97,7 @@ const renderTilePanel = (city, t, vis) => {
     modes = ['settle', 'scout'];
   }
   if (camp && camp.kind) info = `<p>${{ wyrm: 'An Elder Wyrm broods here on its hoard. It is immensely strong — bring a great army and your hero.', undead: 'A horde of the restless dead. Destroy every horde to end the rising.', star: 'A fallen star, its crater guarded by star-touched beasts. Its star-iron goes to whoever claims it.' }[camp.kind]}</p>${intelHtml(t)}`;
-  return head + calHtml + info + (modes.length ? sendForm(city, t, modes) : '');
+  return head + islandNote + calHtml + info + (modes.length ? sendForm(city, t, modes) : '');
 };
 
 const MODE_LABEL = { raid: '💰 Raid', attack: '⚔️ Attack', conquer: '📯 Conquer', settle: '🧺 Settle', reinforce: '🛡️ Reinforce', trade: '🐪 Caravan', scout: '🦅 Scout', adventure: '🦸 Adventure' };
@@ -131,8 +132,8 @@ const sendForm = (city, t, modes) => {
   }
   const sending = gatherSend(city);
   let eta = '';
-  if (UI.mode === 'trade') eta = `Travel time ${fmtTime(realSecs(G.travelTime(S, 'p', city, t, 8)))}`;
-  else if (G.unitsCount(sending)) eta = `Travel ${fmtTime(realSecs(G.travelTime(S, 'p', city, t, G.slowest(S, 'p', sending))))} · attack ${fmt(G.atkPower(S, 'p', sending) * G.mod(S, 'p', null, 'atk'))} · carry ${fmt(G.carryOf(S, 'p', sending))}`;
+  if (UI.mode === 'trade') { const pl = G.planMarch(S, 'p', city, t, {}); eta = pl.ok ? `Travel time ${fmtTime(realSecs(pl.dur))}` : `<span class="warn">${esc(pl.reason)}</span>`; }
+  else if (G.unitsCount(sending)) { const pl = G.planMarch(S, 'p', city, t, sending); eta = pl.ok ? `${pl.naval ? '⛵ By sea · ' : ''}Travel ${fmtTime(realSecs(pl.dur))} · attack ${fmt(G.atkPower(S, 'p', sending) * G.mod(S, 'p', null, 'atk'))} · carry ${fmt(G.carryOf(S, 'p', sending))}` : `<span class="warn">${esc(pl.reason)}</span>`; }
   let preview = '';
   if (['raid', 'attack', 'conquer'].includes(UI.mode) && G.unitsCount(sending)) {
     const pv = G.previewBattle(S, city, t, sending, UI.mode);

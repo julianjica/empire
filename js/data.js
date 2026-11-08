@@ -31,7 +31,7 @@ DATA.terrain = {
   forest:   { name: 'Old forest',    bonus: 'timber', mult: 0.25, color: '#5f8f4a' },
   hills:    { name: 'Stony hills',   bonus: 'stone',  mult: 0.25, color: '#b5a48a' },
   mountain: { name: 'Mountain foot', bonus: 'ore',    mult: 0.25, color: '#8a8a8f' },
-  lake:     { name: 'Lake',          bonus: null,     mult: 0,    color: '#6a9ac4', impassable: true },
+  lake:     { name: 'Lake',          bonus: null,     mult: 0,    color: '#6a9ac4', impassable: true },   // also used for inland seas
 };
 
 // ---------------------------------------------------------------------
@@ -176,6 +176,11 @@ DATA.buildings = {
     cost: { timber: 400, stone: 250, iron: 80, grain: 150 },
     desc: 'Carpenters and engineers build rams to break walls and catapults to wreck buildings.', req: { townhall: 8, barracks: 5, smithy: 5 },
   },
+  harbor: {
+    name: 'Harbor', icon: '⚓', max: 20, time: 30, growth: 1.38, workers: 2, coastal: true,
+    cost: { timber: 300, stone: 150, grain: 100 },
+    desc: 'Docks on the water. Fishing boats bring grain (more with more open water nearby), and shipwrights build transports and war galleys.', req: { townhall: 4 },
+  },
   academy: {
     name: 'Academy', icon: '📚', max: 20, time: 30, growth: 1.38,
     cost: { timber: 160, stone: 140, grain: 80, gold: 60 },
@@ -210,10 +215,10 @@ DATA.buildings = {
     req: { townhall: 3, barracks: 3 },
   },
 };
-DATA.buildingOrder = ['townhall', 'houses', 'warehouse', 'academy', 'workshop', 'farm', 'lumber', 'quarry', 'mine', 'smelter', 'smithy', 'armory',
+DATA.buildingOrder = ['townhall', 'houses', 'warehouse', 'academy', 'workshop', 'harbor', 'farm', 'lumber', 'quarry', 'mine', 'smelter', 'smithy', 'armory',
   'bakery', 'runeforge', 'heartgrove', 'warpit', 'barracks', 'stable', 'wall', 'market'];
 DATA.buildingGroups = [
-  { name: 'Settlement', list: ['townhall', 'houses', 'warehouse', 'market', 'academy'] },
+  { name: 'Settlement', list: ['townhall', 'houses', 'warehouse', 'market', 'harbor', 'academy'] },
   { name: 'Raw goods', list: ['farm', 'lumber', 'quarry', 'mine'] },
   { name: 'Workshops', list: ['smelter', 'smithy', 'armory', 'bakery', 'runeforge', 'heartgrove'] },
   { name: 'Military', list: ['barracks', 'stable', 'workshop', 'warpit', 'wall'] },
@@ -284,11 +289,14 @@ DATA.units = {
   herald:    { name: 'Herald',       icon: '📯', type: 'civ',    atk: 30,  defI: 20, defC: 20, spd: 5,  carry: 0,   upkeep: 2,   time: 180, at: 'townhall', req: 8, cost: { grain: 800, gold: 1500, weapons: 30, tools: 30 }, desc: 'Sent with a conquering army. Each victory with a surviving herald lowers a city\'s loyalty; at zero it swears to you.' },
   scout:     { name: 'Scout',        icon: '🦅', type: 'civ',    atk: 0,   defI: 2,  defC: 2,  spd: 16, carry: 0,   upkeep: 0.3, time: 15, at: 'barracks', req: 1, cost: { grain: 30, gold: 25 }, desc: 'Sneaks close to report troops, stores and walls. Enemy scouts can catch them.' },
   hero:      { name: 'Hero',         icon: '🦸', type: 'hero',   atk: 0,   defI: 0,  defC: 0,  spd: 7,  carry: 0,   upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Your champion.' },
+  // Ships (shared by all peoples; built at a Harbor in a coastal city). capacity: citizens a transport can carry
+  transport: { name: 'Transport Cog',  icon: '⛵', type: 'ship', atk: 5,  defI: 40, defC: 40, spd: 10, carry: 400, upkeep: 1.0, time: 90, at: 'harbor', req: 1, pop: 4, capacity: 30, cost: { timber: 400, gold: 100, tools: 10 }, desc: 'Carries up to 30 citizens\' worth of troops or settlers across water, and hauls plunder home.' },
+  warship:   { name: 'War Galley',     icon: '🚢', type: 'ship', atk: 80, defI: 70, defC: 70, spd: 11, carry: 100, upkeep: 2.0, time: 150, at: 'harbor', req: 5, pop: 6, cost: { timber: 600, iron: 120, tools: 20, gold: 200 }, desc: 'Rams and archers afloat. Raids and defends coastal cities and escorts transports.' },
   // Neutral
   beast:     { name: 'Wild beast',   icon: '🐻', type: 'inf',    atk: 25,  defI: 30, defC: 22, spd: 6,  carry: 0,   upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Wolves, bears and worse guard the wild places.' },
   brigand:   { name: 'Brigand',      icon: '☠️', type: 'inf',    atk: 20,  defI: 25, defC: 25, spd: 6,  carry: 40,  upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Outlaws holed up in the wilds.' },
 };
-DATA.commonUnits = ['scout', 'settlers', 'herald'];
+DATA.commonUnits = ['scout', 'settlers', 'herald', 'transport', 'warship'];
 
 DATA.aiNames = {
   hearth: ['Elmsworth', 'Barleyford', 'Millbrook', 'Ashdown', 'Copperhill', 'Wheatmere'],

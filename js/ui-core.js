@@ -337,7 +337,7 @@ const renderMilitary = city => {
         const st = G.trainStatus(S, city, u);
         const key = 'train_' + city.id + '_' + u;
         return `<div class="card unit ${st.locked ? 'locked' : ''}">
-          <div class="row"><span style="font-size:24px">${d.icon}</span><b>${d.name}</b><span class="pill">${{ cav: 'cavalry', ranged: 'ranged', civ: 'civilian', inf: 'infantry', siege: 'siege' }[d.type]}</span>${upBadge(u)}<span class="spacer"></span><span class="muted">have ${city.units[u] || 0}</span></div>
+          <div class="row"><span style="font-size:24px">${d.icon}</span><b>${d.name}</b><span class="pill">${{ cav: 'cavalry', ranged: 'ranged', civ: 'civilian', inf: 'infantry', siege: 'siege', ship: 'ship' }[d.type]}</span>${upBadge(u)}<span class="spacer"></span><span class="muted">have ${city.units[u] || 0}</span></div>
           <div class="desc muted" style="font-size:12.5px">${d.desc}</div>
           ${statLine(G.unitStats(S, 'p', u))}${d.wallBreak ? `<div class="stats"><span>🧱 negates ${d.wallBreak} wall levels each</span></div>` : ''}${d.wreck ? `<div class="stats"><span>🏚️ wrecks buildings after a won assault</span></div>` : ''}
           ${costHtml(d.cost, city)}<div class="muted" style="font-size:12px">👥 takes ${G.unitPop(u)} citizen${G.unitPop(u) === 1 ? '' : 's'}${!st.locked && st.byPop < Infinity && st.byPop <= G.maxAffordable(S, city, d.cost) ? ' · <span class="warn">limited by population</span>' : ''}</div>
@@ -472,6 +472,7 @@ const renderHelp = () => `<div class="card help"><h2>How to play</h2>
     <li><b>Your hero</b> 🦸 starts in your capital. Spend attribute points, send them to <b>ruins</b> 🏚️ on adventures for treasure, experience and items, or march with your armies for leadership bonuses. A fallen hero can be revived.</li>
     <li><b>Research</b> 📚 at the Academy: empire-wide upgrades to production, building speed, storage, attack, defense and more.</li>
     <li><b>Location matters.</b> A city's yields come from the land within 2 tiles: forests give timber, hills stone, mountains ore, fertile land grain. Rivers and lakes make a city more prosperous. Each people's homeland suits its specialty, and the site survey on the World map rates open land before you settle. Trade covers what your land lacks.</li>
+    <li><b>Seas and ships.</b> Armies march around lakes and seas, so routes follow the land. A coastal city can build a <b>Harbor</b>: fishing boats add grain, and shipwrights build Transport Cogs (each carries 30 citizens' worth of troops or settlers) and War Galleys. Send ships with your army to cross water — that's the only way to reach islands, which often hide unclaimed land and treasures.</li>
     <li><b>Explore.</b> The map is hidden until your cities, armies or scouts 🦅 see it. Scouts bring back troop counts, stores and walls. <b>Oases</b> 🏝️ guarded by beasts give a nearby city +25% of a good once claimed (attack and win; one slot per 5 Town Hall levels).</li>
     <li><b>Fight.</b> Raid brigand camps for plunder and renown. Defenders with high 🐎🛡️ stop cavalry, high 🛡️ stops infantry. Rivals leave you alone at first; their pressure grows over time.</li>
     <li><b>Diplomacy</b> 🕊️: send gifts, make peace, form alliances, demand tribute, and trade with foreign merchants. Breaking a treaty angers everyone.</li>

@@ -150,6 +150,8 @@ G.econ = (s, city, awayUnits) => {
     }
   }
 
+  const hb = G.lvl(city, 'harbor');
+  if (hb) raw.grain = (raw.grain || 0) + 5 * hb * Math.pow(1.12, hb - 1) * Math.min(4, G.site(s, city).water || 0) / 2 * eff * G.mod(s, city.owner, city, 'grain');
   const refiners = [];
   const refMod = G.mod(s, city.owner, city, 'refine');
   for (const t of REFINE_ORDER) {
@@ -213,7 +215,100 @@ G.addUnits = (into, from) => { for (const [u, n] of Object.entries(from || {})) 
 G.atkPower = (s, owner, units) => Object.entries(units).reduce((a, [u, n]) => a + G.unitStats(s, owner, u).atk * n, 0);
 G.defPower = (s, owner, units) => Object.entries(units).reduce((a, [u, n]) => { const d = G.unitStats(s, owner, u); return a + (d.defI + d.defC) / 2 * n; }, 0);
 G.slowest = (s, owner, units) => Math.min(...Object.entries(units).filter(([, n]) => n > 0).map(([u]) => G.unitStats(s, owner, u).spd));
-G.travelTime = (s, owner, from, to, spd) => Math.max(15, Math.round(dist(from, to) / (spd * G.mod(s, owner, null, 'travel')) * 120 * G.pace(s).travel));
+// ---- paths: armies walk around water; ships sail on it --------------------
+const PATHS = new WeakMap();
+G.isWater = t => !!t && t.terrain === 'lake';
+G.coastal = (s, x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && G.isWater(G.tileAt(s, x + dx, y + dy))) return true; return false; };
+G.clearPaths = s => { PATHS.delete(s.tiles); COMPS.delete(s.tiles); };
+// shortest path (8 directions). Land paths avoid water; sea paths stay on water except the two end tiles.
+// returns { len, path:[[x,y],...] } or null
+G.path = (s, from, to, naval) => {
+  let cache = PATHS.get(s.tiles); if (!cache) { cache = new Map(); PATHS.set(s.tiles, cache); }
+  const key = from.x + ',' + from.y + '>' + to.x + ',' + to.y + (naval ? 's' : 'l');
+  if (cache.has(key)) return cache.get(key);
+  const N = s.map, start = from.y * N + from.x, goal = to.y * N + to.x;
+  const ok = i => { if (i === start || i === goal) return true; return naval ? G.isWater(s.tiles[i]) : !G.isWater(s.tiles[i]); };
+  const D = new Float64Array(N * N).fill(Infinity), prev = new Int32Array(N * N).fill(-1), done = new Uint8Array(N * N);
+  D[start] = 0;
+  const open = [start];
+  while (open.length) {
+    let bi = 0; for (let k = 1; k < open.length; k++) if (D[open[k]] < D[open[bi]]) bi = k;
+    const u = open[bi]; open[bi] = open[open.length - 1]; open.pop();
+    if (done[u]) continue; done[u] = 1;
+    if (u === goal) break;
+    const ux = u % N, uy = (u - ux) / N;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const vx = ux + dx, vy = uy + dy;
+      if (vx < 0 || vy < 0 || vx >= N || vy >= N) continue;
+      const v = vy * N + vx;
+      if (done[v] || !ok(v)) continue;
+      if (dx && dy && !naval && (G.isWater(s.tiles[uy * N + vx]) && G.isWater(s.tiles[vy * N + ux]))) continue;  // no squeezing between two water tiles
+      const nd = D[u] + (dx && dy ? 1.4142 : 1);
+      if (nd < D[v]) { D[v] = nd; prev[v] = u; open.push(v); }
+    }
+  }
+  let res = null;
+  if (D[goal] < Infinity) {
+    const pts = []; for (let i = goal; i !== -1; i = prev[i]) pts.push([i % N, Math.floor(i / N)]);
+    res = { len: D[goal], path: pts.reverse() };
+  }
+  cache.set(key, res);
+  return res;
+};
+// connected land regions (flood fill, 8 directions, no squeezing between two water tiles), cached with the paths
+const COMPS = new WeakMap();
+G.landRegions = s => {
+  let comp = COMPS.get(s.tiles); if (comp) return comp;
+  const N = s.map; comp = new Int32Array(N * N).fill(-1);
+  let id = 0;
+  for (let i = 0; i < N * N; i++) {
+    if (comp[i] !== -1 || G.isWater(s.tiles[i])) continue;
+    const stack = [i]; comp[i] = id;
+    while (stack.length) {
+      const u = stack.pop(), ux = u % N, uy = (u - ux) / N;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const vx = ux + dx, vy = uy + dy;
+        if ((!dx && !dy) || vx < 0 || vy < 0 || vx >= N || vy >= N) continue;
+        const v = vy * N + vx;
+        if (comp[v] !== -1 || G.isWater(s.tiles[v])) continue;
+        if (dx && dy && G.isWater(s.tiles[uy * N + vx]) && G.isWater(s.tiles[vy * N + ux])) continue;
+        comp[v] = id; stack.push(v);
+      }
+    }
+    id++;
+  }
+  COMPS.set(s.tiles, comp);
+  return comp;
+};
+G.landReachable = (s, from, to) => { const c = G.landRegions(s); return c[from.y * s.map + from.x] === c[to.y * s.map + to.x]; };
+G.isIsland = (s, t) => { const c = G.landRegions(s); const cap = G.capital(s, 'p'); return !!cap && c[t.y * s.map + t.x] !== c[cap.y * s.map + cap.x]; };
+const marchTime = (s, owner, len, spd) => Math.max(15, Math.round(len / (spd * G.mod(s, owner, null, 'travel')) * 120 * G.pace(s).travel));
+// plan a march: land route for armies and caravans, sea route when ships carry the army
+G.planMarch = (s, owner, from, to, units) => {
+  units = units || {};
+  const ships = Object.entries(units).filter(([u, n]) => n > 0 && DATA.units[u] && DATA.units[u].type === 'ship');
+  if (!ships.length) {
+    const p = G.path(s, from, to, false);
+    if (!p) return { ok: false, reason: 'No land route — only ships can reach this place (build a Harbor and transports).' };
+    const spd = G.unitsCount(units) ? G.slowest(s, owner, units) : 8;
+    return { ok: true, dur: marchTime(s, owner, p.len, spd), path: p.path, naval: false };
+  }
+  if (!G.coastal(s, from.x, from.y)) return { ok: false, reason: 'Ships can only sail from a coastal city' };
+  if (!G.coastal(s, to.x, to.y)) return { ok: false, reason: 'Ships can only reach places on the shore' };
+  const p = G.path(s, from, to, true);
+  if (!p) return { ok: false, reason: 'No sea route between these shores' };
+  const cap = ships.reduce((a, [u, n]) => a + (DATA.units[u].capacity || 0) * n, 0);
+  const passengers = Object.entries(units).filter(([u]) => DATA.units[u].type !== 'ship').reduce((a, [u, n]) => a + Math.max(1, G.unitPop(u)) * n, 0);
+  if (passengers > cap) return { ok: false, reason: `Not enough transport space: ${passengers} aboard, room for ${cap} (each Transport Cog carries 30)` };
+  const spd = Math.min(...ships.map(([u]) => G.unitStats(s, owner, u).spd));
+  return { ok: true, dur: marchTime(s, owner, p.len, spd), path: p.path, naval: true };
+};
+// travel time over land (falls back to a long straight-line estimate when water cuts the way, e.g. for abstract caravans)
+G.travelTime = (s, owner, from, to, spd) => {
+  const p = G.path(s, from, to, false);
+  return marchTime(s, owner, p ? p.len : dist(from, to) * 1.6, spd);
+};
 
 G.trainTime = (s, city, unit) => {
   const u = DATA.units[unit];
@@ -288,6 +383,7 @@ G.buildStatus = (s, city, type) => {
     if (G.lvl(city, rb) < rl) return { ...res, ok: false, locked: true, reason: `Needs ${DATA.buildings[rb].name} ${rl}` };
   }
   if (type !== 'townhall' && level > G.lvl(city, 'townhall') * 2 + 2) return { ...res, ok: false, reason: `Needs Town Hall ${Math.ceil((level - 2) / 2)}` };
+  if (b.coastal && !G.coastal(s, city.x, city.y)) return { ...res, ok: false, locked: true, reason: 'Needs a coastal city' };
   if (b.minCities && G.citiesOf(s, city.owner).length < b.minCities) return { ...res, ok: false, locked: true, reason: `Needs a realm of ${b.minCities} cities` };
   if (b.realmUnique && Object.values(s.cities).some(c => c.owner === city.owner && c !== city && (G.lvl(c, type) || c.buildQueue.some(q => q.type === type)))) return { ...res, ok: false, locked: true, reason: 'Already raised in another of your cities' };
   if (city.buildQueue.length >= G.buildSlots(city)) return { ...res, ok: false, reason: 'Queue full' };
@@ -411,7 +507,7 @@ const RIVER_SETS = new WeakMap();
 const SITE_BASE = { grain: 0.45, timber: 0.62, stone: 0.52, ore: 0.65 };   // centres a typical site near 1×
 G.siteYield = (s, x, y) => {
   const acc = { grain: 0, timber: 0, stone: 0, ore: 0 };
-  let W = 0, river = false, lake = false;
+  let W = 0, river = false, lake = false, water = 0;
   const rv = s.rivers || [];
   let riverSet = RIVER_SETS.get(rv);
   if (!riverSet) { riverSet = new Set(rv.flat()); RIVER_SETS.set(rv, riverSet); }
@@ -424,23 +520,52 @@ G.siteYield = (s, x, y) => {
     for (const g in acc) acc[g] += ty[g] * w;
     W += w;
     if (d <= 1.5 && riverSet.has(t.y * s.map + t.x)) river = true;
-    if (d <= 1.5 && t.terrain === 'lake') lake = true;
+    if (d <= 1.5 && t.terrain === 'lake') { lake = true; water++; }
   }
   const out = {};
   for (const g in acc) out[g] = clamp(SITE_BASE[g] + 1.4 * acc[g] / W, 0.4, 1.75);
   if (river) out.grain *= 1.15;
   if (lake) out.grain *= 1.1;
-  out.river = river; out.lake = lake;
+  out.river = river; out.lake = lake; out.water = water;
   out.prosper = 1 + (river ? 0.1 : 0) + (lake ? 0.05 : 0);
   return out;
 };
 G.site = (s, city) => {
-  if (!city.site || city.site.x !== city.x || city.site.y !== city.y) city.site = { ...G.siteYield(s, city.x, city.y), x: city.x, y: city.y };
+  if (!city.site || city.site.x !== city.x || city.site.y !== city.y || city.site.water === undefined) city.site = { ...G.siteYield(s, city.x, city.y), x: city.x, y: city.y };
   return city.site;
 };
 G.stars = m => m < 0.6 ? 1 : m < 0.85 ? 2 : m < 1.1 ? 3 : m < 1.35 ? 4 : 5;
 // how well a site suits a race (higher is better), used by AI settlers and the site survey
 G.siteFit = (site, race) => Object.entries(DATA.homeland[race].seeks).reduce((a, [g, w]) => a + (site[g] - 1) * w, 0) + (site.prosper - 1) * 2;
+
+// inland seas with a few islands; capitals stay connected by land (bridges are carved if needed)
+const makeSeas = (s, capitals) => {
+  const n = s.map >= 25 ? 2 : 1;
+  for (let k = 0; k < n; k++) {
+    const c = G.freeTile(s, t => capitals.every(cp => dist(cp, t) >= 7));
+    if (!c) continue;
+    const r = rnd(2.8, 4.2);
+    for (const t of s.tiles) if (Math.hypot(t.x - c.x, t.y - c.y) + rnd(0, 1.1) < r && capitals.every(cp => dist(cp, t) >= 3)) t.terrain = 'lake';
+    // an island or two
+    for (let i = 0; i < rint(1, 2); i++) {
+      const a = rnd(0, Math.PI * 2), d = rnd(0, Math.max(0, r - 2.2));
+      const ix = Math.round(c.x + Math.cos(a) * d), iy = Math.round(c.y + Math.sin(a) * d);
+      const ir = rnd(0.8, 1.5), kind = pick(['fertile', 'forest', 'hills', 'plains']);
+      for (const t of s.tiles) if (Math.hypot(t.x - ix, t.y - iy) <= ir) t.terrain = kind;
+    }
+  }
+  G.clearPaths(s);
+  // land bridges so every capital can reach the player by land
+  for (const cp of capitals.slice(1)) {
+    if (G.path(s, capitals[0], cp, false)) continue;
+    const steps = Math.ceil(dist(capitals[0], cp));
+    for (let i = 0; i <= steps; i++) {
+      const t = G.tileAt(s, Math.round(capitals[0].x + (cp.x - capitals[0].x) * i / steps), Math.round(capitals[0].y + (cp.y - capitals[0].y) * i / steps));
+      if (G.isWater(t)) t.terrain = 'plains';
+    }
+    G.clearPaths(s);
+  }
+};
 
 // paint a race's homeland terrain around (cx, cy)
 const paintHomeland = (s, cx, cy, race) => {
@@ -505,7 +630,15 @@ G.genRivers = s => {
 G.visionRadius = (s, city) => (1.9 + G.cityReach(s, city) * 0.6 + G.lvl(city, 'townhall') * 0.08) * G.mod(s, city.owner, city, 'vision');
 G.movePos = (s, m) => {
   const f = clamp((s.time - m.depart) / Math.max(1, m.arrive - m.depart), 0, 1);
-  return { x: m.fx + (m.x - m.fx) * f, y: m.fy + (m.y - m.fy) * f };
+  if (!m.path || m.path.length < 2) return { x: m.fx + (m.x - m.fx) * f, y: m.fy + (m.y - m.fy) * f };
+  const seg = []; let total = 0;
+  for (let i = 1; i < m.path.length; i++) { const l = Math.hypot(m.path[i][0] - m.path[i - 1][0], m.path[i][1] - m.path[i - 1][1]); seg.push(l); total += l; }
+  let d = f * total;
+  for (let i = 0; i < seg.length; i++) {
+    if (d <= seg[i] || i === seg.length - 1) { const t = seg[i] ? Math.min(1, d / seg[i]) : 1, a = m.path[i], b = m.path[i + 1]; return { x: a[0] + (b[0] - a[0]) * t, y: a[1] + (b[1] - a[1]) * t }; }
+    d -= seg[i];
+  }
+  return { x: m.x, y: m.y };
 };
 G.visibleSet = s => {
   const vis = new Uint8Array(s.map * s.map);
@@ -550,6 +683,8 @@ G.sendArmy = (s, fromId, x, y, type, units, cargo) => {
     }
   }
   if (sent.hero && G.heroCanMarch) { const e = G.heroCanMarch(s, city.owner); if (e) return e; }
+  const plan = G.planMarch(s, city.owner, city, tile, type === 'trade' ? {} : sent);
+  if (!plan.ok) return plan.reason;
   let spd;
   if (type === 'trade') {
     const total = Object.values(cargo || {}).reduce((a, b) => a + Math.floor(b), 0);
@@ -580,9 +715,9 @@ G.sendArmy = (s, fromId, x, y, type, units, cargo) => {
     for (const [u, k] of Object.entries(sent)) city.units[u] -= k;
     spd = G.slowest(s, city.owner, sent);
   }
-  const dur = G.travelTime(s, city.owner, city, tile, spd);
+  const dur = plan.dur;
   s.moves.push({
-    id: G.newId(s, 'm'), owner: city.owner, type, from: fromId, fx: city.x, fy: city.y, x, y,
+    id: G.newId(s, 'm'), owner: city.owner, type, from: fromId, fx: city.x, fy: city.y, x, y, path: plan.path, naval: plan.naval,
     units: sent, cargo: type === 'trade' ? Object.fromEntries(Object.entries(cargo).map(([g, v]) => [g, Math.floor(v)]).filter(([, v]) => v > 0)) : {},
     depart: s.time, arrive: s.time + dur,
   });
@@ -692,7 +827,7 @@ G.sendHome = (s, m, units, loot) => {
   if (!G.unitsCount(units)) return;
   const dur = m.arrive - m.depart;
   s.moves.push({ id: G.newId(s, 'm'), owner: m.owner, type: 'return', from: m.from, fx: m.x, fy: m.y, x: m.fx, y: m.fy,
-    units, cargo: loot || {}, depart: s.time, arrive: s.time + dur });
+    path: m.path ? [...m.path].reverse() : undefined, naval: m.naval, units, cargo: loot || {}, depart: s.time, arrive: s.time + dur });
 };
 
 G.foundCity = (s, owner, x, y, name, initial) => {
@@ -1216,6 +1351,7 @@ const aiExpand = (s, empId) => {
         const d = dist(t, c);
         if (d < 3 || d > 7) continue;
         if (Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
+        if (!G.landReachable(s, c, t)) continue;
         const score = d * 0.4 + rnd(0, 1) - 4 * G.siteFit(G.siteYield(s, t.x, t.y), emp.race);
         if (score < bd) { bd = score; best = t; }
       }
@@ -1268,7 +1404,8 @@ const aiWar = (s, empId) => {
     }
     if (!targets.length) continue;
     targets.sort((a, b) => a.score - b.score);
-    const t = targets[0];
+    const t = targets.find(t => G.landReachable(s, c, t));
+    if (!t) continue;
     if (dist(c, t) > (t.far || 13)) continue;
     const army = { ...off };
     if (t.type === 'conquer') army.herald = 1;
@@ -1377,6 +1514,7 @@ G.newGame = (opts) => {
   }
   paintHomeland(s, pt.x, pt.y, race);
   ['a1', 'a2', 'a3'].forEach((id, i) => paintHomeland(s, ais[i].x, ais[i].y, s.empires[id].race));
+  makeSeas(s, [pt, ...ais]);
   s.rivers = G.genRivers(s);
   const pc = G.foundCity(s, 'p', pt.x, pt.y, cityName || 'Hearthstead', { grain: 450, timber: 750, stone: 700, ore: 200 });
   pc.pop = 12; pc.buildings.mine = 1;

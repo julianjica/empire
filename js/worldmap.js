@@ -726,6 +726,19 @@
     c.fillStyle = col; c.fill(); c.lineWidth = lw; c.stroke();
     c.beginPath(); c.arc(0, -33, 2, 0, TAU); c.fillStyle = '#c9a43c'; c.fill(); c.stroke();
   }
+  // a ship under sail (naval moves): a cog or a war galley with oars
+  function drawShip(c, col, lw, t, dir, war) {
+    const bob = Math.sin(t * 2.2) * 1.5, flip = dir[0] < 0 ? -1 : 1;
+    c.save(); c.translate(0, bob); c.scale(flip, 1);
+    c.strokeStyle = 'rgba(40,70,105,.55)'; c.lineWidth = lw; c.beginPath(); c.moveTo(-26, 14); c.quadraticCurveTo(-34, 16, -40, 13); c.moveTo(-22, 17); c.quadraticCurveTo(-30, 20, -36, 18); c.stroke();
+    c.fillStyle = war ? '#4a2c1a' : '#7a5232'; c.strokeStyle = INK; c.lineWidth = lw;
+    c.beginPath(); c.moveTo(-22, 4); c.lineTo(22, 4); c.quadraticCurveTo(20, 14, 12, 15); c.lineTo(-14, 15); c.quadraticCurveTo(-22, 12, -22, 4); c.closePath(); c.fill(); c.stroke();
+    if (war) { c.lineWidth = lw * 0.8; for (let i = -12; i <= 10; i += 5.5) { c.beginPath(); c.moveTo(i, 13); c.lineTo(i - 4, 21 + Math.sin(t * 6 + i) * 1.5); c.stroke(); } }
+    c.lineWidth = lw * 1.2; c.beginPath(); c.moveTo(0, 4); c.lineTo(0, -24); c.stroke();
+    c.fillStyle = '#efe6cf'; c.beginPath(); c.moveTo(1, -22); c.quadraticCurveTo(15 + Math.sin(t * 3) * 1.5, -12, 1, -1); c.closePath(); c.fill(); c.lineWidth = lw * 0.9; c.stroke();
+    c.fillStyle = col; c.beginPath(); c.moveTo(0, -24); c.lineTo(9, -27); c.lineTo(0, -30); c.closePath(); c.fill();
+    c.restore();
+  }
   function drawCart(c, col, lw, t, dir, settle) {
     const flip = dir[0] < 0 ? -1 : 1, bob = Math.abs(Math.sin(t * 7)) * 1;
     c.fillStyle = 'rgba(40,25,10,.25)'; c.beginPath(); c.ellipse(0, 3, 15, 3.5, 0, 0, TAU); c.fill();
@@ -966,7 +979,8 @@
       }
       if (m.type === 'return') c.globalAlpha = 0.7;
       const col = hostile ? '#b3261e' : colorOf(m.owner), seed = hash(String(m.id || m.depart)) % 10;
-      if (m.type === 'trade' || m.type === 'settle') drawCart(c, col, alw, t, dir, m.type === 'settle');
+      if (m.naval) drawShip(c, col, alw, t, dir, Object.keys(m.units || {}).includes('warship'));
+      else if (m.type === 'trade' || m.type === 'settle') drawCart(c, col, alw, t, dir, m.type === 'settle');
       else if (m.type === 'scout') drawScout(c, col, alw, t, seed);
       else drawBanner(c, col, alw, t, dir, seed);
       c.restore();

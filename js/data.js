@@ -16,11 +16,12 @@ DATA.goods = {
   iron:      { name: 'Iron',      icon: '🔩', value: 2.0 },
   tools:     { name: 'Tools',     icon: '🛠️', value: 5.0 },
   weapons:   { name: 'Weapons',   icon: '⚔️', value: 6.0 },
+  mana:      { name: 'Mana',      icon: '✨', value: 3.0 },
   bread:     { name: 'Bread',     icon: '🍞', value: 1.2, race: 'hearth' },
   runesteel: { name: 'Runesteel', icon: '💠', value: 9.0, race: 'delver' },
   heartwood: { name: 'Heartwood', icon: '🌳', value: 6.0, race: 'sylvan' },
 };
-DATA.goodOrder = ['grain', 'timber', 'stone', 'ore', 'iron', 'tools', 'weapons', 'bread', 'runesteel', 'heartwood'];
+DATA.goodOrder = ['grain', 'timber', 'stone', 'ore', 'iron', 'tools', 'weapons', 'mana', 'bread', 'runesteel', 'heartwood'];
 
 // ---------------------------------------------------------------------
 // Terrain of world tiles. A city founded on a tile gets its bonus.
@@ -307,7 +308,7 @@ DATA.aiNames = {
 DATA.aiRulers = {
   hearth: 'Duchy of the Vale', delver: 'Hold of the Deep King', sylvan: 'Circle of the Glade', ash: 'Horde of the Red Sky',
 };
-DATA.empireColors = ['#e2b007', '#c0392b', '#2980b9', '#8e44ad', '#16a085'];
+DATA.empireColors = ['#e2b007', '#c0392b', '#2980b9', '#8e44ad', '#16a085', '#d35400', '#1abc9c', '#7f8c8d', '#c2185b'];
 
 // ---------------------------------------------------------------------
 // Pace presets (chosen at new game). prod: production multiplier,

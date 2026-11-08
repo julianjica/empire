@@ -208,6 +208,12 @@ G.unitStats = (s, owner, u) => {
   const a = 1 + 0.04 * (up.a || 0), df = 1 + 0.04 * (up.d || 0);
   return { ...d, atk: d.atk * a, defI: d.defI * df, defC: d.defC * df };
 };
+// battle mages lend their spells to the army they march with (or the garrison they stand in)
+G.mageBoost = (s, owner, units) => {
+  let n = 0;
+  for (const [u, k] of Object.entries(units || {})) if (DATA.units[u] && DATA.units[u].mage) n += k * DATA.units[u].mage;
+  return n ? 1 + Math.min(0.3, 0.006 * n) * (owner ? G.mod(s, owner, null, 'spellPower') : 1) : 1;
+};
 G.wallBreak = units => Object.entries(units || {}).reduce((a, [u, n]) => a + (DATA.units[u].wallBreak || 0) * n, 0);
 G.wreckPower = units => Object.entries(units || {}).reduce((a, [u, n]) => a + (DATA.units[u].wreck || 0) * n, 0);
 G.unitsCount = units => Object.values(units || {}).reduce((a, b) => a + b, 0);
@@ -224,10 +230,10 @@ G.clearPaths = s => { PATHS.delete(s.tiles); COMPS.delete(s.tiles); };
 // returns { len, path:[[x,y],...] } or null
 G.path = (s, from, to, naval) => {
   let cache = PATHS.get(s.tiles); if (!cache) { cache = new Map(); PATHS.set(s.tiles, cache); }
-  const key = from.x + ',' + from.y + '>' + to.x + ',' + to.y + (naval ? 's' : 'l');
+  const key = from.x + ',' + from.y + '>' + to.x + ',' + to.y + (naval === 'any' ? 'a' : naval ? 's' : 'l');
   if (cache.has(key)) return cache.get(key);
   const N = s.map, start = from.y * N + from.x, goal = to.y * N + to.x;
-  const ok = i => { if (i === start || i === goal) return true; return naval ? G.isWater(s.tiles[i]) : !G.isWater(s.tiles[i]); };
+  const ok = i => { if (i === start || i === goal || naval === 'any') return true; return naval ? G.isWater(s.tiles[i]) : !G.isWater(s.tiles[i]); };
   const D = new Float64Array(N * N).fill(Infinity), prev = new Int32Array(N * N).fill(-1), done = new Uint8Array(N * N);
   D[start] = 0;
   const open = [start];
@@ -243,7 +249,7 @@ G.path = (s, from, to, naval) => {
       if (vx < 0 || vy < 0 || vx >= N || vy >= N) continue;
       const v = vy * N + vx;
       if (done[v] || !ok(v)) continue;
-      if (dx && dy && !naval && (G.isWater(s.tiles[uy * N + vx]) && G.isWater(s.tiles[vy * N + ux]))) continue;  // no squeezing between two water tiles
+      if (dx && dy && !naval && naval !== 'any' && (G.isWater(s.tiles[uy * N + vx]) && G.isWater(s.tiles[vy * N + ux]))) continue;  // no squeezing between two water tiles
       const nd = D[u] + (dx && dy ? 1.4142 : 1);
       if (nd < D[v]) { D[v] = nd; prev[v] = u; open.push(v); }
     }
@@ -288,6 +294,17 @@ const marchTime = (s, owner, len, spd) => Math.max(15, Math.round(len / (spd * G
 G.planMarch = (s, owner, from, to, units) => {
   units = units || {};
   const ships = Object.entries(units).filter(([u, n]) => n > 0 && DATA.units[u] && DATA.units[u].type === 'ship');
+  const present = Object.entries(units).filter(([u, n]) => n > 0).map(([u]) => DATA.units[u]);
+  // armies made only of fliers go straight over water; armies made only of swimmers may cross water too
+  if (present.length && present.every(d => d.flying)) {
+    const len = dist(from, to);
+    return { ok: true, dur: marchTime(s, owner, len, G.slowest(s, owner, units)), path: [[from.x, from.y], [to.x, to.y]], naval: false, flying: true };
+  }
+  if (present.length && !ships.length && present.every(d => d.flying || d.amphibious)) {
+    const land = G.path(s, from, to, false), any = G.path(s, from, to, 'any');
+    const p = land && (!any || land.len <= any.len * 1.15) ? land : any;
+    if (p) return { ok: true, dur: marchTime(s, owner, p.len, G.slowest(s, owner, units)), path: p.path, naval: false };
+  }
   if (!ships.length) {
     const p = G.path(s, from, to, false);
     if (!p) return { ok: false, reason: 'No land route — only ships can reach this place (build a Harbor and transports).' };
@@ -941,6 +958,7 @@ G.resolveMove = (s, m) => {
   const mode = m.type === 'raid' ? 'raid' : 'attack';
   let attMult = home ? (1 + 0.01 * G.lvl(home, 'warpit')) : 1;
   if (m.units.hero && G.heroLeadership) attMult *= G.heroLeadership(s, m.owner);
+  attMult *= G.mageBoost(s, m.owner, m.units);
 
   // neutral sites: brigand camps, wild oases, ruins
   if (tile.camp || (tile.oasis && !tile.oasis.owner) || tile.ruin) {
@@ -1003,6 +1021,7 @@ G.resolveMove = (s, m) => {
   const cd = G.cityDefense(s, city, brk);
   let defMult = cd.mult;
   if (city.units.hero && G.heroDefense) defMult *= G.heroDefense(s, city.owner);
+  defMult *= G.mageBoost(s, city.owner, city.units);
   const defHad = { ...city.units };
   const r = G.battle(s, m.owner, m.units, attMult, city.owner, city.units, defMult, cd.flat, mode);
   // siege: surviving rams damage the wall, surviving catapults wreck buildings
@@ -1475,7 +1494,9 @@ G.advance = (s, gameSeconds, maxSteps = 4000) => {
 // World generation / new game
 // ---------------------------------------------------------------------
 G.newGame = (opts) => {
-  const { name, cityName, race, difficulty = 'normal', pace = 'standard', mode = 'conquest', size = 31 } = opts;
+  const { name, cityName, race, difficulty = 'normal', pace = 'standard', mode = 'conquest' } = opts;
+  const rivals = G.clamp(Math.round(opts.rivals || 3), 1, DATA.raceOrder.length - 1);
+  const size = opts.size || 31 + 4 * Math.max(0, rivals - 3);   // the world grows with the number of rivals
   const s = {
     version: G.VERSION, time: 0, nextId: 1, realLast: Date.now(), map: size,
     settings: { speed: 1, pace, mode, difficulty, aiMult: { easy: 0.75, normal: 1, hard: 1.3 }[difficulty], hostility: { easy: 0.5, normal: 0.85, hard: 1.25 }[difficulty] },
@@ -1498,28 +1519,37 @@ G.newGame = (opts) => {
   }
 
   s.empires.p = { id: 'p', name: name || 'Your Realm', race, gold: 250, color: DATA.empireColors[0], aggr: 0 };
-  DATA.raceOrder.filter(r => r !== race).forEach((r, i) => {
+  // rivals: a random selection of the other peoples (the classic four first when only 3 rivals are chosen)
+  const others = DATA.raceOrder.filter(r => r !== race);
+  const classic = others.filter(r => ['hearth', 'delver', 'sylvan', 'ash'].includes(r)).sort(() => Math.random() - 0.5);
+  const fresh = others.filter(r => !classic.includes(r)).sort(() => Math.random() - 0.5);
+  const chosen = (opts.rivalRaces && opts.rivalRaces.length ? opts.rivalRaces : (rivals <= 3 ? [...classic, ...fresh] : [...classic, ...fresh].sort(() => Math.random() - 0.5))).slice(0, rivals);
+  const AGGR = { ash: 0.75, delver: 0.4, sylvan: 0.45, hearth: 0.35 };
+  chosen.forEach((r, i) => {
     const id = 'a' + (i + 1);
-    s.empires[id] = { id, name: DATA.aiRulers[r], race: r, gold: 250, color: DATA.races[r].color, aggr: r === 'ash' ? 0.75 : r === 'delver' ? 0.4 : r === 'sylvan' ? 0.45 : 0.35 };
+    s.empires[id] = { id, name: DATA.aiRulers[r], race: r, gold: 250, color: DATA.races[r].color, aggr: DATA.races[r].aggr ?? AGGR[r] ?? 0.45 };
   });
+  const aiIds = chosen.map((r, i) => 'a' + (i + 1));
 
   const c = (size - 1) / 2;
   // choose capital sites first, paint each people's homeland around them, then found the cities
   const pt = G.freeTile(s, t => Math.hypot(t.x - c, t.y - c) < 4) || G.freeTile(s, () => true);
   const ais = [];
-  for (const id of ['a1', 'a2', 'a3']) {
-    const t = G.freeTile(s, t => dist(t, pt) >= size * 0.33 && ais.every(a => dist(a, t) >= size * 0.38))
-      || G.freeTile(s, t => dist(t, pt) >= size * 0.25);
+  for (const id of aiIds) {
+    const spread = aiIds.length <= 3 ? 0.38 : aiIds.length <= 5 ? 0.3 : 0.24;
+    const t = G.freeTile(s, t => dist(t, pt) >= size * 0.33 && ais.every(a => dist(a, t) >= size * spread))
+      || G.freeTile(s, t => dist(t, pt) >= size * 0.25 && ais.every(a => dist(a, t) >= 6))
+      || G.freeTile(s, t => dist(t, pt) >= 7);
     ais.push(t);
   }
   paintHomeland(s, pt.x, pt.y, race);
-  ['a1', 'a2', 'a3'].forEach((id, i) => paintHomeland(s, ais[i].x, ais[i].y, s.empires[id].race));
+  aiIds.forEach((id, i) => paintHomeland(s, ais[i].x, ais[i].y, s.empires[id].race));
   makeSeas(s, [pt, ...ais]);
   s.rivers = G.genRivers(s);
   const pc = G.foundCity(s, 'p', pt.x, pt.y, cityName || 'Hearthstead', { grain: 450, timber: 750, stone: 700, ore: 200 });
   pc.pop = 12; pc.buildings.mine = 1;
 
-  for (const [i, id] of ['a1', 'a2', 'a3'].entries()) {
+  for (const [i, id] of aiIds.entries()) {
     const t = ais[i];
     const city = G.foundCity(s, id, t.x, t.y, DATA.aiNames[s.empires[id].race][0]);
     city.buildings.mine = 1; city.pop = 12;

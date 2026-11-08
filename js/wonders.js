@@ -6,7 +6,7 @@
 // =====================================================================
 'use strict';
 
-DATA.wonders = {
+DATA.wonders = Object.assign({}, {
   hearth: { key: 'wonder_hearth', name: 'The Everharvest Halls', icon: '🌾', fx: { grain: 0.03, popGrowth: 0.02, tax: 0.02 },
     desc: 'Vast granaries and feast halls where no Hearthfolk child will ever go hungry. Each stage: +3% grain, +2% growth, +2% taxes across the realm.' },
   delver: { key: 'wonder_delver', name: 'The Anvil of Ages', icon: '⚒️', fx: { refine: 0.03, def: 0.015, ore: 0.02 },
@@ -15,7 +15,7 @@ DATA.wonders = {
     desc: 'A sapling of the first tree, sung into a living tower that touches the clouds. Each stage: +3% timber, +2% growth, research 2% faster.' },
   ash: { key: 'wonder_ash', name: 'The Ember Throne', icon: '🔥', fx: { atk: 0.02, trainTime: -0.02, carry: 0.03 },
     desc: 'A throne of fused bone and obsidian over an undying fire, where every warlord swears to the Horde. Each stage: +2% attack, training 2% faster, +3% plunder.' },
-};
+}, DATA.wonders || {});
 G.WONDER_STAGES = 10;
 
 for (const [race, w] of Object.entries(DATA.wonders)) {

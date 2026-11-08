@@ -58,7 +58,7 @@
   //   fx: modifier multipliers (through G.mod), happy: flat happiness,
   //   and named effects read by the happiness formula.
   // -------------------------------------------------------------------
-  DATA.traditions = {
+  DATA.traditions = Object.assign({}, {
     // ---- shared ----
     criers:    { name: 'Town Criers',        icon: '📣', tier: 1, happy: 4, desc: '+4 happiness in every city.' },
     tongue:    { name: 'Common Tongue',      icon: '🗣️', tier: 1, size: 1, fx: { tax: 1.05 }, desc: 'Empire-size unrest −1 per extra city; +5% taxes.' },
@@ -84,7 +84,7 @@
     spoils:    { name: 'Spoils of the Steppe', icon: '💰', race: 'ash', tier: 2, raided: 0.5, fx: { carry: 1.2, tax: 1.05 }, desc: '+20% plunder carried, +5% taxes; raids on our towns upset people half as much.' },
     emberrite: { name: 'Ember Rites',        icon: '🕯️', race: 'ash', tier: 2, happy: 5, fx: { trainTime: 0.9 }, desc: '+5 happiness; training 10% faster.' },
     warchant:  { name: 'War Chants',         icon: '🥁', race: 'ash', tier: 3, fx: { atk: 1.1, upkeep: 0.9 }, desc: '+10% attack; troops eat 10% less.' },
-  };
+  }, DATA.traditions || {});
   DATA.traditionOrder = Object.keys(DATA.traditions);
 
   const trads = emp => (emp && emp.traditions) || [];

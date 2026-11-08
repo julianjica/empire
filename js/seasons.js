@@ -16,12 +16,12 @@ DATA.seasonFx = [
     text: 'Winter: −30% grain, −10% timber, slower growth, marches 20% slower, troops eat 15% more. Stock up in autumn.' },
 ];
 // how strongly each people feels each season's effects (1 = fully, 0 = not at all), by season index
-DATA.seasonRace = {
+DATA.seasonRace = Object.assign({}, {
   hearth: [1, 1, 1.2, 1],          // Hearthfolk: the best harvest festivals
   delver: [0.6, 0.6, 0.6, 0.35],   // Deepdelvers: underground halls barely notice the year
   sylvan: [1.2, 1, 1, 0.6],        // Sylvani: forest folk bloom in spring and shrug off winter
   ash:    [1, 1.2, 1, 1],          // Ashborn: summer is for war
-};
+}, DATA.seasonRace || {});
 // summer campaigns: the Ashborn fight harder when the steppe is dry
 const ASH_SUMMER_ATK = 1.08;
 

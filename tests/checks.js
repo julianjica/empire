@@ -96,8 +96,15 @@ ok('catchUp ignores speed', Math.abs(s.time-t0-600)<5, (s.time-t0).toFixed(0));
   ok('AI reinforces threatened city', s.moves.some(m=>m.owner===id&&m.type==='reinforce'), JSON.stringify(s.moves.filter(m=>m.owner===id).map(m=>m.type)));
 }
 { // AI realms make war and peace among themselves
-  let changed=false, tries=0;
-  while(!changed && tries++<3){ const s=G.newGame({name:'T',race:'hearth'}); G.advance(s,12*3600,2000); changed=Object.values(s.airel||{}).some(r=>r.since>0); if(changed) console.log('   airel', JSON.stringify(s.airel)); }
-  ok('AI-AI relations evolve (war/peace)', changed);
+  // deterministic: neighbouring AI realms of similar strength, late game, with dice that always roll low
+  const s=G.newGame({name:'T',race:'hearth'}); s.time=12*3600;
+  const a=G.capital(s,'a1'); const t=G.freeTile(s,x=>G.dist(x,a)>=4&&G.dist(x,a)<=6); G.foundCity(s,'a2',t.x,t.y,'Border');
+  for(const id of ['a1','a2','a3']) s.empires[id].aggr=0.8;
+  const rnd=Math.random; Math.random=()=>0.001; try { for(let i=0;i<5;i++) G.slowHooks.forEach(h=>h(s,1)); } finally { Math.random=rnd; }
+  const r=G.aiRel(s,'a1','a2');
+  ok('neighbouring AI realms go to war', r.status==='war', JSON.stringify(r));
+  s.time += 3*3600; const pr=G.power; G.power=(st,id)=>id==='a1'?1000:300;   // a2 is losing badly
+  try { G.slowHooks.forEach(h=>h(s,1)); } finally { G.power=pr; }
+  ok('a losing AI realm makes peace', G.aiRel(s,'a1','a2').status==='peace', JSON.stringify(G.aiRel(s,'a1','a2')));
 }
 `);

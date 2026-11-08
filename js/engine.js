@@ -19,7 +19,8 @@ G.hostileHooks = [];    // fn(s, attackerOwner, defenderOwner, type)
 G.aiHooks = [];         // fn(s, emp, dtMin)
 G.moveHandlers = {};    // type -> fn(s, m)
 G.newGameHooks = [];    // fn(s, opts)
-G.aiBuildFilters = [];  // fn(s, city, type) -> false to keep the AI's generic build picker away from a building
+G.aiBuildFilters = [];
+G.econHooks = [];       // fn(s, city, raw, eff) -> add extra raw production per minute (e.g. mana)  // fn(s, city, type) -> false to keep the AI's generic build picker away from a building
 G.hostility = (s, aiId, target) => 1;   // replaced by diplomacy
 
 // ---------------------------------------------------------------------
@@ -150,6 +151,7 @@ G.econ = (s, city, awayUnits) => {
     }
   }
 
+  for (const h of G.econHooks) h(s, city, raw, eff);
   const hb = G.lvl(city, 'harbor');
   if (hb) raw.grain = (raw.grain || 0) + 5 * hb * Math.pow(1.12, hb - 1) * Math.min(4, G.site(s, city).water || 0) / 2 * eff * G.mod(s, city.owner, city, 'grain');
   const refiners = [];

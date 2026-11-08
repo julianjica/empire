@@ -110,6 +110,7 @@ const renderStart = () => {
       <label>Name of your hero<input id="sHero" value="${esc(st.hero || ['Aldric', 'Maren', 'Tavish', 'Isolde', 'Brannoc'][Math.floor(Math.random() * 5)])}"></label>
       ${choice('sPace', DATA.pace, st.pace, 'Pace')}
       ${choice('sMode', DATA.modes, st.mode, 'Mode')}
+      <label>Rival realms<select id="sRivals">${[1, 2, 3, 4, 5, 6, 7].filter(n => n < DATA.raceOrder.length).map(n => `<option value="${n}" ${String(st.rivals || 3) === String(n) ? 'selected' : ''}>${n} rival${n > 1 ? 's' : ''}${n === 3 ? ' — classic' : n >= 6 ? ' — a crowded, larger world' : ''}</option>`).join('')}</select></label>
       <label>Rivals<select id="sDiff">
         ${['easy', 'normal', 'hard'].map(d => `<option value="${d}" ${st.difficulty === d ? 'selected' : ''}>${{ easy: 'Gentle — slow, peaceful rivals', normal: 'Fair — rivals grow as you do', hard: 'Harsh — fast, warlike rivals' }[d]}</option>`).join('')}
       </select></label>
@@ -134,7 +135,7 @@ const clockOf = t => {
   return `${Math.floor(t / 3600)}h ${Math.floor(t % 3600 / 60)}m played`; };
 const readStart = () => {
   const v = id => document.getElementById(id).value;
-  Object.assign(UI.start, { name: v('sName'), city: v('sCity'), hero: v('sHero'), pace: v('sPace'), mode: v('sMode'), difficulty: v('sDiff') });
+  Object.assign(UI.start, { name: v('sName'), city: v('sCity'), hero: v('sHero'), pace: v('sPace'), mode: v('sMode'), difficulty: v('sDiff'), rivals: +v('sRivals') });
 };
 
 // ---------------------------------------------------------------------
@@ -497,12 +498,16 @@ Object.assign(TABS, {
 });
 
 const endgameBanner = () => {
-  if (S.gameOver === 'wonder') {
+  if (S.gameOver === 'wonder' || S.gameOver === 'arcane' || S.gameOver === 'faith') {
     const e = S.empires[S.gameOverBy] || {}; const w = DATA.wonders[e.race] || {};
-    return `<div class="banner lose">The ${esc(e.name || 'rival')} completed ${esc(w.name || 'their wonder')}. Their legend eclipses yours — the game is lost.<div class="row" style="justify-content:center;margin-top:8px"><button class="primary" data-act="continueEndless">Play on in Endless mode</button><button data-act="newgame">Start a new game</button></div></div>`;
+    const why = S.gameOver === 'arcane' ? 'completed the Great Working. The weave of the world bends to their will' : S.gameOver === 'faith' ? 'has brought the world to its faith' : `completed ${esc(w.name || 'their wonder')}. Their legend eclipses yours`;
+    return `<div class="banner lose">The ${esc(e.name || 'rival')} ${why} — the game is lost.<div class="row" style="justify-content:center;margin-top:8px"><button class="primary" data-act="continueEndless">Play on in Endless mode</button><button data-act="newgame">Start a new game</button></div></div>`;
   }
   if (S.victory && !S.victorySeen) {
-    const msg = S.victory === 'wonder' ? `${esc(DATA.wonders[S.empires.p.race].name)} stands complete. Your people's legend will outlast the ages!` : 'Every rival crown has fallen. The realm is yours!';
+    const msg = S.victory === 'wonder' ? `${esc(DATA.wonders[S.empires.p.race].name)} stands complete. Your people's legend will outlast the ages!`
+      : S.victory === 'arcane' ? 'The Great Working is done. The weave of the world answers to you!'
+      : S.victory === 'faith' ? 'Your faith has spread across the world. The gods smile on your realm!'
+      : 'Every rival crown has fallen. The realm is yours!';
     return `<div class="banner win">👑 Victory! ${msg}<div class="row" style="justify-content:center;margin-top:8px"><button class="primary" data-act="dismissVictory">Keep playing</button><button data-act="newgame">Start a new game</button></div></div>`;
   }
   return '';
@@ -554,7 +559,7 @@ Object.assign(act, {
   begin: () => {
     readStart();
     const st = UI.start;
-    S = G.newGame({ name: st.name.trim(), cityName: st.city.trim(), heroName: st.hero.trim(), race: st.race, difficulty: st.difficulty, pace: st.pace, mode: st.mode });
+    S = G.newGame({ name: st.name.trim(), cityName: st.city.trim(), heroName: st.hero.trim(), race: st.race, difficulty: st.difficulty, pace: st.pace, mode: st.mode, rivals: st.rivals || 3 });
     UI.city = G.citiesOf(S, 'p')[0].id; UI.tab = 'city'; UI.form = {}; UI.sel = null;
     G.save(S); render(true);
   },

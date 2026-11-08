@@ -329,6 +329,7 @@ const renderMilitary = city => {
   for (const [bt, units] of Object.entries(byBuilding)) {
     const b = DATA.buildings[bt];
     const L = G.lvl(city, bt);
+    if (!L && ['temple', 'harbor', 'magetower', 'workshop'].includes(bt)) continue;   // optional buildings: show their units once built
     const q = city.train[bt] || [];
     units.sort((a, c) => DATA.units[a].req - DATA.units[c].req);
     parts.push(`<div><div class="group-title">${b.icon} ${b.name} ${L ? 'level ' + L : '(not built)'}</div>
@@ -370,7 +371,7 @@ const renderForge = city => {
 // ---------------------------------------------------------------------
 // Movements, market, reports, empire, help
 // ---------------------------------------------------------------------
-const MOVE_LABEL = { raid: 'Raid', attack: 'Attack', conquer: 'Conquest', settle: 'Settlers', reinforce: 'Reinforcement', trade: 'Caravan', return: 'Returning', scout: 'Scouting', adventure: 'Adventure' };
+const MOVE_LABEL = { preach: '📿 Preaching', raid: 'Raid', attack: 'Attack', conquer: 'Conquest', settle: 'Settlers', reinforce: 'Reinforcement', trade: 'Caravan', return: 'Returning', scout: 'Scouting', adventure: 'Adventure' };
 const placeName = (x, y) => {
   const t = G.tileAt(S, x, y);
   if (t.city) return esc(S.cities[t.city].name);
@@ -500,13 +501,14 @@ Object.assign(TABS, {
 const endgameBanner = () => {
   if (S.gameOver === 'wonder' || S.gameOver === 'arcane' || S.gameOver === 'faith') {
     const e = S.empires[S.gameOverBy] || {}; const w = DATA.wonders[e.race] || {};
-    const why = S.gameOver === 'arcane' ? 'completed the Great Working. The weave of the world bends to their will' : S.gameOver === 'faith' ? 'has brought the world to its faith' : `completed ${esc(w.name || 'their wonder')}. Their legend eclipses yours`;
+    const fname = S.gameOverFaith && S.faiths && S.faiths[S.gameOverFaith] ? S.faiths[S.gameOverFaith].name : 'their faith';
+    const why = S.gameOver === 'arcane' ? 'completed the Great Working. The weave of the world bends to their will' : S.gameOver === 'faith' ? `swept the world with ${esc(fname)}. Their faith eclipses your crown` : `completed ${esc(w.name || 'their wonder')}. Their legend eclipses yours`;
     return `<div class="banner lose">The ${esc(e.name || 'rival')} ${why} — the game is lost.<div class="row" style="justify-content:center;margin-top:8px"><button class="primary" data-act="continueEndless">Play on in Endless mode</button><button data-act="newgame">Start a new game</button></div></div>`;
   }
   if (S.victory && !S.victorySeen) {
     const msg = S.victory === 'wonder' ? `${esc(DATA.wonders[S.empires.p.race].name)} stands complete. Your people's legend will outlast the ages!`
       : S.victory === 'arcane' ? 'The Great Working is done. The weave of the world answers to you!'
-      : S.victory === 'faith' ? 'Your faith has spread across the world. The gods smile on your realm!'
+      : S.victory === 'faith' ? `${esc((S.victoryFaith && S.faiths && S.faiths[S.victoryFaith] || {}).name || 'Your faith')} is the faith of the world. Every realm hears your hymns!`
       : 'Every rival crown has fallen. The realm is yours!';
     return `<div class="banner win">👑 Victory! ${msg}<div class="row" style="justify-content:center;margin-top:8px"><button class="primary" data-act="dismissVictory">Keep playing</button><button data-act="newgame">Start a new game</button></div></div>`;
   }

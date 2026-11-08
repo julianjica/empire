@@ -292,6 +292,7 @@ G.castSpell = (s, owner, cityId, id, target) => {
     }
   }
   payMana(s, owner, city, st.cost);
+  if (G.noteSpellCast) G.noteSpellCast(s, owner);
   const M = magic(s);
   (M.casts[owner] = M.casts[owner] || {})[id] = [...((M.casts[owner] || {})[id] || []).filter(t => s.time - t < 7200), s.time];
   (M.cool[owner] = M.cool[owner] || {})[id] = s.time + sp.cool * 60 * G.pace(s).time;

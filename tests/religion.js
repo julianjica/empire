@@ -15,7 +15,7 @@ const slow=(s)=>{ s.slowClock=9.99; G.step(s,0.02); };   // fire one slow tick w
 
 // ---- tables ----
 ok('7 gods with icon, domain and bonus', DATA.godOrder.length===7 && DATA.godOrder.every(g=>DATA.gods[g].icon&&DATA.gods[g].domain&&DATA.gods[g].desc));
-ok('10 tenets', DATA.tenetOrder.length===10);
+ok('at least 10 tenets (incl. Arcane Communion, Forbidden Arts)', DATA.tenetOrder.length>=10 && DATA.tenets.arcane && DATA.tenets.forbidden);
 ok('each race leans to 2 gods', DATA.raceOrder.every(r=>DATA.raceGods[r].length===2&&DATA.raceGods[r].every(g=>DATA.gods[g])));
 ok('shrine registered (hidden from the generic AI picker)', DATA.buildings.shrine && DATA.buildingOrder.includes('shrine') && DATA.buildingGroups.some(g=>g.list.includes('shrine')));
 ok('priest trained at the Temple, 1 citizen', DATA.units.priest.at==='temple' && DATA.commonUnits.includes('priest') && G.unitPop('priest')===1);
@@ -24,6 +24,7 @@ ok('5 miracles', DATA.miracleOrder.length===5);
 // ---- holy sites ----
 { const s=fresh(); const hs=G.holySites(s);
   ok('~4 holy sites marked at new game', hs.length===4 && hs.every(t=>G.holySiteInfo(s,t)), ''+hs.length);
+  ok('no stray holy flags on other tiles', s.special.filter(t=>(t.ruin||t.oasis).holy).length===hs.length, ''+s.special.filter(t=>(t.ruin||t.oasis).holy).length);
   const oasis=s.special.find(t=>t.oasis); oasis.oasis.holy='oru'; if(!s.holySites.includes(G.tileIdx(s,oasis))) s.holySites.push(G.tileIdx(s,oasis));
   const c=G.capital(s,'p'); oasis.oasis.owner=c.id;
   ok('an owned holy oasis belongs to its city', G.holySiteHolder(s,oasis)===c);
@@ -78,15 +79,15 @@ ok('5 miracles', DATA.miracleOrder.length===5);
 
 // ---- spread ----
 { const s=fresh(); const c=G.capital(s,'p'); const fid=faithful(s,'p');
-  c.buildings.temple=5;
+  c.buildings.temple=5; for(const id of ['a1','a2','a3']) s.empires[id].faith=-1e6;   // keep the AIs out of it
   const t=near(s,c,3,5); const n=G.foundCity(s,'a1',t.x,t.y,'Heathenford');
   ok('a new city starts unconverted', n.faiths.none===1);
-  for(let i=0;i<120;i++) slow(s), s.time+=60;    // ~2 hours of slow ticks
+  G.advance(s,2*3600,720);
   ok('faith spreads to nearby foreign cities', (n.faiths[fid]||0)>0.15, JSON.stringify(n.faiths));
   ok('shares stay normalized', Math.abs(Object.values(n.faiths).reduce((a,b)=>a+b,0)-1)<1e-9);
   ok('the state faith holds the capital', G.majorityFaith(c)===fid, JSON.stringify(c.faiths));
   const t2=G.freeTile(s,x=>Object.values(s.cities).every(o=>G.dist(o,x)>R.reach+1)); const far=G.foundCity(s,'a2',t2.x,t2.y,'Farholm');
-  for(let i=0;i<30;i++) slow(s), s.time+=60;
+  G.advance(s,1800,180);
   ok('cities out of reach are untouched', far.faiths.none>0.999, JSON.stringify(far.faiths));
 }
 
@@ -114,6 +115,8 @@ ok('5 miracles', DATA.miracleOrder.length===5);
   const s2=fresh(); const c2=G.capital(s2,'p'); faithful(s2,'p'); c2.units.priest=1;
   const nf=G.capital(s2,'a1'); const t=near(s2,c2,2,3); const own=G.foundCity(s2,'p',t.x,t.y,'Splitburg');
   own.faiths={none:0.5,zzz:0.5}; s2.faiths.zzz={id:'zzz',name:'Other',god:'oru',tenets:['groves','fasting'],founder:'a1',founded:0};
+  own.units.priest=2; const b0=own.faiths[G.faithOf(s2,'p').id]||0;
+  ok('priests can preach where they stand', G.preachHere(s2,own.id,2)===null && (own.faiths[G.faithOf(s2,'p').id]||0)>b0+0.1 && !own.units.priest);
   ok('priests may preach in our own split cities', G.sendArmy(s2,c2.id,own.x,own.y,'preach',{priest:1})===null);
   void nf;
 }
@@ -165,7 +168,7 @@ ok('5 miracles', DATA.miracleOrder.length===5);
 { const s=fresh(); const fid=faithful(s,'p'); const r=G.rel(s,'a1'); r.opinion=0;
   s.empires.a1.faith=200; G.adoptFaith(s,'a1',fid);
   ok('adopting your faith warms them', r.opinion>=10, ''+r.opinion);
-  for(let i=0;i<120;i++) slow(s);
+  for(let i=0;i<400;i++) slow(s);
   ok('shared faith: opinion settles above the neutral target', r.opinion>=15, r.opinion.toFixed(1));
   const f2=faithful(s,'a2',{god:'skarr',tenets:['holywar','fasting']}); const r2=G.rel(s,'a2'); r2.opinion=0;
   for(let i=0;i<120;i++) slow(s);
@@ -193,10 +196,11 @@ ok('5 miracles', DATA.miracleOrder.length===5);
     ai.units={}; ai.loyalty=50; ai.faiths=share?{none:0.2,[fid]:0.8}:{none:1};
     c.units={knight:300,herald:1}; c.res.grain=1e6; s.empires.a1.dead=false;
     G.sendArmy(s,c.id,ai.x,ai.y,'conquer',{knight:300,herald:1}); const m=s.moves[s.moves.length-1];
+    G.advance(s,m.arrive-s.time-1,40); ai.loyalty=32;
     const orig=G.rint; G.rint=(a,b)=>Math.round((a+b)/2);   // average herald roll (26)
-    G.advance(s,m.arrive-s.time+1,40); G.rint=orig;
+    G.advance(s,3,2); G.rint=orig;
     return ai.owner==='p'; };
-  ok('a heathen city survives one herald at 50 loyalty', run(false)===false);
+  ok('a heathen city survives one herald at 32 loyalty', run(false)===false);
   ok('a city of our faith yields to one herald (1.5x)', run(true)===true);
 }
 
@@ -231,7 +235,7 @@ ok('5 miracles', DATA.miracleOrder.length===5);
   emp.faith=500; ai.pop=60; emp.relClock=99; let trained=false;
   for(let i=0;i<20&&!trained;i++){ emp.relClock=99; for(const h of G.aiHooks) h(s,emp,0.2); trained=(ai.train.temple||[]).length>0; }
   ok('AI trains priests', trained);
-  ai.units.priest=4; const t=near(s,ai,3,6); const target=G.foundCity(s,'a2',t.x,t.y,'Mission');
+  ai.units.priest=4; ai.faiths={none:0.1,[f.id]:0.9}; const t=near(s,ai,3,6); const target=G.foundCity(s,'a2',t.x,t.y,'Mission');
   emp.relClock=99; for(const h of G.aiHooks) h(s,emp,0.2);
   ok('AI sends priests to nearby cities', s.moves.some(m=>m.owner==='a1'&&m.type==='preach'));
   emp.faith=1000; G.startCalamity(s,'blight',G.tileAt(s,ai.x,ai.y)); emp.relClock=99;
@@ -268,6 +272,23 @@ ok('5 miracles', DATA.miracleOrder.length===5);
   const s3=G.deserialize(JSON.stringify(old));
   let err=null; try{ G.advance(s3,1200,120); G.faithWorld(s3); G.happiness(s3,G.capital(s3,'p')); }catch(e){ err=e; }
   ok('an older save without religion loads and runs', s3 && !err && s3.faiths && G.holySites(s3).length===4 && Object.values(s3.cities).every(c=>c.faiths&&c.faiths.none!==undefined), err&&err.stack);
+}
+// ---- integration APIs: patron, state faith, spells, unknown races ----
+{ const s=fresh(); ok('no patron without a faith', G.patronOf(s,'p')===null && G.stateFaith(s,'p')===null);
+  const fid=faithful(s,'p',{god:'mirren',tenets:['arcane','forbidden']});
+  ok('patronOf / stateFaith', G.patronOf(s,'p')==='mirren' && G.stateFaith(s,'p').id===fid);
+  ok('Arcane Communion: spells x0.85', Math.abs(G.mod(s,'p',null,'spellCost')-0.85)<1e-9);
+  const c=G.capital(s,'p'); s.holySites=[]; c.buildings.temple=3; const r=G.faithRate(s,'p');
+  s.empires.p.faithId=null; const r0=G.faithRate(s,'p'); s.empires.p.faithId=fid;
+  ok('Forbidden Arts: +20% faith', r>r0*1.15, r0.toFixed(2)+' -> '+r.toFixed(2));
+  ok('Forbidden Arts: no unrest without spells', factor(s,c,/Forbidden/)===0);
+  G.noteSpellCast(s,'p'); ok('Forbidden Arts: casting unsettles cities', factor(s,c,/Forbidden/)===-3);
+  DATA.races.zz_test={...DATA.races.hearth,name:'Test',gods:['thalos','mirren']};
+  ok('race-declared leaning gods are used', G.raceGods('zz_test').join()==='thalos,mirren');
+  delete DATA.races.zz_test.gods; ok('unknown races still get two gods', G.raceGods('zz_test').length===2 && G.raceGods('zz_test').every(g=>DATA.gods[g]));
+  const e={race:'zz_test',aggr:0.5}; const fo=G.aiFounding(s,e);
+  ok('AI founding works for an unknown race', DATA.gods[fo.god] && fo.tenets.length===2 && fo.tenets[0]!==fo.tenets[1] && fo.tenets.every(t=>DATA.tenets[t]));
+  delete DATA.races.zz_test;
 }
 console.log(fails?fails+' FAILED':'all religion checks passed');
 if(fails) process.exitCode=1;

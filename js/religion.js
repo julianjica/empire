@@ -55,7 +55,17 @@
       desc: '+8% timber and stone; healers halve the unhappiness of calamities.' },
   };
   DATA.godOrder = Object.keys(DATA.gods);
+  // fallback leanings; a race may declare its own with DATA.races[race].gods = [godId, godId]
   DATA.raceGods = { hearth: ['ysolde', 'thalos'], delver: ['durgan', 'oru'], sylvan: ['lirael', 'oru'], ash: ['skarr', 'mirren'] };
+  G.raceGods = race => {
+    const r = DATA.races[race];
+    const g = (r && Array.isArray(r.gods) && r.gods.filter(x => DATA.gods[x])) || DATA.raceGods[race];
+    if (g && g.length) return g;
+    // unknown people: a stable pair derived from the race id
+    let h = 0; for (const ch of String(race)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const o = DATA.godOrder;
+    return [o[h % o.length], o[(h + 3) % o.length]];
+  };
 
   DATA.tenets = {
     tithes:     { name: 'Tithes',              icon: '🪙', fx: { tax: 1.08 }, desc: '+8% taxes.' },
@@ -68,6 +78,8 @@
     ancestors:  { name: 'Ancestor Veneration', icon: '🕯️', loyalty: 0.3, desc: 'Loyalty recovers +0.3 per minute faster.' },
     fasting:    { name: 'Fasting',             icon: '🍂', fx: { upkeep: 0.92 }, desc: 'Troops eat 8% less.' },
     iconography:{ name: 'Iconography',         icon: '🖼️', culture: 1.15, desc: '+15% culture.' },
+    arcane:     { name: 'Arcane Communion',    icon: '🔮', fx: { spellCost: 0.85 }, desc: 'Spells cost 15% less.' },
+    forbidden:  { name: 'Forbidden Arts',      icon: '🩸', faith: 1.2, spellUnrest: 3, desc: '+20% faith, but each spell you cast unsettles your cities (−3 happiness for 10 minutes).' },
   };
   DATA.tenetOrder = Object.keys(DATA.tenets);
 
@@ -129,9 +141,10 @@
   // -------------------------------------------------------------------
   const holyName = (god) => `Sanctum of ${DATA.gods[god].short}`;
   const markHolySites = s => {
+    for (const t of s.special) { if (t.ruin) delete t.ruin.holy; if (t.oasis) delete t.oasis.holy; }
     const cands = s.special.filter(t => (t.ruin || t.oasis) && !Object.values(s.cities).some(c => G.dist(c, t) < 2));
     const picked = [];
-    const want = 4;
+    const want = Math.max(4, Object.keys(s.empires).length);   // ~4, more in crowded worlds
     const ruins = cands.filter(t => t.ruin).sort(() => Math.random() - 0.5);
     const oases = cands.filter(t => t.oasis).sort(() => Math.random() - 0.5);
     const pool = [];
@@ -168,6 +181,10 @@
 
   const faithOf = (s, owner) => { const e = s.empires[owner]; return e && e.faithId && s.faiths && s.faiths[e.faithId] || null; };
   G.faithOf = faithOf;
+  G.stateFaith = faithOf;
+  G.patronOf = (s, owner) => { const f = faithOf(s, owner); return f ? f.god : null; };
+  // the magic module calls this when a realm casts a spell (Forbidden Arts reads it)
+  G.noteSpellCast = (s, owner) => { const e = s.empires[owner]; if (e) e.lastSpell = s.time; };
   const tenetsOf = f => (f ? f.tenets : []).map(t => DATA.tenets[t]).filter(Boolean);
   const fxProp = (f, prop, combine = 'mul') => {
     let v = combine === 'mul' ? 1 : 0;
@@ -192,7 +209,7 @@
   };
   const normalize = fs => {
     let t = 0;
-    for (const k of Object.keys(fs)) { if (!(fs[k] > 0.002) && k !== 'none') delete fs[k]; else t += fs[k] || 0; }
+    for (const k of Object.keys(fs)) { if (!(fs[k] > 1e-5) && k !== 'none') delete fs[k]; else t += fs[k] || 0; }
     if (!(t > 0)) { for (const k of Object.keys(fs)) delete fs[k]; fs.none = 1; return fs; }
     for (const k of Object.keys(fs)) fs[k] /= t;
     if (fs.none === undefined) fs.none = 0;
@@ -244,6 +261,7 @@
     let r = G.citiesOf(s, owner).reduce((a, c) => a + G.cityFaithRate(s, c), 0);
     const holy = G.holySitesOf(s, owner).length;
     r += holy * R.holyFaith * G.faithFx(s, owner, 'holyFaith') * G.pace(s).prod;
+    r *= G.faithFx(s, owner, 'faith');
     return r;
   };
 
@@ -398,6 +416,22 @@
     if (tf && tf !== f) per /= 1 + R.priestResist * G.lvl(target, 'temple');   // a rival temple's clergy pushes back
     return Math.min(R.priestCap, per * n);
   };
+  // priests preach where they stand (heals a divided home city without a march)
+  G.preachHere = (s, cityId, n) => {
+    ensure(s);
+    const c = s.cities[cityId];
+    if (!c) return 'No such city';
+    const emp = s.empires[c.owner];
+    if (!emp.faithId) return 'Found or adopt a faith first';
+    n = Math.min(Math.floor(n), c.units.priest || 0);
+    if (!(n > 0)) return 'No priests here';
+    c.units.priest -= n;
+    const fid = emp.faithId;
+    const before = Math.round((c.faiths[fid] || 0) * 100);
+    G.convertCity(s, c, fid, G.preachAmount(s, c.owner, c, n, fid));
+    G.log(s, c.owner, `📿 ${n} priest${n === 1 ? '' : 's'} preached in ${c.name}: followers ${before}% → ${Math.round(c.faiths[fid] * 100)}%.`, 'good');
+    return null;
+  };
   G.moveHandlers.preach = (s, m) => {
     ensure(s);
     const tile = G.tileAt(s, m.x, m.y);
@@ -410,7 +444,7 @@
     const after = Math.round((tc.faiths[fid] || 0) * 100);
     const f = s.faiths[fid];
     const extra = `${n} priest${n === 1 ? '' : 's'} of ${f.name} preached in ${tc.name}: followers ${before}% → ${after}%.`;
-    G.report(s, [m.owner, tc.owner], `Priests preached in ${tc.name}`, 'info', { extra });
+    G.report(s, [m.owner], `Priests preached in ${tc.name}`, 'info', { extra });
     if (m.owner === 'p') G.log(s, 'p', `📿 ${extra}`, 'good');
     else if (tc.owner === 'p') G.log(s, 'p', `📿 Priests of ${f.name} (${s.empires[m.owner].name}) preached in ${tc.name}: their faith now holds ${after}%.`, 'warn');
     // rival courts resent missionaries (a little)
@@ -520,6 +554,8 @@
       const [a, b] = topTwo(city);
       if (a[1] > 0.25 && b[1] > 0.25) add('Divided faiths', -Math.min(R.splitHappy, 2 + (b[1] - 0.25) * 30));
       add('Shrines', Math.min(R.shrineHappyMax, R.shrineHappy * G.lvl(city, 'shrine')));
+      const unrest = G.faithFx(s, city.owner, 'spellUnrest', 'add');
+      if (unrest && emp.lastSpell !== undefined && s.time - emp.lastSpell < paceMin(s, 10)) add('Forbidden arts', -unrest);
       const raw = why.reduce((x, w) => x + w.value, 0);
       return { value: G.clamp(Math.round(raw), 0, 100), why, raw };
     };
@@ -586,8 +622,8 @@
     const a = s.empires[aiId], b = s.empires[target];
     if (!a || !b || !a.faithId) return h;
     if (b.faithId === a.faithId) return h * 0.7;
-    let m = 1.08;
-    if (a.zealot) m = 1.25;
+    let m = b.faithId ? 1.08 : 1;          // the godless are no rivals for souls…
+    if (a.zealot) m = b.faithId ? 1.2 : 1.1; // …except to zealots
     if (a.holyWar === target) m = 1.5;
     return h * m;
   };
@@ -682,6 +718,13 @@
     sylvan: ['groves', 'iconography', 'missionary', 'charity'],
     ash: ['holywar', 'fasting', 'missionary', 'tithes'],
   };
+  // for peoples without their own list: tenets that suit the patron
+  const GOD_TENETS = {
+    ysolde: ['pilgrimage', 'charity', 'tithes', 'fasting'], durgan: ['ancestors', 'fasting', 'tithes', 'holywar'],
+    lirael: ['iconography', 'monastic', 'arcane', 'missionary'], skarr: ['holywar', 'fasting', 'missionary', 'forbidden'],
+    thalos: ['tithes', 'missionary', 'pilgrimage', 'charity'], mirren: ['ancestors', 'arcane', 'forbidden', 'monastic'],
+    oru: ['groves', 'charity', 'ancestors', 'fasting'],
+  };
   const FAITH_NAMES = {
     ysolde: ['The Golden Sheaf', 'Children of the Furrow', 'The Harvest Covenant'],
     durgan: ['The Anvil Creed', 'Sons of the Forge', 'The Hammer Rite'],
@@ -697,9 +740,9 @@
     return opts.length ? G.pick(opts) : `${DATA.gods[god].short}'s Faithful ${Object.keys(s.faiths).length + 1}`;
   };
   G.aiFounding = (s, emp) => {
-    const lean = DATA.raceGods[emp.race];
-    const pref = TENET_PREF[emp.race];
+    const lean = G.raceGods(emp.race);
     const god = G.pick(lean);
+    const pref = TENET_PREF[emp.race] || GOD_TENETS[god] || ['tithes', 'charity', 'missionary', 'monastic'];
     let tenets = [pref[0], G.pick(pref.slice(1))];
     if (emp.aggr >= 0.6 && !tenets.includes('holywar') && Math.random() < 0.5) tenets[1] = 'holywar';
     if (tenets[0] === tenets[1]) tenets[1] = pref[2];
@@ -748,7 +791,7 @@
     // 2. found or adopt
     if (!emp.faithId) {
       const weak = G.power(s, emp.id) < 0.6 * Math.max(...Object.values(s.empires).filter(e => !e.dead).map(e => G.power(s, e.id)));
-      const lean = DATA.raceGods[emp.race];
+      const lean = G.raceGods(emp.race);
       const existing = Object.values(s.faiths).filter(f => s.empires[f.founder] && !s.empires[f.founder].dead);
       const kin = existing.filter(f => lean.includes(f.god));
       if (existing.length && (weak || !hasTemple(s, emp.id)) && emp.faith >= R.adoptCost && s.time > paceMin(s, 150)) {
@@ -782,6 +825,7 @@
     }
     for (const c of cities) {
       const n = c.units.priest || 0;
+      if (n >= 1 && (ensureCity(c)[fid] || 0) < 0.5) { G.preachHere(s, c.id, Math.min(n, 4)); continue; }
       if (n < batch) continue;
       const t = aiPriestTarget(s, emp, c);
       if (t) { G.sendArmy(s, c.id, t.x, t.y, 'preach', { priest: n }); break; }
@@ -799,7 +843,7 @@
 
   G.newGameHooks.push(s => {
     s.faiths = {};
-    markHolySites(s);
+    if (!Array.isArray(s.holySites)) markHolySites(s);
     ensure(s);
     for (const c of Object.values(s.cities)) { c.faiths = { none: 1 }; if (G.updateHappiness) G.updateHappiness(s, c); }
   });

@@ -927,7 +927,7 @@ G.resolveMove = (s, m) => {
         G.log(s, m.owner, `Their home lost, the troops march on to ${cap.name}.`, 'warn');
         s.moves.push({ ...m, id: G.newId(s, 'm'), from: cap.id, fx: m.x, fy: m.y, x: cap.x, y: cap.y, depart: s.time,
           arrive: s.time + G.travelTime(s, m.owner, m, cap, G.slowest(s, m.owner, m.units)) });
-      } else if (m.units.hero && G.heroLost) G.heroLost(s);
+      } else if (m.units.hero && G.heroLost) G.heroLost(s, m.owner);
     }
     return;
   }

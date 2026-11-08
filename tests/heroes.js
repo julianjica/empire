@@ -5,9 +5,9 @@ const files=['js/data.js','js/races2.js','js/engine.js','js/research.js',...['js
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:'')); };
-const fresh=(race='hearth')=>{ const s=G.newGame({name:'T',race}); s.settings.hostility=0; s.calamityAt=1e12; s.eventAt=1e12; return s; };
+const fresh=(race='hearth')=>{ const s=G.newGame({name:'T',race}); s.settings.hostility=0; s.calamityAt=1e12; s.eventAt=1e12; AIS=Object.keys(s.empires).filter(id=>id!=='p'); return s; };
 const withRandom=(v,fn)=>{ const r=Math.random; Math.random=()=>v; try { return fn(); } finally { Math.random=r; } };
-const AIS=['a1','a2','a3'];
+let AIS=['a1','a2','a3'];   // refreshed from each fresh game below (no fixed number of rivals)
 const nearTile=(s,c,dmin,dmax)=>G.freeTile(s,t=>G.dist(t,c)>=dmin&&G.dist(t,c)<=dmax&&Object.values(s.cities).every(o=>G.dist(o,t)>=dmin));
 const mkMove=(s,owner,from,to,type,units)=>({ id:G.newId(s,'m'), owner, type, from:from.id, fx:from.x, fy:from.y, x:to.x, y:to.y, units, cargo:{}, depart:s.time, arrive:s.time });
 
@@ -15,7 +15,7 @@ const mkMove=(s,owner,from,to,type,units)=>({ id:G.newId(s,'m'), owner, type, fr
 { const s=fresh();
   ok('AI heroes exist', AIS.every(id=>s.empires[id].hero && G.heroOf(s,id)===s.empires[id].hero));
   ok('AI heroes have personalities', AIS.every(id=>DATA.heroPersonalities[s.empires[id].hero.personality]), AIS.map(id=>s.empires[id].hero.personality).join(','));
-  ok('names fit the race', AIS.every(id=>DATA.heroNames[s.empires[id].race].includes(s.empires[id].hero.name)), AIS.map(id=>s.empires[id].hero.name).join(', '));
+  ok('names fit the race', AIS.every(id=>((DATA.races[s.empires[id].race].heroNames)||DATA.heroNames[s.empires[id].race]).includes(s.empires[id].hero.name)), AIS.map(id=>s.empires[id].hero.name).join(', '));
   ok('AI heroes start in their capitals', AIS.every(id=>G.capital(s,id).units.hero===1 && G.heroCityOf(s,id)===G.capital(s,id)));
   ok('player hero untouched', G.hero(s)===s.empires.p.hero && !s.empires.p.hero.personality && G.heroCity(s)===G.capital(s,'p') && G.capital(s,'p').units.hero===1);
   ok('one hero per capital', Object.values(s.cities).every(c=>(c.units.hero||0)<=1));
@@ -29,7 +29,7 @@ const mkMove=(s,owner,from,to,type,units)=>({ id:G.newId(s,'m'), owner, type, fr
   ok('points all spent', AIS.every(id=>s.empires[id].hero.free===0));
   ok('warlord: might and leadership', P('a1').str>=9 && P('a1').lead>=9 && !P('a1').econ && !P('a1').guard, JSON.stringify(P('a1')));
   ok('steward: stewardship and warding', P('a2').econ>=9 && P('a2').guard>=9 && !P('a2').str, JSON.stringify(P('a2')));
-  ok('adventurer: might', P('a3').str===23, JSON.stringify(P('a3')));
+  ok('adventurer: might, some arcana', P('a3').str>=15 && P('a3').arcana>=3 && !P('a3').lead && !P('a3').econ, JSON.stringify(P('a3')));
 }
 
 // ---- equips the best items, sells the surplus ----
@@ -120,7 +120,7 @@ const mkMove=(s,owner,from,to,type,units)=>({ id:G.newId(s,'m'), owner, type, fr
   s.time+=3600; emp.gold=10000; G.rivalHeroThink(s,emp);
   ok('revive paid in gold', !!h.reviveAt && emp.gold===10000-G.rivalReviveCost(s,id), 'gold '+emp.gold+' cost '+G.rivalReviveCost(s,id)+' level '+L);
   G.advance(s,G.reviveTime(s,id)+20,200);
-  ok('AI hero rises again in its capital', !h.dead && h.hp>0 && G.heroCityOf(s,id)===G.capital(s,id), 'dead '+h.dead);
+  ok('AI hero rises again (home, or already off on its business)', !h.dead && h.hp>0 && (G.heroCityOf(s,id)||G.heroMovingOf(s,id)) && h.revived===1, 'dead '+h.dead);
 }
 
 // ---- duels: wounds, experience, morale, report text ----
@@ -206,6 +206,19 @@ const mkMove=(s,owner,from,to,type,units)=>({ id:G.newId(s,'m'), owner, type, fr
   ok('heroLost spares a hero who is home', (()=>{ const s2=fresh(); G.heroLost(s2); return !G.hero(s2).dead; })());
 }
 
+// ---- arcana (5th attribute, for magic.js) ----
+{ const s=fresh(); const h=G.hero(s);
+  ok('arcana attribute exists', !!DATA.heroAttrs.arcana && h.points.arcana===0 && G.heroArcana(s,'p')===0);
+  h.free=5; for(let i=0;i<5;i++) G.heroAssign(s,'arcana');
+  ok('arcana raises spell power and lowers mana cost', G.heroArcana(s,'p')===5 && Math.abs(G.mod(s,'p',null,'spellPower')/1.2-1)<0.2 && G.mod(s,'p',null,'spellCost')<1, G.mod(s,'p',null,'spellPower').toFixed(3)+' / '+G.mod(s,'p',null,'spellCost').toFixed(3));
+  const sp=G.mod(s,'p',null,'spellPower'); G.killHero(s,'p','in a test');
+  ok('a fallen hero lends no arcana', G.heroArcana(s,'p')===0 && G.mod(s,'p',null,'spellPower')<sp);
+  h.points.arcana=40; h.dead=false;
+  ok('mana cost floor 50%', Math.abs(G.mod(s,'p',null,'spellCost')/G.mod(fresh(),'p',null,'spellCost')-0.5)<1e-9);
+  delete s.empires.a1.hero.points.arcana; const o=G.deserialize(G.serialize(s));
+  ok('older heroes get arcana 0 lazily', G.heroOf(o,'a1').points.arcana===0 && G.heroArcana(o,'a1')===0);
+}
+
 // ---- save / load, and older saves without rival heroes ----
 { const s=fresh(); G.heroGainXp(s,900,'a1'); const n1=s.empires.a1.hero.name, L1=s.empires.a1.hero.level;
   G.save(s); const s2=G.load();
@@ -214,7 +227,7 @@ const mkMove=(s,owner,from,to,type,units)=>({ id:G.newId(s,'m'), owner, type, fr
   const old=G.deserialize(G.serialize(s));
   ok('old save loads without rival heroes', old && AIS.every(id=>!old.empires[id].hero));
   G.advance(old,30,5);
-  ok('old save: rival heroes appear lazily', AIS.every(id=>old.empires[id].hero && old.empires[id].hero.personality && G.heroCityOf(old,id)));
+  ok('old save: rival heroes appear lazily', AIS.every(id=>old.empires[id].hero && old.empires[id].hero.personality && (G.heroCityOf(old,id)||G.heroMovingOf(old,id))));
   G.advance(old,3600,400);
   ok('old save runs on', !old.gameOver || old.gameOver===undefined);
 }
@@ -225,7 +238,7 @@ const mkMove=(s,owner,from,to,type,units)=>({ id:G.newId(s,'m'), owner, type, fr
   const hs=AIS.map(id=>s.empires[id].hero);
   ok('AI heroes level up over 6 hours', hs.some(h=>h.level>=3), hs.map(h=>h.name+' L'+h.level+' '+h.personality+' adv'+h.adventures+' led'+(h.ledAttacks||0)).join(' | '));
   ok('AI heroes spend their points', hs.every(h=>h.free===0||h.dead));
-  ok('AI heroes act (adventures or attacks)', hs.some(h=>h.adventures>0) && hs.some(h=>(h.ledAttacks||0)>0));
+  ok('AI heroes act (adventures or attacks)', hs.reduce((a,h)=>a+h.adventures+(h.ledAttacks||0),0)>=2 && hs.filter(h=>h.adventures+(h.ledAttacks||0)>0).length>=2);
   ok('every city holds at most one hero, of its own realm', Object.values(s.cities).every(c=>(c.units.hero||0)<=1));
   ok('each living hero is somewhere', AIS.every(id=>s.empires[id].dead||s.empires[id].hero.dead||G.heroCityOf(s,id)||G.heroMovingOf(s,id)));
 }

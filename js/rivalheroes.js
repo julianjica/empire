@@ -17,7 +17,7 @@
   DATA.heroPersonalities = {
     warlord:    { name: 'Warlord',    icon: '⚔️', desc: 'trains might and leadership, and leads the realm\'s big attacks', points: { str: 0.5, lead: 0.5 }, join: 0.85, adv: 0.35, trinket: 'lead' },
     steward:    { name: 'Steward',    icon: '📜', desc: 'tends the capital\'s fields and walls',                          points: { econ: 0.5, guard: 0.5 }, join: 0.2, adv: 0.25, trinket: 'good' },
-    adventurer: { name: 'Adventurer', icon: '🧭', desc: 'trains might and roams the ruins for treasure',                  points: { str: 1 },                join: 0.45, adv: 1, trinket: 'xp' },
+    adventurer: { name: 'Adventurer', icon: '🧭', desc: 'trains might and a little arcana, and roams the ruins for treasure',                  points: { str: 0.8, arcana: 0.2 }, join: 0.45, adv: 1, trinket: 'xp' },
   };
   // which personalities each people tends to raise
   const RACE_BENT = {
@@ -26,6 +26,7 @@
     sylvan: { warlord: 1, steward: 1, adventurer: 2 },
     ash:    { warlord: 3, steward: 0.5, adventurer: 1 },
   };
+  const ANY_BENT = { warlord: 1, steward: 1, adventurer: 1 };   // peoples added later (races2.js)
   // AI heroes learn a little slower than the player's, more so on gentle settings
   const AI_XP = { easy: 0.35, normal: 0.5, hard: 0.7 };
   const HOSTILE = ['raid', 'attack', 'conquer'];
@@ -40,9 +41,11 @@
 
   G.newRivalHero = (s, emp) => {
     const used = new Set(Object.values(s.empires).map(e => e.hero && e.hero.name));
-    const names = (DATA.heroNames[emp.race] || DATA.heroNames.hearth).filter(n => !used.has(n));
-    const h = G.newHeroState(G.pick(names.length ? names : DATA.heroNames[emp.race]));
-    h.personality = weighted(RACE_BENT[emp.race] || { warlord: 1, steward: 1, adventurer: 1 });
+    // a people's own list (DATA.races[race].heroNames, e.g. from races2.js) wins over ours
+    const list = (DATA.races[emp.race] && DATA.races[emp.race].heroNames) || DATA.heroNames[emp.race] || [].concat(...Object.values(DATA.heroNames));
+    const names = list.filter(n => !used.has(n));
+    const h = G.newHeroState(G.pick(names.length ? names : list));
+    h.personality = weighted(RACE_BENT[emp.race] || ANY_BENT);
     h.rival = true;
     return h;
   };
@@ -56,7 +59,7 @@
       if (cap) cap.units.hero = 1;
     }
     const h = emp.hero;
-    if (!h.personality) h.personality = weighted(RACE_BENT[emp.race] || { warlord: 1 });
+    if (!h.personality) h.personality = weighted(RACE_BENT[emp.race] || ANY_BENT);
     return h;
   };
 
@@ -175,9 +178,12 @@
     const escort = {};
     for (const [u, n] of Object.entries(home.units)) { const d = DATA.units[u]; if (u !== 'hero' && d.at && d.type !== 'civ' && d.type !== 'siege' && n > 0) escort[u] = Math.floor(n * 0.2); }
     const P = G.heroStats(s, emp.id).atk * G.heroLeadership(s, emp.id) + G.atkPower(s, emp.id, escort) * 0.5;
+    // the nearest ruin of every player city is left for the player
+    const ruins = s.special.filter(t => t.ruin);
+    const reserved = new Set(theirs.map(c => ruins.reduce((b, t) => !b || G.dist(c, t) < G.dist(c, b) ? t : b, null)));
     let best = null, bs = -1e9;
-    for (const t of s.special) {
-      if (!t.ruin || t.ruin.readyAt > s.time) continue;
+    for (const t of ruins) {
+      if (t.ruin.readyAt > s.time || reserved.has(t)) continue;
       const d = G.dist(home, t);
       if (d > 8) continue;
       const near = Math.min(...mine.map(c => G.dist(c, t)));

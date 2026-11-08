@@ -227,9 +227,10 @@ G.battleHooks.push((s, ctx) => {
   if (had.wyrm && r.win) {
     me.renownBonus = (me.renownBonus || 0) + 60;
     G.log(s, m.owner, `🐉 ${me.name} slew the Elder Wyrm! (+60 renown)`, 'good');
-    if (m.owner === 'p' && m.units.hero && G.hero(s) && !G.hero(s).dead) {
-      const it = G.newHeroItem(6); it.rarity = 2; G.hero(s).items.push(it);
-      G.log(s, 'p', `The hero claims ${it.name} from the dragon's hoard.`, 'good');
+    const hh = m.units.hero && (G.heroOf ? G.heroOf(s, m.owner) : (m.owner === 'p' && G.hero(s)));
+    if (hh && !hh.dead) {
+      const it = G.newHeroItem(6); it.rarity = 2; hh.items.push(it);
+      G.log(s, m.owner, `The hero claims ${it.name} from the dragon's hoard.`, 'good');
     }
   }
   if (had.restless && r.win) me.renownBonus = (me.renownBonus || 0) + 10;

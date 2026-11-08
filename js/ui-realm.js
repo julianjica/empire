@@ -34,7 +34,7 @@ const renderHero = city => {
     <div style="margin-top:8px">Experience ${fmt(h.xp)} / ${fmt(G.xpNeed(h.level))}<div class="bar"><i style="width:${pct(h.xp, G.xpNeed(h.level))}%"></i></div></div>
     <div style="margin-top:6px">Health ${Math.floor(h.hp)} / 100<div class="bar hp"><i style="width:${h.hp}%"></i></div></div>
     ${status}
-    <div class="stats" style="font-size:13px"><span>⚔️ <b>${st.atk}</b> attack</span><span>🛡️ <b>${st.defI}</b> defense</span><span>💨 <b>${st.spd}</b> speed</span><span>🎺 army +${Math.round((G.heroLeadership(S, 'p') - 1) * 100)}%</span><span>🏰 city defense +${2 * h.points.guard}%</span><span>📜 city goods +${2 * h.points.econ}%</span></div>
+    <div class="stats" style="font-size:13px"><span>⚔️ <b>${st.atk}</b> attack</span><span>🛡️ <b>${st.defI}</b> defense</span><span>💨 <b>${st.spd}</b> speed</span><span>🎺 army +${Math.round((G.heroLeadership(S, 'p') - 1) * 100)}%</span><span>🏰 city defense +${2 * h.points.guard}%</span><span>📜 city goods +${2 * h.points.econ}%</span>${h.points.arcana ? `<span>🔮 spells +${4 * h.points.arcana}% power, −${Math.min(50, 3 * h.points.arcana)}% cost</span>` : ''}</div>
   </div>
   <div class="card"><h3>Attributes ${h.free ? `<span class="pill good">${h.free} to spend</span>` : ''}</h3>
     <div class="grid">${Object.entries(DATA.heroAttrs).map(([k, a]) => `<div class="row"><span style="font-size:20px">${a.icon}</span><div><b>${a.name}</b> ${h.points[k]}<div class="muted" style="font-size:12px">${a.desc}</div></div><span class="spacer"></span><button class="small" data-act="heroPoint" data-a="${k}" ${h.free ? '' : 'disabled'}>+</button></div>`).join('')}</div>

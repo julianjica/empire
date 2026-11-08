@@ -41,6 +41,7 @@ DATA.heroAttrs = {
   lead:  { name: 'Leadership', icon: '🎺', desc: '+2% attack for the army the hero marches with.' },
   guard: { name: 'Warding',    icon: '🏰', desc: '+2% defense for the city the hero stands in.' },
   econ:  { name: 'Stewardship',icon: '📜', desc: '+2% raw goods in the city the hero stands in.' },
+  arcana:{ name: 'Arcana',     icon: '🔮', desc: '+4% spell power and −3% mana cost for the realm per point; the hero can cast hero spells.' },
 };
 
 // Famous heroes (level >= FAME_LEVEL) of rival realms add to their army's attack when leading.
@@ -49,7 +50,12 @@ G.HERO_FAME_LEAD = 0.05;
 G.HERO_SLAY_RENOWN = 15;
 
 // ---- lookups (owner defaults to the player, so older callers keep working) ----
-G.heroOf = (s, owner = 'p') => (s.empires[owner] && s.empires[owner].hero) || null;
+// older saves lack later attributes (arcana): default them lazily on every lookup
+G.heroOf = (s, owner = 'p') => {
+  const h = (s.empires[owner] && s.empires[owner].hero) || null;
+  if (h && h.points) for (const k of Object.keys(DATA.heroAttrs)) if (h.points[k] === undefined) h.points[k] = 0;
+  return h;
+};
 G.hero = s => G.heroOf(s, 'p');
 G.heroCityOf = (s, owner = 'p') => G.citiesOf(s, owner).find(c => (c.units.hero || 0) > 0) || null;
 G.heroCity = (s, owner = 'p') => G.heroCityOf(s, owner);
@@ -59,7 +65,7 @@ G.heroFamous = (s, owner) => { const h = G.heroOf(s, owner); return !!(h && !h.d
 G.xpNeed = level => Math.round(80 * Math.pow(level, 1.4));
 G.newHeroState = name => ({
   name, level: 1, xp: 0, hp: 100, free: 3,
-  points: { str: 0, lead: 0, guard: 0, econ: 0 }, items: [], eq: { weapon: null, armor: null, horse: null, trinket: null },
+  points: { str: 0, lead: 0, guard: 0, econ: 0, arcana: 0 }, items: [], eq: { weapon: null, armor: null, horse: null, trinket: null },
   dead: false, reviveAt: null, adventures: 0,
 });
 
@@ -82,6 +88,7 @@ G.heroLeadership = (s, owner) => {
   if (!h) return 1;
   return 1 + 0.02 * h.points.lead + eqFx(h, 'lead') + (G.heroFamous(s, owner) ? G.HERO_FAME_LEAD : 0);
 };
+G.heroArcana = (s, owner = 'p') => { const h = G.heroOf(s, owner); return h && !h.dead ? (h.points.arcana || 0) : 0; };
 G.heroDefense = (s, owner) => { const h = G.heroOf(s, owner); return h ? 1 + 0.02 * h.points.guard : 1; };
 G.heroCanMarch = (s, owner) => {
   const h = G.heroOf(s, owner);
@@ -211,6 +218,14 @@ G.modSources.push((s, owner, city, key) => {
   return 1 + add;
 });
 
+// Arcana: realm-wide spell power and mana cost (keys used by magic.js)
+G.modSources.push((s, owner, city, key) => {
+  if (key !== 'spellPower' && key !== 'spellCost') return 1;
+  const a = owner ? G.heroArcana(s, owner) : 0;
+  if (!a) return 1;
+  return key === 'spellPower' ? 1 + 0.04 * a : Math.max(0.5, 1 - 0.03 * a);
+});
+
 G.stepHooks.push((s, dt) => {
   for (const emp of Object.values(s.empires)) {
     const h = emp.hero;
@@ -289,7 +304,7 @@ const slainBy = (s, victimOwner, slayerOwner, notes) => {
   const vName = `${victim.name} of the ${s.empires[victimOwner].name}`;
   notes.push(`${vName} was slain (+${G.HERO_SLAY_RENOWN} renown for the ${slayer.name}${prize ? `; ${sh.name} claims ${prize.name}` : ''}).`);
   if (slayerOwner === 'p') G.log(s, 'p', `⚔️ We slew ${vName}! +${G.HERO_SLAY_RENOWN} renown${prize ? `, and ${sh.name} claims ${prize.icon} ${prize.name}` : ''}.`, 'good');
-  else if (victimOwner !== 'p' && G.heroFamous && victim.level >= G.HERO_FAME_LEVEL) G.log(s, 'p', `📜 The famed ${vName} fell in battle against the ${slayer.name}.`, 'info');
+  else if (victimOwner !== 'p' && victim.level >= G.HERO_FAME_LEVEL) G.log(s, 'p', `📜 The famed ${vName} fell in battle against the ${slayer.name}.`, 'info');
 };
 
 G.battleHooks.push((s, ctx) => {
@@ -302,8 +317,8 @@ G.battleHooks.push((s, ctx) => {
   if (!A && !D) return;
   const notes = [];
   // remember who has fought the player (the UI only shows a rival hero's gear once you've met it)
-  if (A && dO === 'p') A.metP = s.time;
-  if (D && ao === 'p') D.metP = s.time;
+  if (A && dO === 'p') A.metP = true;
+  if (D && ao === 'p') D.metP = true;
 
   // ---- duel first ----
   let duel = null;
@@ -317,7 +332,7 @@ G.battleHooks.push((s, ctx) => {
     if (u === 'hero') return a;
     const d = DATA.units[u]; return a + (d.atk + d.defI + d.defC) / 6 * n;
   }, 0);
-  const wound = (owner, side) => duel ? (duel.winner === owner ? duel.winnerWound : duel.loserWound) : 0;
+  const wound = owner => duel ? (duel.winner === owner ? duel.winnerWound : duel.loserWound) : 0;
 
   // ---- attacker's hero ----
   if (A) {

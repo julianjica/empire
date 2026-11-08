@@ -43,6 +43,8 @@ node tests/culture.js             # happiness factors, tax policy, unrest and re
 node tests/endgame.js             # wonders, save slots, export/import, migrations
 node tests/naval.js               # seas, islands, harbors, ships, paths
 node tests/magic.js               # mana, ley enclaves, schools, spells, wild magic, the Great Working
+node tests/heroes.js              # rival heroes, duels, arcana
+node tests/traderoutes.js         # internal and foreign routes, ambushes, escorts
 node tests/sim.js standard 6 army # balance: a bot player vs the AI for 6 game-hours (paces: quick, standard, long)
 node tests/late.js                # 12-hour run: AI expansion, conquests, snowballing
 node tests/early.js hearth        # first hours: idle builders, quest timing, stockpiles

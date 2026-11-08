@@ -22,6 +22,11 @@
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
   const lerp = (a, b, t) => a + (b - a) * t;
   const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  // prefers-reduced-motion: freeze decorative animation (clouds, pennants, smoke, rain/snow) and snap camera moves
+  const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  let reduceMotion = !!(RM && RM.matches);
+  if (RM) { const onRM = () => { reduceMotion = RM.matches; }; if (RM.addEventListener) RM.addEventListener('change', onRM); else if (RM.addListener) RM.addListener(onRM); }
+  const RM_T = 12000;      // fixed clock (ms) used for drawing while motion is reduced
   const rng = seed => {
     let a = (seed >>> 0) || 1;
     return () => {
@@ -811,6 +816,12 @@
   function flyTo(x, y, z) { cam.tx = x + 0.5; cam.ty = y + 0.5; if (z) cam.tz = clamp(z, ZMIN, ZMAX); }
   function stepCam() {
     let moving = false;
+    if (reduceMotion) {   // jump straight to the target instead of easing
+      if (cam.tz != null) { cam.z = cam.tz; cam.tz = null; moving = true; }
+      if (cam.tx != null) { cam.x = cam.tx; cam.y = cam.ty; cam.tx = cam.ty = null; moving = true; }
+      if (moving) clampCam();
+      return;
+    }
     if (cam.tz != null) { cam.z += (cam.tz - cam.z) * 0.18; if (Math.abs(cam.tz - cam.z) < 0.003) { cam.z = cam.tz; cam.tz = null; } moving = true; }
     if (cam.tx != null) {
       cam.x += (cam.tx - cam.x) * 0.16; cam.y += (cam.ty - cam.y) * 0.16;
@@ -1012,7 +1023,7 @@
 
     // rain / snow particles (screen space)
     if (wI > 0.02) {
-      const dt = Math.min(0.05, (now - lastFrame) / 1000 || 0.016);
+      const dt = reduceMotion ? 0 : Math.min(0.05, (now - lastFrame) / 1000 || 0.016);
       const cnt = Math.floor(parts.length * wI);
       c.beginPath();
       for (let j = 0; j < cnt; j++) {
@@ -1061,7 +1072,9 @@
   // ------------------------------------------------------------------
   function fit(host) {
     const w = Math.max(240, host.clientWidth | 0);
-    const h = Math.round(clamp(Math.min(window.innerHeight * 0.7, w), 300, 2000));
+    // phones: leave room for the header, the tile panel peeking below and the bottom tab bar
+    const phone = window.innerWidth <= 700;
+    const h = Math.round(clamp(Math.min(window.innerHeight * (phone ? 0.58 : 0.7), w), Math.min(300, Math.max(200, window.innerHeight * 0.5)), 2000));
     const dpr = Math.min(2.5, window.devicePixelRatio || 1);
     if (w !== W || h !== H || dpr !== DPR) {
       W = w; H = h; DPR = dpr;
@@ -1096,8 +1109,9 @@
     }
     stepCam();
     clampCam();
-    draw(t0);
-    lastFrame = t0;
+    const tDraw = reduceMotion ? RM_T : t0;
+    draw(tDraw);
+    lastFrame = tDraw;
     const dt = performance.now() - t0;
     stats.frames.push(dt); if (stats.frames.length > 120) stats.frames.shift();
     raf = requestAnimationFrame(frame);
@@ -1127,6 +1141,19 @@
     tip.style.left = clamp(p.x + 14, 4, W - tw - 4) + 'px';
     tip.style.top = (p.y + 18 + th > H ? p.y - th - 10 : p.y + 18) + 'px';
   }
+  // touch: when the tile panel sits below the map (single column) and is fully off-screen, bring its top into view
+  function revealPanel() {
+    const panel = document.querySelector('.mapwrap > .card');
+    if (!panel || window.innerWidth > 1100) return;
+    const r = panel.getBoundingClientRect(), bar = window.innerWidth <= 700 ? 84 : 0;
+    if (r.top < window.innerHeight - bar - 40) return;
+    const dy = r.top - (window.innerHeight - bar - 160);
+    // run after ui-core's pointerup reset of UI.holding, and hold off the 1 s render() (it restores scrollY) meanwhile
+    setTimeout(() => {
+      if (!reduceMotion) { UI.holding = true; setTimeout(() => { UI.holding = false; }, 700); }
+      window.scrollBy({ top: dy, behavior: reduceMotion ? 'auto' : 'smooth' });
+    }, 0);
+  }
   function setupInput() {
     canvas.addEventListener('pointerdown', e => {
       if (!S || (e.pointerType === 'mouse' && e.button !== 0)) return;
@@ -1134,7 +1161,7 @@
       UI.holding = true;  // keep render() from rebuilding the DOM mid-gesture
       pts.set(e.pointerId, local(e));
       cam.tx = cam.ty = cam.tz = null;
-      if (pts.size === 1) drag = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, moved: false };
+      if (pts.size === 1) drag = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, moved: false, slop: e.pointerType === 'mouse' ? 5 : 10 };
       else if (pts.size === 2) {
         const [a, b] = [...pts.values()];
         pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: cam.z, w: toWorld((a.x + b.x) / 2, (a.y + b.y) / 2) };
@@ -1149,7 +1176,7 @@
       pts.set(e.pointerId, local(e));
       if (pts.size === 1 && drag) {
         const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
-        if (!drag.moved && Math.hypot(dx, dy) > 5) drag.moved = true;
+        if (!drag.moved && Math.hypot(dx, dy) > (drag.slop || 5)) drag.moved = true;
         if (drag.moved) { const tp = tilePx(); cam.x = drag.cx - dx / tp; cam.y = drag.cy - dy / tp; clampCam(); hideTip(); }
       } else if (pts.size >= 2 && pinch) {
         const [a, b] = [...pts.values()];
@@ -1166,7 +1193,7 @@
         const d = drag; drag = null; pinch = null;
         if (!cancel && d && !d.moved) {
           const tt = tileAtClient(e);
-          if (tt) { UI.sel = tt; lastSelKey = tt.x + ',' + tt.y; UI.holding = false; render(true); }
+          if (tt) { UI.sel = tt; lastSelKey = tt.x + ',' + tt.y; UI.holding = false; render(true); if (e.pointerType !== 'mouse') revealPanel(); }
         }
       } else if (pts.size === 1) {
         const [p] = [...pts.values()], r = canvas.getBoundingClientRect();
@@ -1184,6 +1211,9 @@
       zoomAt(p.x, p.y, cam.z * Math.exp(-dy * 0.0016));
     }, { passive: false });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
+    // iOS Safari: block the native pinch-zoom / double-tap zoom gestures over the map
+    canvas.addEventListener('gesturestart', e => e.preventDefault());
+    canvas.addEventListener('dblclick', e => e.preventDefault());
   }
 
   function ensureCanvas() {
@@ -1212,7 +1242,7 @@
           <button data-act="wmCenter" title="Center on ${esc(city.name)}" aria-label="Center on city" class="wide">Center</button>
         </div>
       </div>
-      <div class="maplegend">${legend}<span class="muted">Drag to pan · scroll or pinch to zoom · click a place to select it</span></div></div>`;
+      <div class="maplegend">${legend}<span class="muted">${window.matchMedia && matchMedia('(hover: none)').matches ? 'Drag to pan · pinch to zoom · tap a place to select it' : 'Drag to pan · scroll or pinch to zoom · click a place to select it'}</span></div></div>`;
   };
 
   Object.assign(act, {
@@ -1246,5 +1276,7 @@
     rebake: () => { layerKey = ''; if (S) refresh(performance.now(), true); },
     reset: () => { cam.init = false; },
     layer: () => layer,
+    toWorld: (cx, cy) => { const r = canvas.getBoundingClientRect(); return toWorld(cx - r.left, cy - r.top); },
+    get reduceMotion() { return reduceMotion; },
   };
 })();

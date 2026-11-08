@@ -1785,6 +1785,12 @@
   let hover = null, mouse = null, lastT = 0, cityId = null;
   let villagers = [], graph = null, lastHostH = 340;
   const perf = { frames: 0, total: 0, last: 0 };
+  // prefers-reduced-motion: freeze villagers, smoke, flicker and weather on a fixed clock
+  const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  let reduceMotion = !!(RM && RM.matches);
+  if (RM) { const onRM = () => { reduceMotion = RM.matches; }; if (RM.addEventListener) RM.addEventListener('change', onRM); else if (RM.addListener) RM.addListener(onRM); }
+  // touch: no hover, so a tap shows the highlight + label for a moment
+  let lastPointerType = 'mouse', tapTimer = 0;
 
   function buildGraph() {
     const nodes = new Map();
@@ -1889,7 +1895,7 @@
     if (drawnKey !== layoutKey) rebuild();
     if (!recd) return;
     const city = S.cities[cityId];
-    const t = ts / 1000, dt = Math.min(0.1, lastT ? t - lastT : 0.016); lastT = t;
+    const t = reduceMotion ? 12 : ts / 1000, dt = reduceMotion ? 0 : Math.min(0.1, lastT ? t - lastT : 0.016); lastT = t;
     const day = G.daylight(S), night = 1 - smoothstep(0.12, 0.5, day), dusk = Math.max(0, 1 - Math.abs(day - 0.3) / 0.18) * (1 - night * 0.5);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
@@ -2133,20 +2139,42 @@
     if (st.locked) return `${b.name} — ${st.reason}`;
     return `Empty plot — ${b.name}`;
   }
+  cv.addEventListener('pointerdown', ev => {
+    lastPointerType = ev.pointerType || 'mouse';
+    if (lastPointerType !== 'mouse' && tapTimer) { clearTimeout(tapTimer); tapTimer = 0; hover = null; mouse = null; }
+  });
   cv.addEventListener('pointermove', ev => {
+    if (ev.pointerType === 'touch') return;   // touch drags scroll the page; taps are handled on click
     mouse = toLogical(ev);
     const type = hitAt(mouse);
     hover = type ? { type, text: describe(type) } : null;
     cv.style.cursor = type ? 'pointer' : 'default';
   });
-  cv.addEventListener('pointerleave', () => { hover = null; mouse = null; });
+  cv.addEventListener('pointerleave', ev => { if (tapTimer && ev.pointerType !== 'mouse') return; hover = null; mouse = null; });
   cv.addEventListener('click', ev => {
-    const type = hitAt(toLogical(ev));
+    const p = toLogical(ev);
+    const type = hitAt(p);
+    const touch = lastPointerType !== 'mouse';
+    if (touch) {
+      if (tapTimer) { clearTimeout(tapTimer); tapTimer = 0; }
+      hover = type ? { type, text: describe(type) } : null;
+      mouse = type ? p : null;
+      if (type) tapTimer = setTimeout(() => { tapTimer = 0; hover = null; mouse = null; }, 1800);
+      if (reduceMotion && running) renderFrame(performance.now());
+    }
     if (!type) return;
     UI.focusBld = type;
     render(true);
     const el = document.getElementById('bld-' + type);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!el) return;
+    const go = () => {
+      const target = el.isConnected ? el : document.getElementById('bld-' + type);
+      if (!target) return;
+      // the 1 s render() restores window.scrollY and would cut a smooth scroll short; hold it off while scrolling
+      if (!reduceMotion) { UI.holding = true; setTimeout(() => { UI.holding = false; }, 1100); }
+      target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+    };
+    setTimeout(go, touch ? 650 : 0);   // on touch, let the tapped building's label show first; 0 lands after ui-core's pointerup reset
   });
 
   function start() {
@@ -2164,7 +2192,7 @@
     const se = G.season(S), day = G.daylight(S);
     const tod = day > 0.6 ? 'Day' : day > 0.25 ? (G.dayPhase(S) < 0.5 ? 'Dawn' : 'Dusk') : 'Night';
     return `<div class="card cityview"><div id="cityHost" class="cv-host" style="height:${lastHostH}px"></div>
-      <div class="row cv-legend"><span>${esc(se.name)} · ${tod}</span><span class="spacer"></span><span class="muted">Hover a building for details · click to jump to it</span></div></div>`;
+      <div class="row cv-legend"><span>${esc(se.name)} · ${tod}</span><span class="spacer"></span><span class="muted">${matchMedia('(hover: none)').matches ? 'Tap a building to see it and jump to its card' : 'Hover a building for details · click to jump to it'}</span></div></div>`;
   };
   MOUNT_HOOKS.push(tab => {
     const host = document.getElementById('cityHost');
@@ -2175,5 +2203,7 @@
       start();
     } else stop();
   });
-  window.EC_CITYVIEW = { perf, get hits() { return recd && recd.hits; }, rebuild: () => { drawnKey = ''; REGCACHE.clear(); }, region: () => REG, draw: ts => renderFrame(ts == null ? performance.now() : ts), setHover: (type, x, y) => { hover = type ? { type, text: describe(type) } : null; mouse = x == null ? null : { x, y }; } };
+  window.EC_CITYVIEW = { perf, get hits() { return recd && recd.hits; }, rebuild: () => { drawnKey = ''; REGCACHE.clear(); }, region: () => REG, draw: ts => renderFrame(ts == null ? performance.now() : ts), setHover: (type, x, y) => { hover = type ? { type, text: describe(type) } : null; mouse = x == null ? null : { x, y }; },
+    get hover() { return hover; }, get reduceMotion() { return reduceMotion; },
+    toClient: (x, y) => { const r = cv.getBoundingClientRect(); return { x: r.left + (x * K + OFFX) / dpr, y: r.top + (y * K + OFFY) / dpr }; } };
 })();

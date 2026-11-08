@@ -173,7 +173,7 @@ const renderTop = city => {
 };
 
 const renderSide = city => `<aside class="side">
-    <div class="nav">${Object.entries(TABS).map(([k, t]) => { const b = t.badge ? t.badge() : 0; return `<button class="${UI.tab === k ? 'on' : ''}" data-act="tab" data-t="${k}">${t.label}${b ? `<span class="badge">${b}</span>` : ''}</button>`; }).join('')}</div>
+    <div class="nav">${Object.entries(TABS).map(([k, t]) => { const b = t.badge ? t.badge() : 0; return `<button class="${UI.tab === k ? 'on' : ''} ${b ? 'has-badge' : ''}" data-act="tab" data-t="${k}">${t.label}${b ? `<span class="badge">${b}</span>` : ''}</button>`; }).join('')}</div>
     <div class="card citylist"><h4>Your cities</h4>${G.citiesOf(S, 'p').map(c => `<button class="${c.id === city.id ? 'on' : ''}" data-act="city" data-c="${c.id}">${esc(c.name)}<small>${G.tier(c).name} · (${c.x}, ${c.y})${c.buildQueue.length ? ' · 🔨' : ''}${c.units.hero ? ' · 🦸' : ''}${c.starving ? ' · <span class="bad">hungry</span>' : ''}</small></button>`).join('')}</div>
   </aside>`;
 
@@ -514,7 +514,7 @@ const render = (force) => {
   const active = document.activeElement;
   const editing = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT') && $app.contains(active);
   const slowTab = UI.tab === 'world' && typeof worldMapHtml !== 'function' && Date.now() - lastFull < 2500;
-  if ((editing || UI.holding || slowTab) && !force) {
+  if ((editing || UI.holding || UI.touching || slowTab) && !force) {
     const top = $app.querySelector('.top');
     if (top && !(active && active.id === 'speedSel')) top.outerHTML = renderTop(city);
     return;
@@ -523,11 +523,18 @@ const render = (force) => {
   const scroll = window.scrollY;
   const logEl = $app.querySelector('.log');
   const logScroll = logEl ? logEl.scrollTop : 0;
+  // sideways scroll positions (phone tab bar, wide tables) survive the rebuild
+  const navEl = $app.querySelector('.nav');
+  const navScroll = navEl ? navEl.scrollLeft : 0;
+  const cardScroll = [...$app.querySelectorAll('main .card')].map(c => c.scrollLeft);
   const tab = TABS[UI.tab] || TABS.city;
   $app.innerHTML = renderTop(city) + `<div class="layout">${renderSide(city)}<main>${endgameBanner()}${tab.render(city)}</main>${renderRight()}</div>`;
   window.scrollTo(0, scroll);
   const logEl2 = $app.querySelector('.log');
   if (logEl2) logEl2.scrollTop = logScroll;
+  const navEl2 = $app.querySelector('.nav');
+  if (navEl2 && navScroll) navEl2.scrollLeft = navScroll;
+  $app.querySelectorAll('main .card').forEach((c, i) => { if (cardScroll[i]) c.scrollLeft = cardScroll[i]; });
   runMountHooks();
 };
 
@@ -605,6 +612,11 @@ document.addEventListener('click', ev => {
 document.addEventListener('pointerdown', ev => { if (ev.target.closest('button, [data-act]')) UI.holding = true; });
 document.addEventListener('pointerup', () => { setTimeout(() => { UI.holding = false; }, 0); });
 document.addEventListener('pointercancel', () => { UI.holding = false; });
+// while a finger is scrolling the page, hold off the once-a-second rebuild so the scroll isn't interrupted
+let touchT = null;
+document.addEventListener('touchstart', () => { UI.touching = true; clearTimeout(touchT); }, { passive: true });
+document.addEventListener('touchend', () => { clearTimeout(touchT); touchT = setTimeout(() => { UI.touching = false; }, 400); }, { passive: true });
+document.addEventListener('touchcancel', () => { UI.touching = false; }, { passive: true });
 document.addEventListener('input', ev => {
   const k = ev.target.dataset && ev.target.dataset.k;
   if (k) UI.form[k] = ev.target.value;

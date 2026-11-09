@@ -22,7 +22,7 @@
   const WHITE = '#f1ece0', ROCK = '#9b9488', STORM_D = '#5a8ab8', STORM_N = '#bfe6ff';
   const wallC = () => ERA >= 3 ? WHITE : ERA >= 2 || TECH('architecture') ? A.mix(A.STY.wall, A.STY.stone2, 0.5) : A.STY.wall;
   const stoneC = () => ERA >= 3 ? '#e4ddcc' : A.STY.stone2;
-  const roofC = () => ERA === 0 ? A.STY.thatch : ERA >= 3 ? '#2f5c96' : A.STY.roof;
+  const roofC = () => ERA === 0 ? A.STY.thatch : ERA >= 3 ? '#3f8ccc' : ERA === 2 ? A.mix(A.STY.roof, '#56606e', 0.3) : A.STY.roof;   // Legend era: cerulean glazed tile with gilt
   const roofTex = () => ERA === 0 ? 'thatch' : 'tile';
   const woodC = () => A.STY.wood;
   const beamC = () => A.STY.beam;
@@ -201,13 +201,23 @@
       top = A.gable(b, rh, roofC(), axis, roofTex(), 0.16);
       const q = A.gableQ(b, rh, axis, 0.16);
       fringe(q[0], q[1], A.shade(snowy(roofC()), -0.22));
+      if (ERA >= 3) legendRoof(q, b);
       if (o.crest !== false) crest(q[3], q[2]);
     }
+    if (ERA >= 3 && o.hip) { const [fx, fy] = A.P(b.x + b.w / 2, b.y + b.d / 2, top); A.line([fx, fy], [fx, fy - 5], '#c9a03a', 1); storm(fx, fy - 6.5, 1.5, false); }
     if (o.horns !== false) { // carved wing-tips on the gable ends
       const ends = axis === 'x' ? [A.P(x - 0.12, y + d / 2, top), A.P(x + w + 0.12, y + d / 2, top)] : [A.P(x + w / 2, y - 0.12, top), A.P(x + w / 2, y + d + 0.12, top)];
       for (const e of ends) { A.line(e, [e[0] - 4, e[1] - 5], ERA >= 3 ? '#e0b440' : beamC(), 1.3); A.line(e, [e[0] + 4, e[1] - 5], ERA >= 3 ? '#e0b440' : beamC(), 1.3); }
     }
     return { b, top };
+  }
+  // the Legend era on a gable roof: a glaze streak, gilt ridge and eave, a gilt band under the eave and a
+  // stormglass finial over the ridge
+  function legendRoof(q, b) {
+    if (!X.snow) { A.line(lerp2(q[0], q[3], 0.35), lerp2(q[1], q[2], 0.35), 'rgba(220,240,255,0.45)', 1.6); A.line(q[3], q[2], '#e0b440', 1.4); }
+    A.line(q[0], q[1], '#c9a03a', 0.9);
+    if (b) { A.line(A.onL(b, 0, 0, b.h - 1.2, 0)[0], A.onL(b, b.w, 0, b.h - 1.2, 0)[0], '#e0b440', 1); A.line(A.onR(b, 0, 0, b.h - 1.2, 0)[0], A.onR(b, b.d, 0, b.h - 1.2, 0)[0], '#c9a03a', 1); }
+    const m = lerp2(q[3], q[2], 0.5); A.line(m, [m[0], m[1] - 5], '#c9a03a', 1); storm(m[0], m[1] - 6.5, 1.3, false);
   }
   // a slender perch-tower: shaft, a ring of perches near the top, steep cone and a vane
   function spire(cx, cy, r, H, o = {}) {
@@ -229,6 +239,7 @@
     A.cyl(cx, cy, r * 1.05, gz + 1.6, 7, col);
     const [lx, ly] = A.P(cx + r * 0.4, cy + r * 0.9, gz + 3); A.lamp([[lx - 1.5, ly], [lx + 1.5, ly], [lx + 1.5, ly - 3.5], [lx - 1.5, ly - 3.5]], '#3a4655', A.nightGlass());
     let top = A.cone(cx, cy, r * 1.55, gz + 8.6, o.roofH || 16 + r * 20, o.roof || roofC());
+    if (ERA >= 3 && !X.snow) { const [ex, ey, erx, ery] = A.ell(cx, cy, gz + 8.6, r * 1.55); A.c.beginPath(); A.c.ellipse(ex, ey, erx, ery, 0, 0.1, Math.PI - 0.1); A.c.strokeStyle = A.F('#e0b440'); A.c.lineWidth = 1.1; A.c.stroke(); }
     if (ERA >= 3 || o.glass) { const [sx, sy] = A.P(cx, cy, top + 2); A.line([sx, sy + 2], [sx, sy - 1], '#c9a03a', 1); storm(sx, sy - 2.5, 2); top += 5; }
     else if (o.vane !== false) top = vane(cx, cy, top - 1);
     return top;
@@ -254,6 +265,87 @@
     A.line([arm[0], arm[1] + 1], [arm[0], ly], '#6a5a44', 0.6);
     if (cargo === 'basket') { A.c.beginPath(); A.c.ellipse(arm[0], ly + 2, 2.6, 2.2, 0, 0, Math.PI * 2); A.c.fillStyle = A.F('#c9a874'); A.c.fill(); A.line([arm[0] - 2.4, ly + 1.5], [arm[0] + 2.4, ly + 1.5], '#8a6a40', 0.6); }
     else A.poly([[arm[0] - 2.4, ly], [arm[0] + 2.4, ly], [arm[0] + 2.4, ly + 4], [arm[0] - 2.4, ly + 4]], '#a5773f');
+  }
+
+
+  // ---------------------------------------------------------------- Founding-band (level 1-4) silhouettes
+  // so the first buildings of a Windkin town read apart: a round two-hut roost for the tavern, a cluster of
+  // woven basket silos for the warehouse, a camp of hide tents round a watch-perch for the barracks
+  function roundHut(cx, cy, r, pz, wh, rh, o = {}) {
+    if (pz > 0) { legs(cx - r * 0.75, cy - r * 0.75, r * 1.5, r * 1.5, 0, pz); A.cyl(cx, cy, r * 1.3, pz, 1.3, woodC()); }
+    const z0 = pz + (pz > 0 ? 1.3 : 0);
+    A.cyl(cx, cy, r, z0, wh, o.col || wallC());
+    const [x0, y0, rx, ry] = A.ell(cx, cy, z0, r);
+    if (!X.snow) for (let v = 2.5; v < wh - 1; v += 2.5) { A.c.beginPath(); A.c.ellipse(x0, y0 - v, rx, ry, 0, 0.2, Math.PI - 0.2); A.c.strokeStyle = A.F(A.shade(o.col || wallC(), -0.2)); A.c.lineWidth = 0.45; A.c.stroke(); }
+    const [dx, dy] = A.P(cx - r * 0.15, cy + r, z0); A.poly([[dx - 2, dy], [dx + 2, dy], [dx + 2, dy - 6.5], [dx, dy - 7.5], [dx - 2, dy - 6.5]], A.STY.door, null);
+    const [wx, wy] = A.P(cx + r * 0.8, cy + r * 0.55, z0 + wh * 0.55); A.lamp([[wx - 1.2, wy], [wx + 1.2, wy], [wx + 1.2, wy - 3], [wx - 1.2, wy - 3]], '#3a4655', A.nightGlass());
+    const top = A.cone(cx, cy, r * 1.5, z0 + wh, rh, roofC());
+    // reed fringe at the eave
+    const [ex, ey, erx, ery] = A.ell(cx, cy, z0 + wh, r * 1.5);
+    if (!X.snow) for (let k = 1; k < 10; k++) { const a = k / 10 * Math.PI, px = ex + Math.cos(a) * erx, py = ey + Math.sin(a) * ery; A.line([px, py], [px, py + 2.6], A.shade(roofC(), -0.3), 0.8); }
+    return top;
+  }
+  function tavern0([x, y, w, d], L) {
+    const ax = w >= d, f = (t, o) => ax ? [x + w * t, y + d * o] : [x + w * o, y + d * t];
+    const [c1x, c1y] = f(0.3, 0.42), [c2x, c2y] = f(0.72, 0.5);
+    let top = roundHut(c1x, c1y, 0.36, 4, 10 + L, 15);
+    // a plank walkway to the brew-hut, with a hanging feather sign
+    const a = A.P(c1x, c1y, 5.3), b = A.P(c2x, c2y, 2.3); A.line(a, b, woodC(), 3); A.line([a[0], a[1] - 4], [b[0], b[1] - 4], beamC(), 0.6);
+    top = Math.max(top, roundHut(c2x, c2y, 0.28, 1, 8, 11));
+    const p = A.P(c2x + 0.28, c2y + 0.3, 0); A.line(p, [p[0], p[1] - 13], beamC(), 1.2); A.line([p[0], p[1] - 13], [p[0] + 6, p[1] - 14], beamC(), 1);
+    A.poly([[p[0] + 3, p[1] - 13], [p[0] + 9, p[1] - 15], [p[0] + 9, p[1] - 9], [p[0] + 3, p[1] - 7]], A.STY.roof); A.line([p[0] + 4.5, p[1] - 9], [p[0] + 7.8, p[1] - 13.5], '#f4ead2', 1.4);
+    A.lantern(...A.P(c1x + 0.4, c1y + 0.4, 11), 1.3);
+    pipeSmoke(c1x - 0.1, c1y - 0.1, top - 4);
+    A.box(f(0.5, 0.86)[0], f(0.5, 0.86)[1], 0.4, 0.1, 0, 3, woodC());
+    chime(...A.P(c1x + 0.45, c1y + 0.1, 14));
+    return top + 4;
+  }
+  function pipeSmoke(gx, gy, z) { A.cyl(gx, gy, 0.05, z, 5, '#5a5550'); const [px, py] = A.P(gx, gy, z + 7); A.rec('smoke', { x: px, y: py, kind: 'house', seed: RN() }); }
+  function warehouse0([x, y, w, d], L) {
+    const bx = x + 0.3, by = y + 0.3, bw = Math.min(1.4, w - 0.6), bd = Math.min(1.2, d - 0.8), pz = 5;
+    legs(bx, by, bw, bd, 0, pz);
+    deck(bx - 0.06, by - 0.06, bw + 0.12, bd + 0.12, pz, false);
+    // woven basket silos of different heights, thatch caps tied with rope
+    const sil = [[0.3, 0.3, 0.24, 14], [0.95, 0.28, 0.2, 11], [0.35, 0.85, 0.2, 10], [1.0, 0.85, 0.26, 16]].slice(0, 2 + Math.min(2, Math.floor(L / 2)));
+    sil.sort((p, q) => p[0] + p[1] - q[0] - q[1]);
+    let top = 0;
+    for (const [u, v, r, h] of sil) {
+      const cx = bx + u * bw / 1.3, cy = by + v * bd / 1.15, z0 = pz + 1.4, col = '#c9a874';
+      A.cyl(cx, cy, r, z0, h, col);
+      const [x0, y0, rx, ry] = A.ell(cx, cy, z0, r);
+      if (!X.snow) for (let k = 1; k < h / 2.2; k++) { A.c.beginPath(); A.c.ellipse(x0, y0 - k * 2.2, rx, ry, 0, 0.2, Math.PI - 0.2); A.c.strokeStyle = A.F(k % 2 ? '#a8885a' : '#8a6a40'); A.c.lineWidth = 0.5; A.c.stroke(); }
+      top = Math.max(top, A.cone(cx, cy, r * 1.3, z0 + h, 8 + r * 12, roofC()));
+      const [tx, ty] = A.P(cx, cy, z0 + h + 8 + r * 12); A.line([tx, ty], [tx, ty - 3], beamC(), 0.8);
+    }
+    ropeLift(bx + bw + 0.05, by + bd * 0.5, pz, pz + 18, 'basket');
+    A.sack(x + w - 0.4, y + d - 0.4); A.crate(x + 0.35, y + d - 0.35, 0.22);
+    return top + 6;
+  }
+  function barracks0([x, y, w, d], L) {
+    const tents = [[0.5, 0.55], [1.35, 0.5], [0.6, 1.4], [2.1, 0.6]].slice(0, 2 + Math.min(2, Math.floor(L / 2)));
+    tents.sort((p, q) => p[0] + p[1] - q[0] - q[1]);
+    let top = 0;
+    // the watch-perch at the back: a tall pole platform with a hawk and a streamer
+    const px = x + w - 0.6, py = y + 0.45, ph = 24 + L * 2;
+    legs(px - 0.18, py - 0.18, 0.36, 0.36, 0, ph);
+    deck(px - 0.24, py - 0.24, 0.48, 0.48, ph, true);
+    ladder(px, py + 0.2, 0, ph);
+    top = Math.max(top, A.cone(px, py, 0.3, ph + 1.4, 8, roofC()) + 2);
+    perchArm(px + 0.24, py, ph + 4, 0.3, 0, true);
+    A.pennant(px - 0.2, py + 0.2, ph + 1.4, 12, A.STY.flag);
+    A.firePit(x + w * 0.42, y + d * 0.62, 0.6);
+    for (const [u, v] of tents) {
+      const cx = x + u * w / 2.6, cy = y + v * d / 2.0, r = 0.34, h = 17;
+      const col = (u + v) % 0.5 < 0.25 ? '#c8a878' : '#b89868';
+      top = Math.max(top, A.cone(cx, cy, r, 0, h, col));
+      const [bx2, by2] = A.P(cx, cy + r * 0.9, 0); A.poly([[bx2 - 2.5, by2], [bx2 + 2.5, by2], [bx2, by2 - 8]], '#3a2a1e', null);
+      const [tx, ty] = A.P(cx, cy, h); A.line([tx, ty], [tx - 2, ty - 4], beamC(), 0.9); A.line([tx, ty], [tx + 2, ty - 4], beamC(), 0.9);
+      if (!X.snow) { const [ex, ey, erx, ery] = A.ell(cx, cy, 5, r * 0.72); A.c.beginPath(); A.c.ellipse(ex, ey, erx, ery, 0, 0.15, Math.PI - 0.15); A.c.strokeStyle = A.F(A.STY.flag); A.c.lineWidth = 1.2; A.c.stroke(); }
+    }
+    // spear rack and perch poles at the front
+    for (let k = 0; k < 3; k++) { const p = A.P(x + 0.4 + k * 0.4, y + d - 0.35); A.line(p, [p[0], p[1] - 10], beamC(), 1); A.line([p[0] - 2.5, p[1] - 10], [p[0] + 2.5, p[1] - 10], beamC(), 0.9); if (k % 2 === 0) hawk(p[0], p[1] - 10); }
+    for (let k = 0; k < 4; k++) { const p = A.P(x + w - 0.9 + k * 0.1, y + d - 0.5, 1); A.line(p, [p[0] + 0.5, p[1] - 11], '#8a7a6a', 0.6); A.poly([[p[0] + 0.5, p[1] - 11], [p[0] - 0.3, p[1] - 9], [p[0] + 1.2, p[1] - 9]], '#c8ccd2', null); }
+    return top + 4;
   }
 
   // ================================================================ buildings
@@ -327,7 +419,9 @@
       const [dx, dy] = A.P(cx - r * 0.1, cy + r, pz + 1.3); A.poly([[dx - 1.8, dy], [dx + 1.8, dy], [dx + 1.8, dy - 5.5], [dx - 1.8, dy - 5.5]], A.STY.door, null);
       const [wx, wy] = A.P(cx + r * 0.75, cy + r * 0.6, pz + 5); A.lamp([[wx - 1.2, wy], [wx + 1.2, wy], [wx + 1.2, wy - 2.8], [wx - 1.2, wy - 2.8]], '#3a4655', A.nightGlass());
       top = A.cone(cx, cy, r * 1.55, pz + 1.3 + wh, 9 + band * 2.5, roofC());
-      const [tx, ty] = A.P(cx, cy, top); A.line([tx, ty], [tx, ty - 4], beamC(), 1); A.line([tx - 2, ty - 1], [tx + 2, ty - 5], beamC(), 0.7);
+      const [tx, ty] = A.P(cx, cy, top);
+      if (ERA >= 3) { A.line([tx, ty], [tx, ty - 4], '#c9a03a', 1); storm(tx, ty - 5.5, 1.2, false); if (!X.snow) { const [rx0, ry0, rrx] = A.ell(cx, cy, pz + 1.3 + wh, r * 1.55); A.c.beginPath(); A.c.ellipse(rx0, ry0, rrx, rrx / 2, 0, 0.1, Math.PI - 0.1); A.c.strokeStyle = A.F('#e0b440'); A.c.lineWidth = 1; A.c.stroke(); } }
+      else { A.line([tx, ty], [tx, ty - 4], beamC(), 1); A.line([tx - 2, ty - 1], [tx + 2, ty - 5], beamC(), 0.7); }
       if (band >= 1) perchArm(cx + r, cy, pz + 1.3 + wh - 1, 0.3, 0.05, i % 2 === 0);
       if (band >= 2) { A.cyl(cx + r * 1.4, cy - r * 1.2, r * 0.55, pz + 3, 5, wallC()); A.cone(cx + r * 1.4, cy - r * 1.2, r * 0.8, pz + 8, 6, roofC()); }
       if (band >= 3) chime(...A.P(cx + r * 1.2, cy + r * 1.2, pz + wh));
@@ -471,6 +565,7 @@
 
   // ------------------------------------------------- warehouse: stacked stilted store with a rope lift
   def('warehouse', ([x, y, w, d], L, band) => {
+    if (band === 0) return warehouse0([x, y, w, d], L);
     const bx = x + 0.25, by = y + 0.25, bw = w - 0.75, bd = d - 0.8;
     const pz = 6 + band * 1.5;
     legs(bx, by, bw, bd, 0, pz);
@@ -531,6 +626,7 @@
 
   // ------------------------------------------------- barracks: open-sided hall + lookout perch
   def('barracks', ([x, y, w, d], L, band) => {
+    if (band === 0) return barracks0([x, y, w, d], L);
     const hx = x + 0.3, hy = y + 0.3, hw = w - 0.9, hd = 1.0 + band * 0.1, H = 12 + band * 3;
     let top = 0;
     if (band >= 1) top = spire(x + w - 0.45, y + 0.4, 0.2 + band * 0.02, 30 + band * 8 + L, { perches: 1 + Math.floor(band / 2) });
@@ -718,6 +814,7 @@
 
   // ------------------------------------------------- tavern: the Roost — tall, with balconies and a feather sign
   def('tavern', ([x, y, w, d], L, band) => {
+    if (band === 0) return tavern0([x, y, w, d], L);
     const bx = x + 0.2, by = y + 0.25, bw = w - 0.5, bd = d - 0.75;
     const floors = 2 + Math.min(2, band) + (band >= 3 && L >= 18 ? 1 : 0);
     let z = 0, b;
@@ -806,7 +903,7 @@
 
   // ------------------------------------------------- harbor (inland plot): a sky-dock with a mooring mast
   def('harbor', ([x, y, w, d], L, band) => {
-    if (X && X.coastal) return undefined;   // inland design: on a coast cityview's stock piers stand until a coastal harbor is drawn
+    if (X && X.coastal) return coastalHarbor(L, band);   // the shore harbour: sky-docks and kite-boats (below)
     const pz = 8 + band * 3;
     rockBase(x + 0.15, y + 0.15, w * 0.45, d * 0.6, pz - 2);
     legs(x + w * 0.45, y + 0.3, w * 0.4, d * 0.4, 0, pz);
@@ -942,4 +1039,318 @@
     if (band >= 1) perchArm(x + 0.18 + ww - 0.06, y + 0.18 + dd / 2, pz + 8, 0.3, 0, true);
     return o.top + 4;
   });
+  // ================================================================ shore & wall pieces
+  const WALLSTONE = '#b8ae98';   // the stock Windkin wall stone (cityview WALLC.wind)
+  const wallStone = () => WALLSTONE;   // towers and gates in the wall's own stone in every era
+  // a convex prism over a grid polygon: visible side faces, then the top
+  function prism(pts, z0, z1, col, o = {}) {
+    const n = pts.length; let cx = 0, cy = 0; for (const p of pts) { cx += p[0] / n; cy += p[1] / n; }
+    const st = o.stroke === undefined ? A.OUT : o.stroke;
+    for (let i = 0; i < n; i++) {
+      const p = pts[i], q = pts[(i + 1) % n];
+      let nx = q[1] - p[1], ny = -(q[0] - p[0]);
+      if (nx * ((p[0] + q[0]) / 2 - cx) + ny * ((p[1] + q[1]) / 2 - cy) < 0) { nx = -nx; ny = -ny; }
+      if (nx + ny <= 1e-4) continue;
+      A.poly([A.P(p[0], p[1], z0), A.P(q[0], q[1], z0), A.P(q[0], q[1], z1), A.P(p[0], p[1], z1)], A.shade(col, ny > nx ? -0.04 : -0.2), st, 0.6);
+    }
+    A.poly(pts.map(p => A.P(p[0], p[1], z1)), o.top || snowy(A.shade(col, 0.1)), st, 0.6);
+  }
+  function windsock(x, y, h = 14, flip = 1) { // a pole with a striped windsock streaming downwind
+    A.line([x, y], [x, y - h], '#4a3a2a', 1);
+    A.c.beginPath(); A.c.arc(x + 1.5 * flip, y - h + 1.5, 1.6, 0, Math.PI * 2); A.c.strokeStyle = A.F('#4a3a2a'); A.c.lineWidth = 0.6; A.c.stroke();
+    for (let k = 0; k < 4; k++) {
+      const a = 1.5 + k * 2.6, b = a + 2.6, ra = 1.8 - k * 0.32, rb = 1.8 - (k + 1) * 0.32, dy = k * 0.7;
+      A.poly([[x + a * flip, y - h + 1.5 - ra + dy], [x + b * flip, y - h + 1.5 - rb + dy + 0.7], [x + b * flip, y - h + 1.5 + rb + dy + 0.7], [x + a * flip, y - h + 1.5 + ra + dy]], k % 2 ? '#f4ead2' : '#d8503a', A.OUT, 0.4);
+    }
+  }
+  function kite(x, y, s, col, tx, ty) { // a diamond kite with a ribbon tail, tethered to (tx, ty)
+    A.line([tx, ty], [x, y + 5 * s], '#6a5a44', 0.5);
+    A.poly([[x, y - 5 * s], [x + 4 * s, y], [x, y + 5 * s], [x - 4 * s, y]], col, A.OUT, 0.5);
+    A.line([x, y - 5 * s], [x, y + 5 * s], A.shade(col, -0.3), 0.4); A.line([x - 4 * s, y], [x + 4 * s, y], A.shade(col, -0.3), 0.4);
+    A.c.beginPath(); A.c.moveTo(x, y + 5 * s); A.c.quadraticCurveTo(x - 3 * s, y + 9 * s, x + 1 * s, y + 12 * s); A.c.strokeStyle = A.F('#c0503a'); A.c.lineWidth = 0.7; A.c.stroke();
+    for (const t of [0.4, 0.8]) A.circ(x - 1.2 * s * t, y + 5 * s + 6 * s * t, 0.8, '#f4ead2');
+  }
+  // a kite-boat: a slim canoe with outrigger, a kite flying seaward on its line
+  function kiteBoat(dd, u, len, col, kiteCol, kiteUp = 1) {
+    const S = X, bw = 0.12, b = dd - len / 2, s = dd + len / 2;
+    prism([S.pt(b, u), S.pt(b + len * 0.3, u + bw), S.pt(s - len * 0.15, u + bw), S.pt(s, u), S.pt(s - len * 0.15, u - bw), S.pt(b + len * 0.3, u - bw)], -0.5, 2.6, col, { top: A.shade(col, 0.28) });
+    A.poly([S.pt(b + len * 0.25, u), S.pt(b + len * 0.35, u + bw * 0.5), S.pt(s - len * 0.2, u + bw * 0.5), S.pt(s - len * 0.12, u), S.pt(s - len * 0.2, u - bw * 0.5), S.pt(b + len * 0.35, u - bw * 0.5)].map(p => A.P(p[0], p[1], 2.3)), A.shade(col, -0.4), null);
+    // outrigger float on the far side
+    const o0 = S.at(dd - len * 0.2, u - 0.3, 0.5), o1 = S.at(dd + len * 0.2, u - 0.3, 0.5);
+    A.line(S.at(dd - len * 0.1, u, 2.4), S.at(dd - len * 0.1, u - 0.3, 1), beamC(), 0.7); A.line(S.at(dd + len * 0.1, u, 2.4), S.at(dd + len * 0.1, u - 0.3, 1), beamC(), 0.7);
+    A.line(o0, o1, A.shade(col, -0.2), 1.6);
+    if (!X.night && !X.snow) { const [wx, wy] = S.at(dd, u, 0); A.line([wx - 6, wy + 1.5], [wx + 6, wy + 1.5], 'rgba(255,255,255,0.5)', 0.7); }
+    if (kiteCol) { const t = S.at(b + 0.05, u, 3), k = S.at(b - 0.9, u + 0.2, 26 + kiteUp * 8); kite(k[0], k[1], 1, kiteCol, t[0], t[1]); return 40; }
+    return 6;
+  }
+  // a tall stilted deck along the shore normal (u fixed): timber stilts braced (stone piers from era 2), plank deck with rails
+  function skyDeck(u, d0, d1, hw, z) {
+    const S = X, a = S.pt(d0, u - hw), b = S.pt(d1, u + hw);
+    const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]), d = Math.abs(a[1] - b[1]);
+    const n = Math.max(2, Math.round(Math.abs(d1 - d0) / 0.6) + 1), stone = ERA >= 2;
+    const posts = [];
+    for (let k = 0; k < n; k++) { const dd = d0 + (d1 - d0) * k / (n - 1); for (const du of [-hw + 0.04, hw - 0.04]) posts.push(S.pt(dd, u + du)); }
+    posts.sort((p, q) => p[0] + p[1] - q[0] - q[1]);
+    for (const [px, py] of posts) {
+      if (stone) { A.box(px - 0.045, py - 0.045, 0.09, 0.09, -2, z + 2, A.shade(stoneC(), -0.12), { noSnow: true, stroke: null }); if (!X.night) A.line(A.P(px + 0.045, py + 0.045, -2), A.P(px + 0.045, py + 0.045, -0.3), '#4f7a46', 1.6); }
+      else { A.line(A.P(px, py, -3), A.P(px, py, z), beamC(), 1.6); if (!X.night) A.line(A.P(px, py, -3), A.P(px, py, -0.5), '#4f7a46', 1.8); }
+    }
+    if (!stone && z > 6) for (let k = 0; k < n - 1; k++) { // cross braces on the near side
+      const da = d0 + (d1 - d0) * k / (n - 1), db = d0 + (d1 - d0) * (k + 1) / (n - 1), du = S.edge === 'N' || S.edge === 'W' ? hw - 0.04 : hw - 0.04;
+      A.line(S.at(da, u + du, 1), S.at(db, u + du, z - 1), beamC(), 0.6); A.line(S.at(db, u + du, 1), S.at(da, u + du, z - 1), beamC(), 0.6);
+    }
+    return deck(x, y, w, d, z, true);
+  }
+
+  // ------------------------------------------------- harbor on the coast: stilted sky-docks and kite-boats
+  //   1-4 one high stilted jetty with a rope ladder down to a kite-boat; 5-9 more jetties, a stilt dock-house,
+  //   windsocks and a rope lift; 10-14 a mooring mast with perches, a big kite-ship; 15+ a glider launch ramp,
+  //   stormglass on the mast (Legend era) and a sky full of kites
+  function coastalHarbor(L, band) {
+    if (!L) return undefined;
+    const S = X, D = S.depth, u0 = S.u0, us = S.piers.slice().sort((p, q) => p - q);
+    const jobs = [], J = (dd, u, fn, bias = 0) => { const g = S.pt(dd, u); jobs.push([g[0] + g[1] + bias, fn]); };
+    let top = 24;
+    // a boardwalk quay along the shore
+    const qa = us[0] - 0.4, qb = us[us.length - 1] + 0.4;
+    J(0, -99, () => {
+      for (let u = qa; u < qb - 0.01; u += 0.25) {
+        const u1 = Math.min(qb, u + 0.25);
+        prism([S.pt(D(u) - 0.15, u), S.pt(D(u1) - 0.15, u1), S.pt(D(u1) + 0.3, u1), S.pt(D(u) + 0.3, u)], -1, 2.5, ERA >= 2 ? stoneC() : woodC(), { stroke: null });
+        if (!X.snow && ERA < 2) A.line(S.at(D(u) - 0.15, u, 2.5), S.at(D(u) + 0.3, u, 2.5), A.shade(woodC(), -0.25), 0.45);
+      }
+      const ln = []; for (let u = qa; u <= qb + 0.001; u += 0.25) ln.push(S.at(D(u) - 0.15, u, 2.5));
+      A.c.beginPath(); ln.forEach((p, k) => k ? A.c.lineTo(p[0], p[1]) : A.c.moveTo(p[0], p[1])); A.c.strokeStyle = A.F(A.shade(woodC(), -0.4)); A.c.lineWidth = 0.8; A.c.stroke();
+    }, -1000);
+    const outs = [];
+    us.forEach((u, i) => {
+      const dd0 = D(u), main = Math.abs(u - u0) < 0.01, reach = main ? 2.0 + band * 0.25 : 1.6 + band * 0.2;
+      const out = Math.max(0.45, dd0 - reach), z = main ? 9 + band * 2 : 4 + band;
+      outs.push([u, out, dd0, main, z]);
+      J((out + dd0) / 2, u, () => {
+        skyDeck(u, dd0 + 0.25, out, main ? 0.24 : 0.18, z);
+        // rope ladder from the deck end to the water, and a ramp up from the quay
+        const lp = S.at(out + 0.12, u + (main ? 0.2 : 0.15), z), lb = S.at(out + 0.12, u + (main ? 0.2 : 0.15), 0);
+        A.line([lp[0] - 1.2, lp[1]], [lb[0] - 1.2, lb[1]], '#8a6a40', 0.6); A.line([lp[0] + 1.2, lp[1]], [lb[0] + 1.2, lb[1]], '#8a6a40', 0.6);
+        for (let k = 2; k < z; k += 2.5) A.line([lp[0] - 1.2, lp[1] + k], [lp[0] + 1.2, lp[1] + k], '#c9a874', 0.6);
+        // a pennant pole at the deck head
+        { const [px, py] = S.at(out + 0.08, u - (main ? 0.2 : 0.14), z + 1.4), ph = 10 + band * 2; A.line([px, py], [px, py - ph], '#4a3a2a', 0.9); A.poly([[px, py - ph], [px + 7, py - ph + 1.8], [px, py - ph + 3.6]], cloth(i), A.OUT, 0.4); }
+      }, -500);
+    });
+    // kite-boats moored by the ladders; a big kite-ship by the main dock from band 2
+    outs.forEach(([u, out, dd0, main], i) => {
+      const len = dd0 - out;
+      if (main && band >= 2 && len > 1.4) {
+        const sd = S.front ? 0.6 : -0.6;
+        J(out + 0.9, u + sd, () => {
+          const p0 = 0, p1 = 0;
+          const d0 = out + 0.1, d1 = out + Math.min(1.9, len - 0.1), bw = 0.22;
+          const hc = '#7a5434', uu = u + sd;
+          prism([S.pt(d0, uu), S.pt(d0 + 0.45, uu + bw), S.pt(d1 - 0.1, uu + bw * 0.85), S.pt(d1, uu), S.pt(d1 - 0.1, uu - bw * 0.85), S.pt(d0 + 0.45, uu - bw)], -1, 5, hc, { top: A.shade(hc, 0.3) });
+          A.poly([S.pt(d0 + 0.2, uu), S.pt(d0 + 0.5, uu + bw * 0.62), S.pt(d1 - 0.15, uu + bw * 0.55), S.pt(d1 - 0.08, uu), S.pt(d1 - 0.15, uu - bw * 0.55), S.pt(d0 + 0.5, uu - bw * 0.62)].map(p => A.P(p[0], p[1], 4.6)), A.shade(hc, -0.35), null);
+          A.line(S.at(d0 + 0.45, uu + bw, 3), S.at(d1 - 0.1, uu + bw * 0.85, 3), ERA >= 3 ? '#e0b440' : A.STY.roof, 1);
+          void p0; void p1;
+          const m = d0 + (d1 - d0) * 0.62, mb = S.at(m, uu, 4.6), H = 28 + band * 3;
+          A.line(mb, [mb[0], mb[1] - H], '#4a3a2a', 1.4);
+          // a great batwing sail (fanned battens like a hawk's wing)
+          const top0 = [mb[0], mb[1] - H], foot = [mb[0], mb[1] - 6], tipP = [mb[0] + 15, mb[1] - H * 0.35];
+          A.poly([top0, [mb[0] + 12, mb[1] - H * 0.8], tipP, [mb[0] + 10, mb[1] - 8], foot], ERA >= 3 ? '#f4f0e4' : '#efe2c4', A.OUT, 0.6);
+          for (const t of [0.25, 0.5, 0.75]) A.line([mb[0], mb[1] - 6 - (H - 6) * (1 - t)], lerp2([mb[0] + 12, mb[1] - H * 0.8], [mb[0] + 10, mb[1] - 8], t), '#8a6440', 0.6);
+          A.poly([top0, [mb[0] + 12, mb[1] - H * 0.8], [mb[0] + 13.5, mb[1] - H * 0.58], [mb[0], mb[1] - H * 0.75]], A.STY.roof, null);
+          A.rec('flags', { x: top0[0], y: top0[1] + 1, col: A.STY.flag, len: 10, seed: RN() });
+          const k = S.at(Math.max(0.2, d0 - 1.2), u - 0.3, H + 18); kite(k[0], k[1], 1.4, cloth(0), top0[0], top0[1] + 2);
+          top = Math.max(top, H + 30);
+        });
+      } else if (len > 0.8) { const du = i % 2 ? -0.42 : 0.42, dd = out + Math.min(0.75, len * 0.4); J(dd, u + du, () => { top = Math.max(top, kiteBoat(dd, u + du, 0.7, i % 2 ? '#7a5a3a' : '#5a6a7a', i % 2 === 0 ? cloth(i + 1) : null, i % 2)); }); }
+      if (len > 1.5 && band >= 1 && !(main && band >= 2)) { const du = i % 2 ? 0.44 : -0.44, dd = out + len * 0.7; J(dd, u + du, () => kiteBoat(dd, u + du, 0.55, '#8a6a44', null)); }
+    });
+    // dock-house on stilts ashore (band 1+), and a windsock
+    if (band >= 1) {
+      const u = u0 - 0.62;
+      if (u > S.a + 0.5) J(D(u) + 0.15, u, () => {
+        const a = S.pt(D(u) - 0.25, u - 0.28), b = S.pt(D(u) + 0.35, u + 0.28);
+        const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]), d = Math.abs(a[1] - b[1]), pz = 6 + band;
+        legs(x, y, w, d, 0, pz); deck(x - 0.06, y - 0.06, w + 0.12, d + 0.12, pz, false);
+        const o = hut(x, y, w, d, pz + 1.4, 8 + band, { axis: S.edge === 'N' || S.edge === 'S' ? 'x' : 'y' });
+        A.door(o.b, 'L', w * 0.5, Math.min(0.24, w * 0.5), 6);
+        perchArm(x + w, y + d * 0.5, pz + 8, 0.3, 0, true);
+        top = Math.max(top, o.top + 6);
+      });
+    }
+    { const u = u0 + 0.5, dd = D(u) + 0.2; J(dd, u, () => { const [x, y] = S.at(dd, u, 2.5); windsock(x, y, 16 + band * 2, S.edge === 'E' || S.edge === 'S' ? -1 : 1); }); }
+    // crates and a rope lift at the main dock's root (level 3+ / 5+)
+    if (L >= 3) { const u = u0 + 0.3, dd = D(u) + 0.35; J(dd, u, () => { A.crate(...S.pt(dd, u), 0.22); A.sack(...S.pt(dd + 0.05, u + 0.25)); }); }
+    if (L >= 5) {
+      const o = outs.find(q => q[3]) || outs[0], [u, out, dd0, , z] = o, dm = Math.max(out + 0.3, dd0 - 1.3);
+      J(dm, u + 0.3, () => { const [gx, gy] = S.pt(dm, u + 0.2); ropeLift(gx, gy, 0, z + 18 + band * 3, band >= 2 ? 'crate' : 'basket'); }, 0.05);
+    }
+    // the mooring mast at the head of the main dock (band 2+): a perch spire with a kite-glider tethered to it
+    if (band >= 2) {
+      const o = outs.find(q => q[3]) || outs[0], [u, out, , , z] = o;
+      J(out + 0.25, u, () => {
+        const [gx, gy] = S.pt(out + 0.25, u), H = 30 + band * 8;
+        const tz = spire(gx, gy, 0.14, H, { perches: band - 1, glass: band >= 3 && ERA >= 3, roofH: 12 });
+        const [kx, ky] = A.P(gx, gy, H + 4), g = S.at(Math.max(0, out - 1.1), u + 0.4, H + 20);
+        A.line([kx, ky], [g[0] + 8, g[1] + 3], '#6a5a44', 0.5);
+        A.poly([[g[0] + 8, g[1]], [g[0] - 4, g[1] + 3], [g[0] + 8, g[1] + 6], [g[0] + 20, g[1] + 3]], cloth(1), A.OUT, 0.5);
+        A.line([g[0] + 8, g[1]], [g[0] + 8, g[1] + 6], beamC(), 0.6);
+        top = Math.max(top, tz + 8, H + 26);
+        void z;
+      }, 0.05);
+    }
+    // band 3: a glider launch ramp off the dock-house rock and kites over the bay
+    if (band >= 3) {
+      const u = us[us.length - 1] + 0.5;
+      if (u < S.b - 0.4) J(D(u) + 0.35, u, () => {
+        const [gx, gy] = S.pt(D(u) + 0.45, u); rockBase(gx - 0.25, gy - 0.25, 0.5, 0.5, 10);
+        const a = S.at(D(u) + 0.3, u, 10), b = S.at(D(u) - 0.8, u, 15); A.line(a, b, woodC(), 3); A.line(b, [b[0], b[1] + 15], beamC(), 0.8);
+      });
+      for (let k = 0; k < 2; k++) { const p = S.at(Math.max(0.2, D(u0) - 2.4), u0 - 2.4 + k * 4.2, 58 + k * 10), t = S.at(D(u0 - 1.6 + k * 3) + 0.1, u0 - 1.6 + k * 3, 3); kite(p[0], p[1], 1.2, cloth(k + 2), t[0], t[1]); }
+      top = Math.max(top, 70);
+    }
+    const [bx, by] = S.at(Math.max(0.4, D(u0) - 1.6), u0, 36); A.rec('birds', { x: bx, y: by, r: 28, n: 2 + band, seed: RN() });
+    if (!X.snow) { const [sx, sy] = S.at(Math.max(0.4, D(u0) * 0.45), u0 - 1, 0); A.rec('sparks', { x: sx, y: sy, kind: 'water', rx: 30, ry: 12 }); }
+    jobs.sort((p, q) => p[0] - q[0]);
+    for (const [, fn] of jobs) fn();
+    return top;
+  }
+
+  // ------------------------------------------------- lighthouse (town hall 10+): a tall stilted lattice beacon
+  //   splayed timber legs (stone-footed later) braced to a lamp-house whose windmill sails turn in the wind;
+  //   a fire basket, then a stormglass lamp in the Legend era
+  def('lighthouse', ([x, y, w, d], L, band) => {
+    const gx = x + w / 2, gy = y + d / 2, H = 46 + band * 8 + Math.min(10, Math.max(0, L - 10));
+    // the sea-stack it stands on
+    if (!X.night && !X.snow) { const [fx, fy, rx, ry] = A.ell(gx, gy, 0, 0.6); A.c.beginPath(); A.c.ellipse(fx, fy, rx, ry, 0, 0, Math.PI * 2); A.c.strokeStyle = 'rgba(255,255,255,0.6)'; A.c.lineWidth = 1.2; A.c.stroke(); }
+    rockBase(gx - 0.36, gy - 0.36, 0.72, 0.72, 6);
+    const s0 = 0.3, s1 = 0.13, z0 = 6;
+    const legsP = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    const LG = (sx, sy, t) => A.P(gx + sx * (s0 + (s1 - s0) * t), gy + sy * (s0 + (s1 - s0) * t), z0 + (H - z0) * t);
+    const legC = ERA >= 2 ? A.shade(stoneC(), -0.25) : beamC();
+    // back legs, braces on the visible faces, then the front legs
+    for (const [sx, sy] of legsP) if (sx + sy < 0) A.line(LG(sx, sy, 0), LG(sx, sy, 1), legC, 1.8);
+    for (let k = 0; k < 4; k++) {
+      const t0 = k / 4, t1 = (k + 1) / 4;
+      for (const [[ax, ay], [bx, by]] of [[[-1, 1], [1, 1]], [[1, -1], [1, 1]]]) { A.line(LG(ax, ay, t0), LG(bx, by, t1), beamC(), 0.7); A.line(LG(bx, by, t0), LG(ax, ay, t1), beamC(), 0.7); A.line(LG(ax, ay, t1), LG(bx, by, t1), beamC(), 0.9); }
+    }
+    for (const [sx, sy] of legsP) if (sx + sy >= 0) A.line(LG(sx, sy, 0), LG(sx, sy, 1), legC, 2);
+    if (ERA >= 2) for (const [sx, sy] of legsP) A.box(gx + sx * s0 - 0.06, gy + sy * s0 - 0.06, 0.12, 0.12, z0 - 1, 4, stoneC(), { noSnow: true });
+    // a ladder up the front face
+    ladder(gx + 0.02, gy + 0.26, z0, H * 0.7);
+    // gallery deck and lamp-house
+    deck(gx - 0.3, gy - 0.3, 0.6, 0.6, H, true);
+    const lz = H + 1.4, lh = 12 + band;
+    A.cyl(gx, gy, 0.2, lz, 3, ERA >= 2 ? stoneC() : wallC());
+    const [lx, ly] = A.P(gx, gy, lz + 3 + (lh - 3) / 2);
+    A.poly([[lx - 5, ly + (lh - 3) / 2], [lx + 5, ly + (lh - 3) / 2], [lx + 5, ly - (lh - 3) / 2], [lx - 5, ly - (lh - 3) / 2]], X.night ? '#000' : 'rgba(200,225,240,0.4)', A.OUT, 0.6);
+    if (ERA >= 3) storm(lx, ly, 3.2);
+    else { A.lampDot(lx, ly + 1, 3, '#e8a040', '#ffd46e'); if (!X.night) A.circ(lx, ly - 1.5, 1.6, '#f8d070'); A.rec('fires', { x: lx, y: ly - 1, s: 0.6 }); }
+    for (const dx of [-5, -1.7, 1.7, 5]) A.line([lx + dx, ly + (lh - 3) / 2], [lx + dx, ly - (lh - 3) / 2], beamC(), 0.8);
+    let top = A.cone(gx, gy, 0.32, lz + lh, 12 + band * 2, roofC());
+    if (ERA >= 3) { const [tx, ty] = A.P(gx, gy, top); A.line([tx, ty], [tx, ty - 5], '#c9a03a', 1); A.circ(tx, ty - 6, 1.4, '#e0b440'); top += 8; }
+    else top = vane(gx, gy, top - 1);
+    // windmill sails on the seaward side of the lamp-house, turning with the town
+    const [sx, sy] = A.P(gx + 0.24, gy + 0.24, lz + 1);
+    A.rec('sails', { x: sx, y: sy, r: 13 + band * 2, col: ERA >= 3 ? '#f4f0e4' : '#efe2c4' });
+    A.pennant(gx - 0.28, gy + 0.28, H + 1.4, 10, A.STY.flag);
+    perchArm(gx - 0.3, gy, H + 6, -0.3, 0.1, true);
+    A.rec('beams', { x: lx, y: ly }); A.rec('lights', { x: lx, y: ly, r: 40 + band * 6, col: ERA >= 3 ? 'storm' : undefined });
+    birds(gx, gy, top + 10, 2, 24);
+    return { top: top + 4, hit: [[gx - 0.4, gy - 0.4, 0.8, 0.8, top + 4]] };
+  });
+
+  // ------------------------------------------------- wall towers: perch-towers of wall stone
+  //   band 1: a stone drum with an open perch platform and a windsock; band 2+: a slender perch spire with
+  //   a gallery, perches and a blue cone (corner towers taller, more perches); Legend era stormglass tips
+  def('walltower', (s, L, band) => {
+    const gx = X.gx, gy = X.gy, corner = !!X.corner, b = Math.max(1, band), col = wallStone();
+    let top;
+    if (b === 1 && !corner) {
+      const r = 0.32, H = 30;
+      A.cyl(gx, gy, r * 1.18, 0, 3, A.shade(col, -0.18));
+      A.cyl(gx, gy, r, 3, H - 3, col);
+      const [x, y, rx, ry] = A.ell(gx, gy, 0, r);
+      for (let v = 7; v < H - 1; v += 5) { A.c.beginPath(); A.c.ellipse(x, y - v, rx, ry, 0, 0.15, Math.PI - 0.15); A.c.strokeStyle = A.F(A.shade(col, -0.18)); A.c.lineWidth = 0.6; A.c.stroke(); }
+      const [wx, wy] = A.P(gx + r * 0.5, gy + r * 0.85, H * 0.55); A.lamp([[wx - 1, wy], [wx + 1, wy], [wx + 1, wy - 5], [wx - 1, wy - 5]], '#3a4655', A.nightGlass());
+      // timber perch platform with a rail
+      A.cyl(gx, gy, r * 1.55, H, 1.6, woodC());
+      const [gx0, gy0, rx2, ry2] = A.ell(gx, gy, H + 1.6, r * 1.55);
+      A.c.beginPath(); A.c.ellipse(gx0, gy0 - 4, rx2, ry2, 0, 0, Math.PI); A.c.strokeStyle = A.F(beamC()); A.c.lineWidth = 0.7; A.c.stroke();
+      for (let k = 0; k <= 6; k++) { const a = k / 6 * Math.PI; A.line([gx0 + Math.cos(a) * rx2, gy0 + Math.sin(a) * ry2], [gx0 + Math.cos(a) * rx2, gy0 + Math.sin(a) * ry2 - 4], beamC(), 0.6); }
+      windsock(gx0 - 2, gy0, 14, 1);
+      perchArm(gx + r, gy + r * 0.3, H + 3, 0.3, 0.05, true);
+      top = H + 18;
+    } else {
+      const H = (corner ? 40 : 32) + b * 6;
+      top = spire(gx, gy, corner ? 0.27 : 0.23, H, { col, perches: (corner ? 2 : 1) + (b >= 3 ? 1 : 0), glass: b >= 3 && ERA >= 2, roofH: corner ? 20 : 16 });
+      // a stone courses band near the foot, and prayer flags from corner towers
+      if (corner && b >= 2) A.pennant(gx + 0.2, gy - 0.2, H + 1.6, 10, A.STY.flag);
+    }
+    if (TECH('fortification')) { const [lx, ly] = A.P(gx + 0.3, gy + 0.3, 16); A.lantern(lx, ly, 1.2); }
+    return { top, hit: [[gx - 0.45, gy - 0.45, 0.9, 0.9, top]] };
+  });
+
+  // ------------------------------------------------- gate & postern
+  function gatePiece(band, wide) {
+    const along = X.along, f = X.fixed, g0 = X.g0, g1 = X.g1, mid = (g0 + g1) / 2;
+    const at = (u, z = 0) => along ? A.P(u, f, z) : A.P(f, u, z);
+    const gp = u => along ? [u, f] : [f, u];
+    if (band <= 0) { // carved poles, a crossbar with spread wings, streamers and prayer flags
+      const ph = wide ? 30 : 20;
+      for (const u of [g0 + 0.02, g1 - 0.02]) { A.line(at(u), at(u, ph), beamC(), 2.6); A.line(at(u, ph - 3), at(u, ph - 1), '#c9a03a', 2.8); }
+      A.line(at(g0 - 0.12, ph - 6), at(g1 + 0.12, ph - 6), beamC(), 2.2);
+      const m = at(mid, ph - 4);
+      if (wide) { wingEmblem(m[0], m[1], 0.85, ERA >= 1 ? '#d8c8a0' : '#9a6a40'); A.pennant(...gp(g0 + 0.02), ph, 10, cloth(0)); A.pennant(...gp(g1 - 0.02), ph, 10, cloth(2)); }
+      else A.circ(m[0], m[1], 2, '#8a6440', A.OUT);
+      flags(at(g0 + 0.02, ph - 8), at(g1 - 0.02, ph - 8), wide ? 6 : 3, 5);
+      return { top: ph + (wide ? 18 : 4) };
+    }
+    const col = wallStone(), H = 20 + band * 4, t = 0.44;
+    if (!wide) { // postern: a raised stone block with a pointed door, a perch and a pennant on top
+      const bb = along ? A.box(g0, f - t / 2, g1 - g0, t, 0, H + 6, col) : A.box(f - t / 2, g0, t, g1 - g0, 0, H + 6, col);
+      A.courses(bb, 4, A.shade(col, -0.16));
+      const face = along ? A.onL : A.onR, len = g1 - g0, u = len / 2, dw = len * 0.5;
+      const q = face(bb, u - dw / 2, u + dw / 2, 0, H * 0.45), tp = face(bb, u, u, H * 0.45 + 5, 0)[0];
+      A.poly([q[0], q[1], q[2], tp, q[3]], A.STY.door, A.shade(col, -0.35), 1);
+      const pk = face(bb, u, u, H + 6, 0)[0]; A.line(pk, [pk[0], pk[1] - 9], beamC(), 1.2); A.line([pk[0] - 3, pk[1] - 9], [pk[0] + 3, pk[1] - 9], beamC(), 1); hawk(pk[0] + 2, pk[1] - 9);
+      A.pennant(...gp(g0 + 0.06), H + 6, 10, A.STY.flag);
+      const lp = face(bb, u + dw / 2 + 0.06, 0, H * 0.45, 0)[0]; A.lantern(lp[0] + 1, lp[1], 1.2);
+      return { top: H + 22 };
+    }
+    if (band === 1) { // two stone pillars with perch poles, a timber lintel with the carved wings
+      for (const u of [g0 + 0.04, g1 - 0.04]) {
+        const [cx, cy] = gp(u), b = A.box(cx - 0.15, cy - 0.15, 0.3, 0.3, 0, H + 6, col); A.courses(b, 4, A.shade(col, -0.16));
+        A.box(cx - 0.18, cy - 0.18, 0.36, 0.36, H + 6, 2, A.shade(col, 0.06));
+        const p = A.P(cx, cy, H + 8); A.line(p, [p[0], p[1] - 9], beamC(), 1.2); A.line([p[0] - 3, p[1] - 9], [p[0] + 3, p[1] - 9], beamC(), 1); hawk(p[0] + 2, p[1] - 9);
+      }
+      A.line(at(g0 + 0.15, H + 2), at(g1 - 0.15, H + 2), beamC(), 3);
+      const m = at(mid, H + 4); wingEmblem(m[0], m[1], 0.8, ERA >= 3 ? '#e0b440' : '#d8c8a0');
+      flags(at(g0 + 0.04, H + 6), at(g1 - 0.04, H + 6), 6, 6);
+      return { top: H + 26 };
+    }
+    // gatehouse: two perch spires flanking a stone passage block crowned by a covered timber gallery
+    const sr = 0.22 + (band - 2) * 0.02, SH = H + 22 + (band - 2) * 8;
+    let top = spire(...gp(g0 + 0.04), sr, SH, { col, perches: 1, glass: band >= 3 && ERA >= 2, roofH: 16 });
+    const p0 = g0 + 0.26, p1 = g1 - 0.26;
+    const bb = along ? A.box(p0, f - 0.25, p1 - p0, 0.5, 0, H + 4, col) : A.box(f - 0.25, p0, 0.5, p1 - p0, 0, H + 4, col);
+    A.courses(bb, 4, A.shade(col, -0.16));
+    const face = along ? A.onL : A.onR, len = p1 - p0, u = len / 2, ow = len * 0.7;
+    const q = face(bb, u - ow / 2, u + ow / 2, 0, H * 0.5), tp = face(bb, u, u, H * 0.5 + 8, 0)[0];
+    A.poly([q[0], q[1], q[2], tp, q[3]], X.night ? '#000' : '#2a2620', A.shade(col, -0.35), 1.4);
+    if (!X.night) for (let k = 1; k < 4; k++) { const a = lerp2(q[0], q[1], k / 4); A.line(a, [a[0], a[1] - (q[0][1] - q[3][1]) * 0.85], '#5a4030', 0.7); }
+    // the covered gallery: timber on the block, a blue roof with a feather crest
+    const gb = along ? A.box(p0 - 0.04, f - 0.22, len + 0.08, 0.44, H + 4, 8, woodC()) : A.box(f - 0.22, p0 - 0.04, 0.44, len + 0.08, H + 4, 8, woodC());
+    A.planks(gb, A.shade(woodC(), -0.2));
+    for (let k = 0; k < 3; k++) { const p = face(gb, len * (k + 0.5) / 3, 0, 3, 0)[0]; A.lamp([[p[0] - 1.2, p[1]], [p[0] + 1.2, p[1]], [p[0] + 1.2, p[1] - 3.5], [p[0] - 1.2, p[1] - 3.5]], '#3a4655', A.nightGlass()); }
+    const rt = A.gable(gb, 10, roofC(), along ? 'x' : 'y', roofTex(), 0.1);
+    const rq = A.gableQ(gb, 10, along ? 'x' : 'y', 0.1); crest(rq[3], rq[2]);
+    const m = face(bb, u, u, H * 0.5 + 12, 0)[0]; wingEmblem(m[0], m[1], 0.85 + (band - 2) * 0.15, ERA >= 3 ? '#e0b440' : ERA >= 2 ? '#d8c8a0' : '#9a6a40');
+    if (ERA >= 3) storm(m[0], m[1] - 2, 1.4, false);
+    top = Math.max(top, rt + 8, spire(...gp(g1 - 0.04), sr, SH, { col, perches: 1, glass: band >= 3 && ERA >= 2, roofH: 16 }));
+    flags(A.P(...gp(g0 + 0.04), SH + 1), A.P(...gp(g1 - 0.04), SH + 1), 8, 8);
+    for (const s of [0.06, len - 0.06]) { const p = face(bb, s, 0, H * 0.45, 0)[0]; A.lantern(p[0], p[1], 1.2); }
+    return { top };
+  }
+  def('gate', (s, L, band) => { const r = gatePiece(band, true); return { top: r.top, hit: [[s[0], s[1], s[2], s[3], r.top]] }; });
+  def('postern', (s, L, band) => { const r = gatePiece(band, false); return { top: r.top, hit: [[s[0], s[1], s[2], s[3], r.top]] }; });
 })();

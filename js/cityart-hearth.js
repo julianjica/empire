@@ -1457,7 +1457,7 @@
   });
 
   // =====================================================================
-  //  WALL (segments; towers and gates stay stock) — a dry-stone wall topped with hawthorn → limestone
+  //  WALL (segments; towers, gatehouses and posterns below) — a dry-stone wall topped with hawthorn → limestone
   //  curtain with merlons and ivy → tiled timber hoarding along the walk → hanging heraldic banners
   // =====================================================================
   reg('wall', ([fx, fy, fw, fd], L, band, ctx) => {
@@ -1496,6 +1496,300 @@
       poly([[px - 3, py], [px + 3, py], [px + 3, py + 12], [px, py + 9.5], [px - 3, py + 12]], '#c0392b'); poly([[px - 0.7, py], [px + 0.7, py], [px + 0.7, py + 10], [px - 0.7, py + 10]], GOLD, null);
     }
     return H + (hoard ? 11 : 3.5);
+  });
+
+  // =====================================================================
+  //  WALL TOWERS, GATEHOUSE, POSTERN — the same limestone as the curtain: round ivy-hung towers under
+  //  thatch / red tile / slate cones, a timber hoarding ring once the walk is hoarded; the gate grows from a
+  //  thatched lych-gate to stone piers under a tiled canopy to a twin-towered gatehouse with a half-timbered
+  //  upper storey, portcullis and heraldic banner.
+  // =====================================================================
+  const WCOL = '#c4b8a2', WCD = '#a89c86';
+  const wallH = band => 20 + band * 4;
+  const hoarded = band => band >= 2 && (X.tech('fortification') || band >= 3);
+  const towerRoof = () => { const m = roofOf(true); return m.tex === 'thatch' ? THATCH : m.col; };
+  function cylLines(gx, gy, r, z0, z1, step, col) {
+    const [x, y, rx, ry] = A.ell(gx, gy, 0, r), c = A.c;
+    for (let v = z0 + step; v < z1 - 0.5; v += step) { c.beginPath(); c.ellipse(x, y - v, rx, ry, 0, 0.12, Math.PI - 0.12); c.strokeStyle = A.F(col); c.lineWidth = 0.6; c.stroke(); }
+  }
+  function cylSlit(gx, gy, r, v, h = 6, side = 0) { // an arrow slit on the round face (side: -1 left, 0 front, 1 right)
+    const a = Math.PI / 4 + side * 0.75, [x, y] = P(gx + Math.cos(a) * r, gy + Math.sin(a) * r, v);
+    A.lamp([[x - 0.8, y], [x + 0.8, y], [x + 0.8, y - h], [x - 0.8, y - h]], '#2e2a28', '#ffc35a');
+  }
+  function ivyUp(gx, gy, r, H, seed) {
+    if (A.SNOW) return;
+    const a = Math.PI / 4 + ((seed * 7) % 3 - 1) * 0.5, [ix, iy] = P(gx + Math.cos(a) * r, gy + Math.sin(a) * r, 0);
+    for (let j = 0; j < 8; j++) circ(ix + Math.sin(j * 1.9 + seed) * 2.6, iy - 2 - j * (H / 11), 2.1 - j * 0.13, A.SEASON === 2 ? (j % 2 ? '#b0502a' : '#c87a2a') : j % 2 ? '#3f7a3a' : '#5e9447', null);
+  }
+  function crown(gx, gy, r, z, col, n = 8) { // a crenellated rim on a round tower
+    A.cyl(gx, gy, r, z, 3, col);
+    const ms = []; for (let k = 0; k < n; k++) { const a = (k + 0.5) / n * TAU; ms.push([Math.cos(a), Math.sin(a)]); }
+    ms.sort((p, q) => (p[0] + p[1]) - (q[0] + q[1]));
+    for (const [cx2, cy2] of ms) box(gx + cx2 * (r - 0.07) - 0.065, gy + cy2 * (r - 0.07) - 0.065, 0.13, 0.13, z + 3, 3.5, col);
+    return z + 6.5;
+  }
+  function hoardRing(gx, gy, r, z) { // a timber hoarding ring with dark drop-slots
+    A.cyl(gx, gy, r, z, 7, '#9a7444', '#8a6440');
+    for (let k = -2; k <= 2; k++) { const a = Math.PI / 4 + k * 0.42, [x, y] = P(gx + Math.cos(a) * r, gy + Math.sin(a) * r, z + 2); poly([[x - 0.9, y], [x + 0.9, y], [x + 0.9, y - 3], [x - 0.9, y - 3]], '#2a2018', null); }
+    return z + 7;
+  }
+  // a round tower: battered plinth, coursed limestone, ivy, slits, then crenels or hoarding, a cone roof
+  function roundTower(gx, gy, r, H, band, o = {}) {
+    A.cyl(gx, gy, r + 0.06, 0, 5, shade(WCOL, -0.1));
+    A.cyl(gx, gy, r, 5, H - 5, WCOL); cylLines(gx, gy, r, 5, H, 4, WCD);
+    ivyUp(gx, gy, r, H * 0.8, Math.round((gx + gy) * 3));
+    cylSlit(gx, gy, r, H * 0.42, 6, -1); cylSlit(gx, gy, r, H * 0.62, 6, 1);
+    if (X.era >= 1) cylSlit(gx, gy, r, H * 0.25, 5, 0);
+    let z = H;
+    if (o.hoard) z = hoardRing(gx, gy, r + 0.09, H);
+    else if (!o.roof) return crown(gx, gy, r + 0.04, H, WCOL);
+    else { A.cyl(gx, gy, r + 0.05, H, 2.5, shade(WCOL, -0.06)); z = H + 2.5; }
+    const rc = towerRoof(), zt = A.cone(gx, gy, r + (o.hoard ? 0.17 : 0.12), z, (o.tall || 20) + r * 8, rc);
+    if (X.era === 0 && !A.SNOW) { const [x, y, rx] = A.ell(gx, gy, z, r + 0.12); line([x - rx, y], [x + rx, y], shade(rc, -0.32), 2); }   // thatch eave lip
+    if (X.era >= 3) { const [fx, fy] = P(gx, gy, zt); line([fx, fy], [fx, fy - 6], '#5a4a3a', 1); circ(fx, fy - 6, 1.4, GOLD, A.OUT); }
+    return zt;
+  }
+  reg('walltower', ([x, y, w, d], L, band, ctx) => {
+    const gx = ctx.gx, gy = ctx.gy, corner = ctx.corner;
+    const hoard = hoarded(band), r = corner ? 0.47 : 0.38;
+    const H = wallH(band) + (corner ? 16 : 9) + (band >= 3 ? 5 : 0) + (hoard ? 4 : 0);
+    // side towers of a band-1 wall: squat crenellated drums; corners and later bands get roofs
+    const roof = corner || band >= 2 || X.era >= 2;
+    let top = roundTower(gx, gy, r, H, band, { hoard, roof, tall: corner ? 24 : 16 });
+    if (corner && band >= 2) { A.flagpole(gx, gy, top - 1, 12, A.STY.flag); top += 12; }
+    if (band >= 3 && corner) { // a hanging heraldic banner on the outward face
+      const [px, py] = P(gx + r * 0.71, gy + r * 0.71, H - 4);
+      poly([[px - 3, py], [px + 3, py], [px + 3, py + 13], [px, py + 10.5], [px - 3, py + 13]], '#c0392b'); poly([[px - 0.7, py], [px + 0.7, py], [px + 0.7, py + 11], [px - 0.7, py + 11]], GOLD, null);
+    }
+    return top;
+  });
+  // the gate's two sides along the wall line: u = position along the wall, fixed = the wall line
+  const wallPt = (ctx, u, off = 0) => ctx.along ? [u, ctx.fixed + off] : [ctx.fixed + off, u];
+  const wbox = (ctx, u0, u1, o0, o1, z, h, col, opt) => ctx.along ? box(u0, ctx.fixed + o0, u1 - u0, o1 - o0, z, h, col, opt) : box(ctx.fixed + o0, u0, o1 - o0, u1 - u0, z, h, col, opt);
+  const wAxis = ctx => ctx.along ? 'x' : 'y';
+  const wFace = ctx => ctx.along ? 'L' : 'R';
+  function portcullis(ctx, u0, u1, z, drop) { // iron teeth hanging under an arch, on the outward-visible face
+    const n = Math.max(3, Math.round((u1 - u0) / 0.12));
+    for (let k = 0; k <= n; k++) { const u = u0 + (u1 - u0) * k / n; line(P(...wallPt(ctx, u, 0.29), z), P(...wallPt(ctx, u, 0.29), z - drop), '#2e2a28', 0.9); }
+    line(P(...wallPt(ctx, u0, 0.29), z - drop * 0.5), P(...wallPt(ctx, u1, 0.29), z - drop * 0.5), '#2e2a28', 0.8);
+  }
+  function gateLeaf(ctx, u, dir, h) { // an open oak gate leaf folded back against the jamb
+    const a = wallPt(ctx, u, 0.05), b = wallPt(ctx, u + dir * 0.06, 0.42);
+    poly([P(...a, 0), P(...b, 0), P(...b, h), P(...a, h)], OAK);
+    line(P(...a, h * 0.3), P(...b, h * 0.3), BEAM, 0.8); line(P(...a, h * 0.75), P(...b, h * 0.75), BEAM, 0.8);
+  }
+  reg('gate', ([x, y, w, d], L, band, ctx) => {
+    const g0 = ctx.g0, g1 = ctx.g1, H = wallH(band), m = (g0 + g1) / 2, ax = wAxis(ctx);
+    if (band <= 0) { // a lych-gate: oak posts under a little thatched roof, the hedge either side
+      for (const u of [g0, g1]) for (const o of [-0.16, 0.16]) { const p = wallPt(ctx, u, o); box(p[0] - 0.05, p[1] - 0.05, 0.1, 0.1, 0, 15, OAK); }
+      const b = wbox(ctx, g0 - 0.08, g1 + 0.08, -0.22, 0.22, 15, 1.5, BEAM);
+      const zt = roof(b, 8, ax, roofOf(false));
+      gateLeaf(ctx, g0 + 0.06, 1, 11); gateLeaf(ctx, g1 - 0.06, -1, 11);
+      const [lx, ly] = P(...wallPt(ctx, m, 0.22), 14); A.lantern(lx, ly + 3, 1.3);
+      return zt;
+    }
+    const stoneC = WCOL;
+    if (band === 1) { // stone piers with pyramid caps, a beamed tiled canopy over the way
+      const ph = H + 10;
+      const pier = (u0, u1) => {
+        wbox(ctx, u0 - 0.03, u1 + 0.03, -0.34, 0.34, 0, 4, shade(stoneC, -0.12));
+        const pb = wbox(ctx, u0, u1, -0.31, 0.31, 4, ph - 4, stoneC); A.courses(pb, 4, WCD);
+        const cap = wbox(ctx, u0 - 0.04, u1 + 0.04, -0.35, 0.35, ph, 2, shade(stoneC, -0.06));
+        const zc = A.hip(cap, 7, shade(stoneC, -0.1), 0.01); const [bx, by] = P(...wallPt(ctx, (u0 + u1) / 2, 0), zc); circ(bx, by - 1, 1.6, shade(stoneC, 0.1), A.OUT);
+      };
+      pier(g0 - 0.34, g0);
+      const bm = wbox(ctx, g0, g1, -0.2, 0.2, H + 1, 3, BEAM);
+      const zt = roof(bm, 9, ax, roofOf(false), { o: 0.1 });
+      gateLeaf(ctx, g0, 1, H - 5); gateLeaf(ctx, g1, -1, H - 5);
+      pier(g1, g1 + 0.34);
+      const [px, py] = P(...wallPt(ctx, m, 0.25), H); poly([[px - 3, py], [px + 3, py], [px + 3, py + 7], [px, py + 9], [px - 3, py + 7]], '#c0392b'); circ(px, py + 4, 1.3, GOLD, null);
+      for (const u of [g0 - 0.16, g1 + 0.16]) { const [lx, ly] = P(...wallPt(ctx, u, 0.27), H - 2); A.lantern(lx, ly + 3, 1.3); }
+      return Math.max(zt, ph + 6);
+    }
+    // gatehouse: twin round towers flanking an arch block with a half-timbered upper storey
+    const hoard = hoarded(band), TH = H + 18 + (band >= 3 ? 6 : 0), r = 0.3;
+    const tw = u => { const [tx, ty] = wallPt(ctx, u, 0.02); return roundTower(tx, ty, r, TH, band, { hoard, roof: true, tall: 18 }); };
+    let top = tw(g0 - 0.26);
+    const ab = wbox(ctx, g0, g1, -0.27, 0.27, H - 7, 9, stoneC); A.courses(ab, 4, WCD);
+    portcullis(ctx, g0 + 0.06, g1 - 0.06, H - 7, 5);
+    const up = wbox(ctx, g0 - 0.02, g1 + 0.02, -0.25, 0.25, H + 2, 10, X.era >= 3 ? '#efe7d6' : WALLS[1]); A.timber(up, BEAM);
+    for (const u of [0.35, 0.95]) A.win(up, wFace(ctx), u, 3, 0.18, 5, BEAM);
+    const zr = roof(up, 10, ax, roofOf(true));
+    // heraldic shield over the arch; a clock in the Legend era
+    const [sx, sy] = P(...wallPt(ctx, m, 0.27), H - 1);
+    poly([[sx - 3.4, sy - 4], [sx + 3.4, sy - 4], [sx + 3.4, sy + 1], [sx, sy + 4.5], [sx - 3.4, sy + 1]], '#c0392b'); line([sx, sy - 4], [sx, sy + 4], GOLD, 1); line([sx - 3.2, sy - 1], [sx + 3.2, sy - 1], GOLD, 1);
+    if (band >= 3 && X.era >= 2) { const [cx2, cy2] = P(...wallPt(ctx, m, 0.25), H + 18); circ(cx2, cy2, 3.2, '#f4ecd8', A.OUT); line([cx2, cy2], [cx2, cy2 - 2.4], '#2a2018', 0.8); line([cx2, cy2], [cx2 + 1.8, cy2], '#2a2018', 0.8); }
+    top = Math.max(top, tw(g1 + 0.26), zr);
+    if (band >= 3) { const [bx, by] = P(...wallPt(ctx, m, 0.27), TH - 4); poly([[bx - 4, by - 2], [bx + 4, by - 2], [bx + 4, by + 12], [bx, by + 9], [bx - 4, by + 12]], A.STY.flag); }
+    return top;
+  });
+  reg('postern', ([x, y, w, d], L, band, ctx) => {
+    const g0 = ctx.g0, g1 = ctx.g1, H = wallH(band), m = (g0 + g1) / 2, ax = wAxis(ctx);
+    if (band <= 0) { // a wicket in the hedge: two posts, a cross-braced gate standing ajar, a tiny hood
+      for (const u of [g0, g1]) { const p = wallPt(ctx, u); box(p[0] - 0.04, p[1] - 0.04, 0.08, 0.08, 0, 12, OAK); }
+      const a = wallPt(ctx, g0 + 0.04, 0.02), b = wallPt(ctx, g0 + 0.32, 0.2);
+      poly([P(...a, 1), P(...b, 1), P(...b, 8), P(...a, 8)], OAK); line(P(...a, 1), P(...b, 8), BEAM, 0.8);
+      const hb = wbox(ctx, g0 - 0.06, g1 + 0.06, -0.12, 0.12, 12, 1, BEAM);
+      return roof(hb, 5, ax, roofOf(false), { o: 0.06 });
+    }
+    const t = 0.22, jh = H + 4;
+    for (const [u0, u1] of [[g0 - 0.22, g0], [g1, g1 + 0.22]]) { const jb = wbox(ctx, u0, u1, -t, t, 0, jh, WCOL); A.courses(jb, 4.5, WCD); }
+    const lt = wbox(ctx, g0, g1, -0.2, 0.2, H - 6, 6, WCOL); A.courses(lt, 3, WCD);
+    const [ax0, ay0] = P(...wallPt(ctx, g0 + 0.04, 0.2), H - 6), [ax1, ay1] = P(...wallPt(ctx, g1 - 0.04, 0.2), H - 6), [amx, amy] = P(...wallPt(ctx, m, 0.2), H - 3);
+    A.c.beginPath(); A.c.moveTo(ax0, ay0); A.c.quadraticCurveTo(amx, amy - 2, ax1, ay1); A.c.strokeStyle = A.F(WCD); A.c.lineWidth = 1.2; A.c.stroke();
+    let top = jh;
+    if (band >= 2) { const hb = wbox(ctx, g0 - 0.25, g1 + 0.25, -0.24, 0.24, jh, 1.5, BEAM); top = roof(hb, 7, ax, roofOf(true), { o: 0.06 }); }
+    const [lx, ly] = P(...wallPt(ctx, g1 + 0.11, t + 0.02), H - 4); A.lantern(lx, ly + 3, 1.2);
+    return top;
+  });
+
+  // =====================================================================
+  //  SHORE — the harbour works on a coast and the lighthouse
+  //  Timber jetties on oak piles → a plank quay with a fisher's boathouse → a stone quay with tall gabled
+  //  harbour houses, a treadwheel crane and moored cogs → a great crane house, a carrack and banners.
+  //  Everything is placed in shore coordinates (dd from the plot edge, u along it) so it fits any edge.
+  // =====================================================================
+  const shoreKit = ctx => {
+    const pt = ctx.pt, at = ctx.at;
+    const key = (dd, u) => { const p = pt(dd, u); return p[0] + p[1]; };
+    const rect = (d0, d1, u0, u1) => { const a = pt(d0, u0), b = pt(d1, u1); return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1])]; };
+    const lbox = (d0, d1, u0, u1, z, h, col, o) => { const r = rect(d0, d1, u0, u1); return box(r[0], r[1], r[2], r[3], z, h, col, o); };
+    const deck = (d0, d1, u0, u1, z, col, st = A.OUT) => poly([at(d0, u0, z), at(d0, u1, z), at(d1, u1, z), at(d1, u0, z)], col, st);
+    return { pt, at, key, rect, lbox, deck, axU: ctx.along ? 'x' : 'y', axD: ctx.along ? 'y' : 'x' };
+  };
+  // a merchant cog: round hull, square sail with a red band, castles fore and aft
+  function cogShip(K, ctx, u, d0, d1, big, sail) {
+    A.shipHull(ctx.edge, u, d0, d1, big, sail ? '#efe4c8' : null);
+    const hw = big ? 0.3 : 0.22, hh = big ? 7 : 5, m = (d0 + d1) / 2;
+    if (sail) { const zt = hh + (big ? 30 : 19), dz = big ? 18 : 12, ya = K.at(m, u - hw * 1.6, zt), yb = K.at(m, u + hw * 1.6, zt); poly([[ya[0], ya[1] + dz * 0.38], [yb[0], yb[1] + dz * 0.38], [yb[0], yb[1] + dz * 0.6], [ya[0], ya[1] + dz * 0.6]], '#b4482f', null); }
+    const sc = K.lbox(d1 - 0.42, d1 - 0.08, u - hw * 0.75, u + hw * 0.75, hh + 1, big ? 6 : 4, '#7a5434'); line(A.onL(sc, 0, sc.w, sc.h, sc.h)[0], A.onL(sc, sc.w, sc.w, sc.h, sc.h)[0], '#e0b84a', 0.7);
+    if (big) K.lbox(d0 + 0.32, d0 + 0.6, u - hw * 0.6, u + hw * 0.6, hh + 2, 4, '#7a5434');
+    const [lx, ly] = K.at(d1 - 0.1, u, hh + (big ? 13 : 9)); A.lantern(lx, ly, 1.2);
+  }
+  // a treadwheel crane: a stone base (or a half-timbered crane house), the jib over the water, a load on the hook
+  function crane(K, dd, u, H, band, house) {
+    const sc = stoneOK() ? STONE_D : OAK;
+    if (house) {
+      const hb = K.lbox(dd - 0.26, dd + 0.26, u - 0.26, u + 0.26, 0, 8, sc); A.courses(hb, 3, shade(sc, -0.2));
+      const up = K.lbox(dd - 0.28, dd + 0.28, u - 0.28, u + 0.28, 8, H - 18, WALLS[0]); A.timber(up, BEAM);
+      A.win(up, 'L', up.w / 2, (H - 18) * 0.55, 0.14, 4, BEAM); A.win(up, 'R', up.d / 2, (H - 18) * 0.55, 0.14, 4, BEAM);
+      roof(up, 9, K.axD, roofOf(true));
+    } else {
+      K.lbox(dd - 0.2, dd + 0.2, u - 0.2, u + 0.2, 0, 4, sc);
+      line(K.at(dd + 0.15, u - 0.15, 4), K.at(dd, u, H), OAK, 1.2); line(K.at(dd + 0.15, u + 0.15, 4), K.at(dd, u, H), OAK, 1.2);
+      line(K.at(dd, u, 4), K.at(dd, u, H), BEAM, 2.4);
+    }
+    const j = K.at(dd - 1.25, u, H + 3), b = K.at(dd, u, H - 6);
+    line(b, j, BEAM, 2); line(K.at(dd, u, H), j, '#5a4030', 0.8);
+    const hk = K.at(dd - 1.25, u, 12); line(j, hk, '#3a2a20', 0.6);
+    K.lbox(dd - 1.36, dd - 1.14, u - 0.11, u + 0.11, 6, 5, '#a5773f');
+    // the treadwheel beside the base
+    const [wx, wy] = K.at(dd + 0.1, u + 0.42, 9), R0 = 7 + band;
+    circ(wx, wy, R0, null, BEAM); circ(wx, wy, R0 - 1.4, null, shade(BEAM, 0.2));
+    for (let k = 0; k < 4; k++) { const a = k / 4 * Math.PI; line([wx - Math.cos(a) * R0, wy - Math.sin(a) * R0], [wx + Math.cos(a) * R0, wy + Math.sin(a) * R0], BEAM, 0.7); }
+    line([wx, wy], [wx, wy + R0 + 1], BEAM, 1.4);
+  }
+  // a tall gabled harbour house on piles between the jetties (warehouse / boathouse / customs)
+  function harbourHouse(K, ctx, dd0, dd1, u0, u1, H, kind, v) {
+    for (const dd of [dd0 + 0.05, dd1 - 0.05]) for (const u of [u0 + 0.04, u1 - 0.04]) line(K.at(dd, u, -3), K.at(dd, u, 2), shade(OAK, -0.4), 1.4);
+    const base = stoneOK() && kind !== 'boat' ? STONE : null;
+    let b;
+    if (base) { const sb = K.lbox(dd0, dd1, u0, u1, 0, 5, base); A.courses(sb, 2.5, STONE_D); b = K.lbox(dd0, dd1, u0, u1, 5, H - 5, WALLS[v % 4]); }
+    else { K.deck(dd0 - 0.05, dd1 + 0.05, u0 - 0.04, u1 + 0.04, 2, '#8a6440'); b = K.lbox(dd0, dd1, u0, u1, 2, H - 2, kind === 'boat' ? '#8a6a48' : WALLS[v % 4]); }
+    if (kind === 'boat') { // weatherboarded boathouse, open to the water
+      for (const side of ['L', 'R']) { const f = side === 'L' ? A.onL : A.onR, Lf = side === 'L' ? b.w : b.d; for (let v2 = 2; v2 < b.h; v2 += 2.2) line(f(b, 0, 0, v2, 0)[0], f(b, Lf, 0, v2, 0)[0], shade('#8a6a48', -0.25), 0.5); }
+      const toward = ctx.edge === 'S' ? 'R' : ctx.edge === 'W' ? 'L' : null;
+      if (toward) { const f = toward === 'L' ? A.onL : A.onR, Lf = toward === 'L' ? b.w : b.d; poly(f(b, Lf * 0.18, Lf * 0.82, 0, b.h * 0.7), '#2a2018', null); }
+    } else {
+      A.timber(b, BEAM);
+      A.win(b, 'L', b.w / 2, b.h * 0.6, 0.14, 4.5, BEAM); A.win(b, 'R', b.d / 2, b.h * 0.6, 0.14, 4.5, BEAM);
+      if (kind === 'ware') { // a hoist beam and loading door in the gable
+        const f = ctx.along ? A.onR : A.onL, Lf = ctx.along ? b.d : b.w;
+        poly(f(b, Lf * 0.38, Lf * 0.62, b.h * 0.18, b.h * 0.42), '#4a3020', null);
+      }
+    }
+    const zt = roof(b, kind === 'boat' ? 8 : 11, K.axD, kind === 'boat' ? roofOf(false) : roofOf(true));
+    if (kind === 'customs') { const [fx, fy] = K.at((dd0 + dd1) / 2, (u0 + u1) / 2, zt); line([fx, fy], [fx, fy - 9], '#4a3a2a', 1); A.rec('flags', { x: fx, y: fy - 8, col: '#c0392b', len: 9, seed: A.R() }); }
+    return zt;
+  }
+  reg('harbor', (slot, L, band, ctx) => {
+    if (!ctx || !ctx.coastal || !L) return undefined;   // inland: cityview's stock river landing
+    const K = shoreKit(ctx), dep = ctx.depth, u0 = ctx.u0, piers = ctx.piers, era = X.era;
+    const wood = era >= 3 ? '#9a7a54' : '#a07a4a', stoneQ = band >= 2 && stoneOK();
+    const flat = [], items = [], add = (dd, u, fn) => items.push([K.key(dd, u), fn]);
+    // the quay along the shore joining the jetties: planks at first, dressed stone from band 2
+    const qa = piers[0] - 0.42, qb = piers[piers.length - 1] + 0.42;
+    flat.push(() => {
+      for (let u = qa; u < qb - 0.01; u += 0.25) {
+        const u1 = Math.min(qb, u + 0.25), d0 = dep(u) - 0.18, d1 = dep(u1) - 0.18;
+        if (stoneQ && ctx.front) poly([K.at(d0, u, -3), K.at(d1, u1, -3), K.at(d1, u1, 3), K.at(d0, u, 3)], STONE_D);
+        poly([K.at(d0, u, stoneQ ? 3 : 2), K.at(d1, u1, stoneQ ? 3 : 2), K.at(dep(u1) + 0.38, u1, stoneQ ? 3 : 2), K.at(dep(u) + 0.38, u, stoneQ ? 3 : 2)], stoneQ ? STONE : wood, null);
+        if (stoneQ) line(K.at(d0, u, 3), K.at(d0, u, 3), STONE_D, 0.5);
+      }
+      line(K.at(dep(qa) - 0.18, qa, stoneQ ? 3 : 2), K.at(dep(qb) - 0.18, qb, stoneQ ? 3 : 2), shade(stoneQ ? STONE : wood, -0.4), 0.9);
+      if (stoneQ) for (let u = qa + 0.3; u < qb; u += 0.5) line(K.at(dep(u) - 0.18, u, 3), K.at(dep(u) + 0.38, u, 3), STONE_D, 0.45);
+    });
+    // jetties: timber on oak piles; the main one a stone mole from band 2
+    const outs = piers.map(u => [u, Math.max(0.5, dep(u) - (band >= 1 ? 2.6 : 2.0))]);
+    for (const [u, out] of outs) {
+      if (stoneQ && Math.abs(u - u0) < 0.01) flat.push(() => { const b = K.lbox(out, dep(u) + 0.2, u - 0.3, u + 0.3, -3, 6, STONE); A.courses(b, 3, STONE_D); for (let dd = out + 0.3; dd < dep(u); dd += 0.45) line(K.at(dd, u - 0.3, 3), K.at(dd, u + 0.3, 3), STONE_D, 0.45); });
+      else flat.push(() => {
+        for (let dd = out + 0.1; dd < dep(u); dd += 0.55) for (const du of [-0.24, 0.24]) line(K.at(dd, u + du, -3), K.at(dd, u + du, 2.6), shade(wood, -0.45), 1.3);
+        K.deck(out, dep(u) + 0.3, u - 0.25, u + 0.25, 2, wood);
+        for (let dd = out + 0.15; dd < dep(u) + 0.25; dd += 0.22) line(K.at(dd, u - 0.25, 2), K.at(dd, u + 0.25, 2), shade(wood, -0.25), 0.5);
+      });
+      // mooring posts and a lantern at the jetty head
+      add(out + 0.06, u, () => { for (const du of [-0.22, 0.22]) line(K.at(out + 0.06, u + du, 2), K.at(out + 0.06, u + du, 6), BEAM, 1.6); line(K.at(out + 0.08, u + 0.2, 2), K.at(out + 0.08, u + 0.2, 11), BEAM, 1); const [lx, ly] = K.at(out + 0.08, u + 0.2, 13); A.lantern(lx, ly, 1.3); });
+    }
+    const gap = (ua, ub) => piers.some(p => Math.abs(p - ua) < 0.01) && piers.some(p => Math.abs(p - ub) < 0.01);
+    // band 0: fishing — rowboats, a net rack, creels and barrels
+    outs.forEach(([u, out], i) => { const len = dep(u) - out; if (len > 0.9 && !(band >= 1 && i === 0) && !(band >= 2 && i === outs.length - 1)) { const dd = out + Math.min(0.75, len * 0.4), uu = u + (i % 2 ? -0.52 : 0.52); add(dd, uu, () => A.boat(...K.pt(dd, uu), band === 0 && i % 2 === 0)); } });
+    add(dep(u0 + 0.6) + 0.1, u0 + 0.6, () => { A.barrel(...K.pt(dep(u0 + 0.5) + 0.12, u0 + 0.5)); A.crate(...K.pt(dep(u0 + 0.75) + 0.05, u0 + 0.75), 0.2, 2); });
+    if (band === 0) add(dep(u0 - 0.6) + 0.15, u0 - 0.6, () => A.netRack(...K.pt(dep(u0 - 0.6) + 0.16, u0 - 0.6), !ctx.along));
+    if (band === 0) { const bu = u0 + 1.0, bd = dep(bu) + 0.12; add(bd, bu, () => { A.boat(...K.pt(bd, bu), false); const [x2, y2] = K.at(bd + 0.1, bu + 0.25, 0); line([x2, y2], [x2 + 6, y2 - 3], '#a07a4a', 1.2); }); }
+    // band 1+: a boathouse on piles beside the main jetty, a moored cog
+    if (band >= 1 && gap(u0, u0 + 1.1)) { const d1 = dep(u0 + 0.55) + 0.05; add(d1 - 0.5, u0 + 0.55, () => harbourHouse(K, ctx, d1 - 0.95, d1, u0 + 0.3, u0 + 0.8, 12, 'boat', 0)); }
+    if (band >= 1) { const [u, out] = outs[0], len = dep(u) - out; if (len > 1.5) add(out + 0.6, u - 0.56, () => cogShip(K, ctx, u - 0.56, out + 0.1, out + Math.min(2.1, len - 0.1), band >= 2, band >= 3 || (band >= 1 && L % 2 === 1))); }
+    // L5+: a treadwheel crane at the root of the main jetty (a crane house from band 3)
+    if (L >= 5) { const cu = u0 - 0.55, cd = dep(cu) + 0.05; add(cd, cu, () => crane(K, cd, cu, 38 + band * 5, band, band >= 3)); }
+    // band 2+: tall gabled harbour houses between the jetties, a second ship at the far jetty
+    if (band >= 2 && gap(u0 + 1.1, u0 + 2.2)) { const d1 = dep(u0 + 1.65) + 0.05; add(d1 - 0.5, u0 + 1.65, () => harbourHouse(K, ctx, d1 - 0.9, d1, u0 + 1.4, u0 + 1.9, 20 + band * 2, 'ware', 1)); }
+    if (band >= 2) { const [u, out] = outs[outs.length - 1], len = dep(u) - out; if (len > 1.4 && outs.length > 1) add(out + 0.6, u + 0.56, () => cogShip(K, ctx, u + 0.56, out + 0.1, out + Math.min(1.8, len - 0.1), false, false)); }
+    if (band >= 3 && gap(u0 - 2.2, u0 - 1.1)) { const d1 = dep(u0 - 1.65) + 0.05; add(d1 - 0.5, u0 - 1.65, () => harbourHouse(K, ctx, d1 - 0.9, d1, u0 - 1.9, u0 - 1.4, 24, 'customs', 2)); }
+    if (band >= 2) add(dep(u0 + 1.1) + 0.2, u0 + 1.1, () => { const p = K.pt(dep(u0 + 1.1) + 0.22, u0 + 1.1); A.sack(p[0], p[1]); A.barrel(p[0] + 0.15, p[1] + 0.1); });
+    if (band >= 3) for (const u of [qa + 0.1, qb - 0.1]) add(dep(u) + 0.2, u, () => { const p = K.pt(dep(u) + 0.22, u); A.banner(p[0], p[1], 2, 26, '#c0392b'); });
+    for (const f of flat) f();
+    items.sort((p, q) => p[0] - q[0]);
+    for (const [, f] of items) f();
+    A.rec('sparks', (() => { const [x, y] = K.at(Math.max(0.5, dep(u0) * 0.4), u0 + 1.4); return { x, y, kind: 'water', rx: 26, ry: 10 }; })());
+    return { top: 40 + band * 6, noDress: true };
+  });
+  reg('lighthouse', ([x, y, w, d], L, band, ctx) => {
+    const cx = x + w / 2, cy = y + d / 2, era = X.era;
+    // a rock skerry with a stone plinth (a keeper's cottage on the rock from band 3)
+    A.rock(cx - 0.25, cy - 0.15, 1.3, '#8a8478'); A.rock(cx + 0.25, cy - 0.3, 1.0, '#9a9488');
+    if (band >= 3) { const kb = box(cx - 0.75, cy - 0.2, 0.42, 0.36, 0, 9, WALLS[0]); A.timber(kb, BEAM); A.win(kb, 'L', 0.2, 3, 0.12, 3.5, BEAM); roof(kb, 6, 'x', roofOf(false)); A.chimney(cx - 0.7, cy - 0.15, 12, 4, 'house'); }
+    A.rock(cx - 0.1, cy + 0.35, 1.2, '#7e786c'); A.rock(cx + 0.38, cy + 0.2, 0.8, '#8a8478');
+    const pl = box(cx - 0.34, cy - 0.34, 0.68, 0.68, 0, 6, STONE_D); A.courses(pl, 3, shade(STONE_D, -0.2));
+    const H = 44 + band * 8, r0 = 0.27, r1 = 0.19, n = 6, white = era >= 1 ? '#f2ede2' : STONE;
+    for (let k = 0; k < n; k++) {
+      const r = r0 + (r1 - r0) * k / n, z = 6 + H * k / n, col = era >= 1 && (k === 2 || k === 4) ? '#b4482f' : white;
+      A.cyl(cx, cy, r, z, H / n + 0.4, col);
+      if (era === 0) cylLines(cx, cy, r, z - 1, z + H / n, 3.2, STONE_D);
+    }
+    for (const f of [0.22, 0.48, 0.72]) { const [wx, wy] = P(cx + 0.17, cy + 0.17, 6 + H * f); A.lamp([[wx - 1, wy], [wx + 1, wy], [wx + 1, wy - 4], [wx - 1, wy - 4]], '#4b5a6b', A.nightGlass()); }
+    { const [dx, dy] = P(cx + 0.19, cy + 0.19, 6); poly([[dx - 2.2, dy + 1], [dx + 2.2, dy + 1], [dx + 2.2, dy - 6], [dx, dy - 8], [dx - 2.2, dy - 6]], '#6b3e22'); }
+    // gallery, lantern room, cone roof
+    const zg = 6 + H; A.cyl(cx, cy, r1 + 0.1, zg, 2, '#4a3a2a');
+    { const [gx2, gy2, grx, gry] = A.ell(cx, cy, zg + 2, r1 + 0.1); for (let k = 0; k <= 10; k++) { const a = Math.PI * k / 10; line([gx2 - Math.cos(a) * grx, gy2 + Math.sin(a) * gry], [gx2 - Math.cos(a) * grx, gy2 + Math.sin(a) * gry - 4], '#3a2a20', 0.6); } A.c.beginPath(); A.c.ellipse(gx2, gy2 - 4, grx, gry, 0, 0, Math.PI); A.c.strokeStyle = A.F('#3a2a20'); A.c.lineWidth = 0.8; A.c.stroke(); }
+    A.cyl(cx, cy, r1 - 0.02, zg + 2, 9, '#3a4655');
+    const [lx, ly] = P(cx, cy, zg + 7);
+    A.lamp([[lx - 3.5, ly + 4], [lx + 3.5, ly + 4], [lx + 3.5, ly - 3.5], [lx - 3.5, ly - 3.5]], '#f2d36a', '#fff4c0');
+    for (const dx of [-1.8, 1.8]) line([lx + dx, ly + 4], [lx + dx, ly - 3.5], '#2a2018', 0.6);
+    const rc = era >= 3 ? SLATE : era >= 1 ? TILE : SHINGLE, zt = A.cone(cx, cy, r1 + 0.06, zg + 11, 12, rc);
+    const [fx, fy] = P(cx, cy, zt); line([fx, fy], [fx, fy - 5], '#4a3a2a', 1); circ(fx, fy - 5, 1.3, era >= 3 ? GOLD : '#8a6440', A.OUT);
+    A.rec('beams', { x: lx, y: ly }); A.rec('lights', { x: lx, y: ly, r: 34 });
+    return { top: zt + 6, noDress: true };
   });
 })();
 

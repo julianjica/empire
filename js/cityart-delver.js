@@ -209,6 +209,22 @@
     return zt + 12;
   }
   function crateStack(gx, gy, n = 2) { for (let k = 0; k < n; k++) A.crate(gx - 0.14, gy - 0.14 - k * 0.0, 0.26 - k * 0.04, k * 5.7); }
+  // a shaggy mountain goat, bigger than the stock beast: long coat, swept-back horns, a beard
+  function goat(gx, gy, flip = 1, s = 1.45, col = '#d8ccb0') {
+    const [x, y] = P(gx, gy), dk = shade(col, -0.45), c = A.c;
+    for (const dx of [-4, -2.2, 2.6, 4.4]) line([x + dx * s * flip, y - 5 * s], [x + dx * s * flip, y], dk, 1.3 * s);
+    c.beginPath(); c.ellipse(x, y - 7 * s, 6.4 * s, 3.6 * s, 0, 0, A.TAU); c.fillStyle = A.F(col); c.fill(); c.strokeStyle = A.F(A.OUT); c.lineWidth = 0.7; c.stroke();
+    c.beginPath(); c.ellipse(x - 0.5 * s * flip, y - 8.2 * s, 5 * s, 1.8 * s, 0, Math.PI, A.TAU); c.fillStyle = A.F(shade(col, 0.15)); c.fill();
+    for (let k = -4; k <= 4; k += 2) line([x + k * s, y - 4.2 * s], [x + (k + 0.6) * s, y - 2.6 * s], shade(col, -0.25), 0.8);   // the shaggy fringe of the coat
+    const hx = x + 7.5 * s * flip, hy = y - 12.5 * s;
+    poly([[x + 3.5 * s * flip, y - 9.5 * s], [hx - 1 * s * flip, hy - 0.5 * s], [hx + 2.6 * s * flip, hy + 2.6 * s], [x + 6 * s * flip, y - 6 * s]], col);
+    poly([[hx - 1.2 * s * flip, hy - 1.2 * s], [hx + 3.6 * s * flip, hy + 1.6 * s], [hx + 3 * s * flip, hy + 3.6 * s], [hx - 0.4 * s * flip, hy + 2.2 * s]], shade(col, -0.06));
+    poly([[hx + 1.2 * s * flip, hy + 3 * s], [hx + 2.6 * s * flip, hy + 3.2 * s], [hx + 1.6 * s * flip, hy + 6.2 * s]], shade(col, -0.3), null);   // beard
+    c.beginPath(); c.moveTo(hx, hy - 0.8 * s); c.quadraticCurveTo(hx - 2.5 * s * flip, hy - 6 * s, hx - 5.5 * s * flip, hy - 3.5 * s); c.strokeStyle = A.F('#5a4a36'); c.lineWidth = 1.5 * s; c.stroke();
+    line([hx - 0.5 * s * flip, hy], [hx - 2.4 * s * flip, hy + 0.6 * s], dk, 1);   // ear
+    A.lampDot(hx + 1.2 * s * flip, hy + 0.4 * s, 0.5 * s, '#2a2018', '#2a2018');
+    line([x - 6 * s * flip, y - 8.5 * s], [x - 7.5 * s * flip, y - 10.5 * s], dk, 1.2 * s);
+  }
 
   // =====================================================================
   //  TOWN HALL — the Hold Hall: terraces cut into the hillside, a keep at the back, a great door
@@ -359,12 +375,35 @@
     const s = sub(L, band), steps = 1 + Math.min(3, band + (s >= 3 ? 1 : 0));
     berm(x + 0.1, y + 0.1, w - 0.5, d * 0.45, 30 + band * 6, '#8f877a');
     const fresh = '#b9b09e', rockc = '#958c7e';
-    for (let k = 0; k < steps; k++) { // ledges cut into the cliff, stepping down toward the front
+    // ledges cut into the cliff, stepping down toward the front: ragged tops, split-off corners,
+    // a fresh-cut face with drill lines (plug & feather), tool marks and a bedding seam
+    function ledge(x0, y0, ww, dd, hh, k) {
+      const n = Math.max(4, Math.round(ww / 0.16)), hs = [];
+      for (let i = 0; i <= n; i++) hs.push(Math.max(3, hh + Math.sin(k * 3.1 + i * 2.3) * 1.5 + (((i * 7 + k * 5) % 3) - 1) * 0.9 - (i === n ? 2.5 : 0)));
+      const xi = i => x0 + ww * i / n, face = mix(rockc, fresh, k % 2 ? 0.85 : 0.65), topc = A.SNOW ? '#eef2f4' : mix(shade(rockc, -0.06), '#7d8a52', A.SEASON === 3 ? 0 : 0.18);
+      // the right (end) face: broken back at an angle
+      poly([P(x0 + ww, y0, 0), P(x0 + ww + 0.1, y0 + dd * 0.6, 0), P(x0 + ww - 0.04, y0 + dd, 0), P(x0 + ww - 0.04, y0 + dd, hs[n]), P(x0 + ww, y0, hs[n] + 1.5)], shade(rockc, -0.24));
+      // the top, following the ragged edge
+      const top = []; for (let i = 0; i <= n; i++) top.push(P(xi(i), y0, hs[i] + 0.8)); for (let i = n; i >= 0; i--) top.push(P(xi(i) - (i === n ? 0.04 : 0), y0 + dd, hs[i]));
+      poly(top, topc);
+      if (!A.SNOW) for (let i = 1; i < n; i += 3) { const [tx, ty] = P(xi(i), y0 + dd * 0.4, hs[i]); circ(tx, ty, 1.3, '#6f8a4a', null); circ(tx + 1.6, ty + 0.4, 0.9, '#86a058', null); }
+      // the fresh-cut front face with a recessed lower course
+      const fr = [P(x0, y0 + dd, 0), P(x0 + ww - 0.04, y0 + dd, 0)]; for (let i = n; i >= 0; i--) fr.push(P(xi(i) - (i === n ? 0.04 : 0), y0 + dd, hs[i]));
+      poly(fr, face);
+      const seam = hh * 0.42;
+      poly([P(x0 + 0.06, y0 + dd, 0), P(x0 + ww * 0.7, y0 + dd, 0), P(x0 + ww * 0.7, y0 + dd, seam), P(x0 + 0.06, y0 + dd, seam)], shade(face, -0.1), null);
+      line(P(x0, y0 + dd, seam), P(x0 + ww - 0.04, y0 + dd, seam - 0.6), shade(fresh, -0.3), 0.6);
+      for (let i = 1; i < n; i += 2) line(P(xi(i), y0 + dd, hs[i] - 0.4), P(xi(i), y0 + dd, Math.max(seam + 0.5, hs[i] - 4)), shade(fresh, -0.42), 0.7);   // drill holes
+      for (let u = 0.12 + (k % 2) * 0.06; u < ww * 0.68; u += 0.14) line(P(x0 + u, y0 + dd, 0.8), P(x0 + u + 0.05, y0 + dd, seam - 0.8), shade(fresh, -0.2), 0.4);   // tool marks
+      // a half-split block jutting from the face
+      const bx = x0 + ww * (0.3 + (k % 3) * 0.15);
+      box(bx, y0 + dd - 0.02, 0.2, 0.16, seam, 4, mix(fresh, '#ffffff', 0.1));
+    }
+    for (let k = 0; k < steps; k++) {
       const dy = d * 0.14 + k * 0.26, hh = (steps - k) * 7, x0 = x + 0.2 + k * 0.12 + (k % 2) * 0.05, ww = w - 0.85 - k * 0.22;
-      const b = box(x0, y + 0.08, ww, dy, 0, hh, rockc, { left: mix(rockc, fresh, k % 2 ? 0.55 : 0.4), top: A.SNOW ? undefined : shade(rockc, 0.1) });
-      for (let u = 0.22 + (k % 2) * 0.1; u < ww - 0.05; u += 0.3) line(A.onL(b, u, 0, 0, 0)[0], A.onL(b, u + 0.04, 0, hh, 0)[0], shade(fresh, -0.22), 0.5);
-      line(A.onL(b, 0, 0, hh * 0.55, 0)[0], A.onL(b, ww, 0, hh * 0.5, 0)[0], shade(fresh, -0.2), 0.5);
-      A.rock(x0 + ww * 0.85, y + dy + 0.12, 0.35 + (k % 2) * 0.15, rockc);
+      ledge(x0, y + 0.08, ww, dy, hh, k);
+      A.rock(x0 + ww * 0.85, y + dy + 0.18, 0.35 + (k % 2) * 0.15, rockc);
+      if (k === steps - 1) for (let j = 0; j < 4; j++) A.rock(x0 + 0.2 + j * 0.28, y + dy + 0.22 + (j % 2) * 0.08, 0.18 + (j % 2) * 0.07, j % 2 ? fresh : rockc);   // rubble at the foot
     }
     // cut blocks waiting
     const nb = 2 + band + Math.min(2, s);
@@ -559,14 +598,15 @@
     // the goat crag at the back right
     if (band >= 1) {
       A.rock(x + w - 0.6, y + 0.45, 1.3 + band * 0.25, '#8f877a'); A.rock(x + w - 0.95, y + 0.3, 0.9 + band * 0.2, '#857d72');
-      A.animal(x + w - 0.45, y + 0.95, 'goat', -1);
-      if (band >= 2) { const [gx, gy] = P(x + w - 0.6, y + 0.45, 0); const c = A.c; c.save(); c.translate(0, -(10 + band * 2.5)); A.animal(x + w - 0.62, y + 0.45, 'goat', 1); c.restore(); void gx; void gy; }
+      if (band >= 2) { const c = A.c; c.save(); c.translate(0, -(10 + band * 2.5)); goat(x + w - 0.62, y + 0.45, 1, 1.3, '#8a7a62'); c.restore(); }
     }
     const H = 9 + band * 2, n = 2 + Math.min(2, band);
     const b = box(x + 0.2, y + 0.3, Math.min(w - 1.0, 0.55 * n + 0.2), 0.85, 0, H, stone()); ashlar(b, 3.5);
     for (let k = 0; k < n; k++) ironDoor(b, 'L', 0.2 + 0.55 * k + 0.25, 0.32, H - 3, false);
     if (band === 0 && X.era === 0) sod(b); else slabRoof(b, 8);
     if (band >= 3) { const b2 = box(x + 0.2, y + 1.15, 0.65, 0.75, 0, H, stone(0.04)); ashlar(b2, 3.5); ironDoor(b2, 'L', 0.32, 0.32, H - 3, false); slabRoof(b2, 7); }
+    // goats grazing the foot of the crag, in front of the byre
+    if (band >= 1) { goat(x + w - 0.22, y + 1.08, -1); if (sub(L, band) >= 2 || band >= 2) goat(x + w - 0.78, y + 1.62, 1, 1.05, '#ece4d0'); }
     // boar pen in front
     const fx0 = x + 0.95, fy0 = y + d - 0.15;
     A.fence([[fx0, fy0], [x + w - 0.35, fy0], [x + w - 0.35, y + 1.35]], 5, '#5a4636');
@@ -973,6 +1013,232 @@
     }
     if (band >= 3 && Math.round(a) % 3 === 0) { const [sx, sy] = along ? P((a + b) / 2, fy + fd, H * 0.55) : P(fx + fw, (a + b) / 2, H * 0.55); circ(sx, sy, 3.6, trim(), A.OUT); circ(sx, sy, 1.4, A.STY.flag, null); }
     return H + 5;
+  });
+
+  // =====================================================================
+  //  WALL TOWERS, GATEHOUSE, POSTERN — square battered towers of the same great ashlar as the curtain,
+  //  rune courses from band 2, parapets with braziers → bronze / verdigris hip caps (era 2+); the gate grows
+  //  from a rune-cut trilithon to carved-face pylons to a fortress gatehouse with a great stone face.
+  // =====================================================================
+  const wallHt = band => 20 + band * 4 + (X.tech('fortification') ? 2 : 0);
+  function sqTower(gx, gy, r, H, band, o = {}) {
+    box(gx - r - 0.07, gy - r - 0.07, 2 * r + 0.14, 2 * r + 0.14, 0, 6, stone(-0.16));
+    const b = box(gx - r, gy - r, 2 * r, 2 * r, 6, H - 6, stone(-0.03)); ashlar(b, 5);
+    for (let v = 9; v < H - 12; v += 11) { A.slit(b, 'L', r, v, 6); A.slit(b, 'R', r, v, 6); }
+    if (band >= 2) { runeRow(b, 'L', H - 14, 0.1, 2 * r - 0.1, 0.16); runeRow(b, 'R', H - 14, 0.1, 2 * r - 0.1, 0.16); }
+    if (o.face) { const [fx, fy] = A.onL(b, r, r, H * 0.42 - 6, 0)[0]; stoneFace(fx, fy, o.face); }
+    // corbelled machicolation, then a parapet with a brazier — or a bronze / verdigris hip cap from the Empire era
+    const cb = box(gx - r - 0.08, gy - r - 0.08, 2 * r + 0.16, 2 * r + 0.16, H, 3, shade(stone(), -0.14));
+    for (const side of ['L', 'R']) for (let u = 0.1; u < 2 * r + 0.1; u += 0.18) poly((side === 'L' ? A.onL : A.onR)(cb, u, u + 0.07, -2, 0), shade(stone(), -0.32), null);
+    let zt = H + 3;
+    if (o.roof && X.era >= 2) { const hb = box(gx - r - 0.04, gy - r - 0.04, 2 * r + 0.08, 2 * r + 0.08, zt, 4, stone(-0.06)); zt = slabRoof(hb, 10 + r * 14); }
+    else {
+      A.parapet({ x: gx - r - 0.08, y: gy - r - 0.08, w: 2 * r + 0.16, d: 2 * r + 0.16, z: H, h: 3, col: stone(-0.03) }, 3);
+      zt += 5;
+      if (o.brazier) brazier(gx, gy, H + 3, 0.9);
+    }
+    if (o.flag) { A.flagpole(gx, gy, zt - 1, 12, A.STY.flag); zt += 12; }
+    return zt;
+  }
+  reg('walltower', ([x, y, w, d], L, band, ctx) => {
+    const corner = ctx.corner, r = corner ? 0.47 : 0.38;
+    const H = wallHt(band) + (corner ? 14 : 8) + (band >= 3 ? 6 : 0);
+    return sqTower(ctx.gx, ctx.gy, r, H, band, { roof: corner || band >= 2, brazier: corner || band >= 2, flag: corner && band >= 3, face: corner && band >= 3 ? 0.7 : 0 });
+  });
+  const wpt = (ctx, u, off = 0) => ctx.along ? [u, ctx.fixed + off] : [ctx.fixed + off, u];
+  const wbx = (ctx, u0, u1, o0, o1, z, h, col, opt) => ctx.along ? box(u0, ctx.fixed + o0, u1 - u0, o1 - o0, z, h, col, opt) : box(ctx.fixed + o0, u0, o1 - o0, u1 - u0, z, h, col, opt);
+  const wside = ctx => ctx.along ? 'L' : 'R';
+  function openDoor(ctx, u, dir, h) { // an iron-bound leaf swung open against the jamb
+    const a = wpt(ctx, u, 0.04), b = wpt(ctx, u + dir * 0.05, 0.4);
+    poly([P(...a, 0), P(...b, 0), P(...b, h), P(...a, h)], X.era >= 2 ? mix(DOOR, BRONZE, 0.25) : DOOR);
+    for (const v of [h * 0.2, h * 0.55, h * 0.85]) line(P(...a, v), P(...b, v), X.era >= 2 ? BRONZE : '#1c1a18', 1);
+  }
+  function irongrate(ctx, u0, u1, z, drop, off) {
+    const n = Math.max(3, Math.round((u1 - u0) / 0.11));
+    for (let k = 0; k <= n; k++) { const u = u0 + (u1 - u0) * k / n; line(P(...wpt(ctx, u, off), z), P(...wpt(ctx, u, off), z - drop), IRON, 1); }
+    line(P(...wpt(ctx, u0, off), z - drop * 0.45), P(...wpt(ctx, u1, off), z - drop * 0.45), IRON, 0.9);
+  }
+  reg('gate', ([x, y, w, d], L, band, ctx) => {
+    const g0 = ctx.g0, g1 = ctx.g1, m = (g0 + g1) / 2, H = wallHt(band), sd = wside(ctx);
+    if (band <= 0) { // a rune-cut trilithon of rough standing stones
+      for (const [u0, u1] of [[g0 - 0.24, g0], [g1, g1 + 0.24]]) { const sb = wbx(ctx, u0, u1, -0.16, 0.16, 0, 17, '#8a847a'); ashlar(sb, 4, '#6e685f'); }
+      const lb = wbx(ctx, g0 - 0.3, g1 + 0.3, -0.18, 0.18, 17, 4.5, '#948c80'); ashlar(lb, 2.2, '#6e685f');
+      if (X.era >= 1) runeRow(lb, sd, 1.5, 0.3, (g1 - g0) + 0.3, 0.2);
+      brazier(...wpt(ctx, g0 - 0.12, 0.34), 0, 0.7); brazier(...wpt(ctx, g1 + 0.12, 0.34), 0, 0.7);
+      return 22;
+    }
+    if (band === 1) { // carved-face pylons, a runed lintel, iron-bound doors folded back
+      const ph = H + 8;
+      const pylon = (u0, u1) => { const pb = wbx(ctx, u0, u1, -0.3, 0.3, 0, ph, stone(0.02)); ashlar(pb, 4.5); const [fx, fy] = (sd === 'L' ? A.onL : A.onR)(pb, (u1 - u0) / 2, 0, ph * 0.5, 0)[0]; stoneFace(fx, fy, 0.55);
+        const cb = wbx(ctx, u0 - 0.04, u1 + 0.04, -0.34, 0.34, ph, 2.5, shade(stone(), -0.14)); brazier(...wpt(ctx, (u0 + u1) / 2, 0), ph + 2.5, 0.8); void cb; };
+      pylon(g0 - 0.36, g0);
+      const lb = wbx(ctx, g0, g1, -0.24, 0.24, H - 3, 7, stone(-0.04)); ashlar(lb, 3.5); runeRow(lb, sd, 3, 0.12, (g1 - g0) - 0.12, 0.14);
+      openDoor(ctx, g0, 1, H - 5); openDoor(ctx, g1, -1, H - 5);
+      pylon(g1, g1 + 0.36);
+      return ph + 14;
+    }
+    // the gatehouse: twin square towers, an arch block bearing a great carved face, an iron portcullis
+    const TH = H + 16 + (band >= 3 ? 6 : 0), r = 0.27;
+    let top = sqTower(...wpt(ctx, g0 - r, 0.02), r, TH, band, { roof: true, brazier: true });
+    const ab = wbx(ctx, g0, g1, -0.3, 0.3, H - 8, 16, stone(0.02)); ashlar(ab, 4);
+    runeRow(ab, sd, 13, 0.1, (g1 - g0) - 0.1, 0.14);
+    const [fx, fy] = (sd === 'L' ? A.onL : A.onR)(ab, (g1 - g0) / 2, 0, 1, 0)[0]; stoneFace(fx, fy + 2, 0.75 + band * 0.08);
+    irongrate(ctx, g0 + 0.05, g1 - 0.05, H - 8, 6, 0.31);
+    const pp = wbx(ctx, g0, g1, -0.3, 0.3, H + 8, 0.01, stone()); A.parapet({ ...pp, h: 0.01 }, 3);
+    openDoor(ctx, g0, 1, H - 10); openDoor(ctx, g1, -1, H - 10);
+    top = Math.max(top, sqTower(...wpt(ctx, g1 + r, 0.02), r, TH, band, { roof: true, brazier: true, flag: band >= 3 }));
+    if (band >= 3) { const [sx, sy] = P(...wpt(ctx, m, 0.31), H + 6); circ(sx, sy, 3.4, trim(), A.OUT); circ(sx, sy, 1.3, A.STY.flag, null); }
+    return top;
+  });
+  reg('postern', ([x, y, w, d], L, band, ctx) => {
+    const g0 = ctx.g0, g1 = ctx.g1, H = wallHt(band), sd = wside(ctx);
+    if (band <= 0) {
+      for (const [u0, u1] of [[g0 - 0.16, g0], [g1, g1 + 0.16]]) { const sb = wbx(ctx, u0, u1, -0.12, 0.12, 0, 12, '#8a847a'); ashlar(sb, 3, '#6e685f'); }
+      const lb = wbx(ctx, g0 - 0.2, g1 + 0.2, -0.13, 0.13, 12, 3.5, '#948c80'); if (X.era >= 1) runeRow(lb, sd, 1.2, 0.15, (g1 - g0) + 0.25, 0.18);
+      return 16;
+    }
+    for (const [u0, u1] of [[g0 - 0.24, g0], [g1, g1 + 0.24]]) { const jb = wbx(ctx, u0, u1, -0.24, 0.24, 0, H + 5, stone(0.02)); ashlar(jb, 4.5); }
+    const lb = wbx(ctx, g0, g1, -0.22, 0.22, H - 7, 7, stone(-0.04)); ashlar(lb, 3.5); runeRow(lb, sd, 3, 0.08, (g1 - g0) - 0.08, 0.12);
+    openDoor(ctx, g0, 1, H - 8);
+    const cap = wbx(ctx, g0 - 0.28, g1 + 0.28, -0.26, 0.26, H + 5, 2.5, shade(stone(), -0.12)); void cap;
+    if (band >= 2) brazier(...wpt(ctx, (g0 + g1) / 2, 0), H + 7.5, 0.7);
+    return H + 16;
+  });
+
+  // =====================================================================
+  //  SHORE — the hold's harbour: moles of coursed blocks, rune lamps, chain cranes on stone pillars,
+  //  iron-banded ore barges, a vaulted stone boathouse; verdigris and gold in the Legend era.
+  //  Everything in shore coordinates (dd from the edge, u along it), so it fits any edge.
+  // =====================================================================
+  const kit = ctx => {
+    const pt = ctx.pt, at = ctx.at;
+    const key = (dd, u) => { const p = pt(dd, u); return p[0] + p[1]; };
+    const lbox = (d0, d1, u0, u1, z, h, col, o) => { const a = pt(d0, u0), b = pt(d1, u1); return box(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), z, h, col, o); };
+    return { pt, at, key, lbox, axU: ctx.along ? 'x' : 'y', axD: ctx.along ? 'y' : 'x' };
+  };
+  function runeLamp(K, dd, u, h = 13) {
+    const p0 = K.at(dd, u, 2), p1 = K.at(dd, u, h);
+    line(p0, p1, IRON, 1.6); line([p1[0] - 2.5, p1[1]], [p1[0] + 2.5, p1[1]], IRON, 1);
+    A.lampDot(p1[0], p1[1] - 2, 1.7, X.era >= 3 ? GOLD : '#8fd0f0', '#bff0ff'); A.rec('lights', { x: p1[0], y: p1[1] - 2, r: 14, col: 'storm' });
+  }
+  function bollard(K, dd, u) { const [x, y] = K.at(dd, u, 3); line([x, y], [x, y - 3], IRON, 2.2); circ(x, y - 3.3, 1.3, IRON, null); }
+  // an iron-banded barge with a cargo of ore or cut blocks, a little stern cabin
+  function barge(K, ctx, u, d0, d1, cargo, big) {
+    const hw = big ? 0.24 : 0.19, hull = '#5e4a3a';
+    const b = K.lbox(d0, d1, u - hw, u + hw, -1, 5, hull, { top: '#7a6450' });
+    for (let k = 1; k < 5; k++) { const dd = d0 + (d1 - d0) * k / 5; line(K.at(dd, u - hw, -1), K.at(dd, u - hw, 4), IRON, 1.1); line(K.at(dd, u + hw, -1), K.at(dd, u + hw, 4), IRON, 1.1); line(K.at(dd, u - hw, 4), K.at(dd, u + hw, 4), IRON, 0.6); }
+    line(K.at(d0, u - hw, 3.5), K.at(d1, u - hw, 3.5), X.era >= 2 ? BRONZE : IRON, 0.8); line(K.at(d0, u + hw, 3.5), K.at(d1, u + hw, 3.5), X.era >= 2 ? BRONZE : IRON, 0.8);
+    void b;
+    // stern cabin at the shore end, cargo amidships
+    const cab = K.lbox(d1 - 0.36, d1 - 0.06, u - hw * 0.7, u + hw * 0.7, 4, 6, stone(-0.05)); A.hip({ ...cab }, 4, roofCol(), 0.04);
+    const mid = (d0 + d1 - 0.3) / 2, [cx, cy] = K.at(mid, u, 5);
+    if (cargo === 'ore') for (let k = 0; k < 7; k++) circ(cx - 6 + (k % 4) * 3.6 + (k > 3 ? 1.8 : 0), cy - (k > 3 ? 3 : 1), 2, k % 3 === 0 ? '#a0522d' : k % 3 === 1 ? '#5a524c' : '#6e665e', null);
+    else { K.lbox(mid - 0.2, mid + 0.05, u - 0.12, u + 0.12, 4, 5, '#b9b09e'); K.lbox(mid + 0.08, mid + 0.3, u - 0.11, u + 0.11, 4, 5, '#a8a092'); }
+    const [lx, ly] = K.at(d1 - 0.2, u, 13); A.lampDot(lx, ly, 1.2, '#e8b85a', '#ffd46e');
+  }
+  // a chain crane on a stone pillar: iron (bronze) jib over the water, a chain with a block on the hook, a cog-wheel winch
+  function chainCrane(K, dd, u, H, band) {
+    const pb = K.lbox(dd - 0.22, dd + 0.22, u - 0.22, u + 0.22, 0, H * 0.45, stone(-0.02)); ashlar(pb, 4);
+    if (band >= 2) runeRow(pb, 'L', H * 0.45 - 5, 0.08, pb.w - 0.08, 0.14);
+    const met = X.era >= 3 ? VERD : X.era >= 2 ? BRONZE : '#4a4644';
+    const base = K.at(dd, u, H * 0.45), top = K.at(dd, u, H), tip = K.at(dd - 1.35, u, H + 2);
+    line(base, top, met, 2.6); line(top, tip, met, 2); line(K.at(dd, u, H * 0.62), tip, met, 1.1);
+    for (let k = 1; k < 5; k++) { const t = k / 5, a = [top[0] + (tip[0] - top[0]) * t, top[1] + (tip[1] - top[1]) * t], b2 = K.at(dd - 1.35 * t, u, H * 0.62 + (H + 2 - H * 0.62) * t); line(a, b2, met, 0.6); }
+    // the chain: a dotted line of links down to the load
+    const hk = K.at(dd - 1.35, u, 13);
+    for (let k = 0; k <= 10; k++) { const t = k / 10; circ(tip[0] + (hk[0] - tip[0]) * t, tip[1] + (hk[1] - tip[1]) * t, 0.7, null, IRON); }
+    K.lbox(dd - 1.47, dd - 1.23, u - 0.12, u + 0.12, 7, 5, '#b9b09e');
+    const [cx, cy] = K.at(dd + 0.22, u + 0.22, H * 0.45 - 4); cog(cx, cy, 4.2 + band * 0.5, X.era >= 2 ? BRONZE : IRON, 9);
+  }
+  // a vaulted stone boathouse on the water (or a vaulted store with a door on the quay)
+  function stoneHouse(K, ctx, d0, d1, u0, u1, H, kind) {
+    const b = K.lbox(d0, d1, u0, u1, -2, H + 2, stone(0.02)); ashlar(b, 4);
+    const toward = ctx.edge === 'S' ? 'R' : ctx.edge === 'W' ? 'L' : null;
+    if (kind === 'boat' && toward) { const f = toward === 'L' ? A.onL : A.onR, Lf = toward === 'L' ? b.w : b.d; poly(f(b, Lf * 0.2, Lf * 0.8, 0, H * 0.75), '#1e1c1a', null); line(f(b, Lf * 0.2, Lf * 0.8, H * 0.75, 0)[0], f(b, Lf * 0.2, Lf * 0.8, H * 0.75, 0)[1], X.era >= 2 ? BRONZE : IRON, 1.2); }
+    else { const sd = ctx.along ? 'R' : 'L', Lf = sd === 'L' ? b.w : b.d; ironDoor(b, sd, Lf / 2, Math.min(0.3, Lf * 0.5), Math.min(10, H - 2)); }
+    deepWin(b, ctx.along ? 'L' : 'R', (ctx.along ? b.w : b.d) / 2, H * 0.6, 0.11, 3.5);
+    return X.era === 0 && !X.tech('masonry') ? sod(b) : vault(b, K.axD);
+  }
+  reg('harbor', (slot, L, band, ctx) => {
+    if (!ctx || !ctx.coastal || !L) return undefined;   // inland: cityview's stock river landing
+    const K = kit(ctx), dep = ctx.depth, u0 = ctx.u0, piers = ctx.piers, sc = stone(-0.04);
+    const flat = [], items = [], add = (dd, u, fn) => items.push([K.key(dd, u), fn]);
+    // the quay: coursed blocks along the shore with iron bollards
+    const qa = piers[0] - 0.45, qb = piers[piers.length - 1] + 0.45;
+    flat.push(() => {
+      for (let u = qa; u < qb - 0.01; u += 0.25) {
+        const u1 = Math.min(qb, u + 0.25), d0 = dep(u) - 0.2, d1 = dep(u1) - 0.2;
+        if (ctx.front) { poly([K.at(d0, u, -3), K.at(d1, u1, -3), K.at(d1, u1, 3), K.at(d0, u, 3)], shade(sc, -0.15)); line(K.at(d0, u, 0), K.at(d1, u1, 0), shade(sc, -0.35), 0.5); }
+        poly([K.at(d0, u, 3), K.at(d1, u1, 3), K.at(dep(u1) + 0.4, u1, 3), K.at(dep(u) + 0.4, u, 3)], shade(sc, 0.08), null);
+        line(K.at(d0, u, 3), K.at(dep(u) + 0.4, u, 3), shade(sc, -0.25), 0.45);
+      }
+      line(K.at(dep(qa) - 0.2, qa, 3), K.at(dep(qb) - 0.2, qb, 3), shade(sc, -0.4), 1);
+    });
+    // moles of coursed blocks running out from the quay; the main one broad, with a rune-lamp head
+    const outs = piers.map(u => [u, Math.max(0.5, dep(u) - (band >= 1 ? 2.6 : 2.0))]);
+    for (const [u, out] of outs) {
+      const main = Math.abs(u - u0) < 0.01, hw = main ? 0.3 : 0.22;
+      flat.push(() => {
+        const b = K.lbox(out, dep(u) + 0.2, u - hw, u + hw, -3, 6, sc); ashlar(b, 3, shade(sc, -0.22));
+        for (let dd = out + 0.3; dd < dep(u); dd += 0.4) line(K.at(dd, u - hw, 3), K.at(dd, u + hw, 3), shade(sc, -0.18), 0.45);
+        if (main && band >= 1) { const hb = K.lbox(out - 0.12, out + 0.4, u - hw - 0.1, u + hw + 0.1, -3, 6.5, sc); ashlar(hb, 3, shade(sc, -0.22)); }
+      });
+      add(out + 0.12, u, () => { runeLamp(K, out + 0.12, u + hw - 0.08, main ? 16 : 12); if (band >= 1) bollard(K, out + 0.4, u - hw + 0.06); });
+    }
+    const gap = (ua, ub) => piers.some(p => Math.abs(p - ua) < 0.01) && piers.some(p => Math.abs(p - ub) < 0.01);
+    // barges: an ore barge from the start, more (and a block barge) as the harbour grows
+    outs.forEach(([u, out], i) => {
+      const len = dep(u) - out, side = i === 0 ? -1 : i === outs.length - 1 ? 1 : (i % 2 ? -1 : 1);
+      if (len < 1.0) return;
+      if (i > 0 && i < outs.length - 1 && band < 2) return;
+      const uu = u + side * 0.52, d0 = out + 0.1, d1 = out + Math.min(band >= 2 && i === 0 ? 2.0 : 1.5, len - 0.2);
+      add((d0 + d1) / 2, uu, () => barge(K, ctx, uu, d0, d1, i % 2 ? 'blocks' : 'ore', band >= 2 && i === 0));
+    });
+    if (band === 0) { const bu = u0 + 0.9, bd = dep(bu) + 0.15; add(bd, bu, () => { oreCart(...K.pt(bd, bu), true); }); }
+    // stone boathouse beside the main mole (band 1), a vaulted store between the outer moles (band 2)
+    if (band >= 1 && gap(u0, u0 + 1.1)) { const d1 = dep(u0 + 0.55) + 0.1; add(d1 - 0.5, u0 + 0.55, () => stoneHouse(K, ctx, d1 - 0.95, d1, u0 + 0.3, u0 + 0.82, 11, 'boat')); }
+    if (band >= 2 && gap(u0 + 1.1, u0 + 2.2)) { const d1 = dep(u0 + 1.65) + 0.1; add(d1 - 0.5, u0 + 1.65, () => stoneHouse(K, ctx, d1 - 0.85, d1, u0 + 1.38, u0 + 1.92, 16, 'store')); }
+    // chain cranes: one from L5 at the main mole's root, a second at band 3
+    if (L >= 5) { const cu = u0 - 0.55, cd = dep(cu) + 0.1; add(cd, cu, () => chainCrane(K, cd, cu, 36 + band * 5, band)); }
+    if (band >= 3 && gap(u0 - 2.2, u0 - 1.1)) { const cu = u0 - 1.65, cd = dep(cu) + 0.1; add(cd, cu, () => chainCrane(K, cd, cu, 44, band)); }
+    // ore and blocks on the quay; a hammer-bearing statue on the main mole head (band 3)
+    add(dep(u0 + 1.1) + 0.2, u0 + 1.1, () => { const p = K.pt(dep(u0 + 1.1) + 0.24, u0 + 1.1); A.barrel(p[0], p[1]); if (band >= 1) A.crate(p[0] + 0.15, p[1] - 0.2, 0.22, 3); });
+    if (band >= 3) { const [u, out] = outs.find(o => Math.abs(o[0] - u0) < 0.01) || outs[0]; add(out + 0.15, u, () => statue(...K.pt(out + 0.12, u), 22)); }
+    for (const f of flat) f();
+    items.sort((p, q) => p[0] - q[0]);
+    for (const [, f] of items) f();
+    { const [x2, y2] = K.at(Math.max(0.5, dep(u0) * 0.4), u0 + 1.4); A.rec('sparks', { x: x2, y: y2, kind: 'water', rx: 26, ry: 10 }); }
+    return { top: 40 + band * 6, noDress: true };
+  });
+  // the lighthouse: a squat runed stone tower on the rocks, a carved face, a forge-fire brazier in an iron cage
+  reg('lighthouse', ([x, y, w, d], L, band, ctx) => {
+    const cx = x + w / 2, cy = y + d / 2;
+    A.rock(cx - 0.3, cy - 0.15, 1.4, ROCK); A.rock(cx + 0.25, cy - 0.3, 1.1, '#8f877a');
+    const ft = box(cx - 0.4, cy - 0.4, 0.8, 0.8, 0, 8, stone(-0.14)); ashlar(ft, 4);
+    A.rock(cx - 0.05, cy + 0.42, 1.0, ROCK); A.rock(cx + 0.42, cy + 0.15, 0.8, '#7a7268');
+    const r = 0.3, H = 36 + band * 6, b = box(cx - r, cy - r, 2 * r, 2 * r, 8, H, stone(0.02)); ashlar(b, 5);
+    runeRow(b, 'L', H * 0.35, 0.08, 2 * r - 0.08, 0.12); runeRow(b, 'R', H * 0.35, 0.08, 2 * r - 0.08, 0.12);
+    if (band >= 2) { runeRow(b, 'L', H * 0.75, 0.08, 2 * r - 0.08, 0.12); runeRow(b, 'R', H * 0.75, 0.08, 2 * r - 0.08, 0.12); }
+    ironDoor(b, 'L', r, 0.26, 9);
+    const [fx, fy] = A.onR(b, r, r, H * 0.55, 0)[0]; stoneFace(fx, fy, 0.6);
+    deepWin(b, 'L', r, H * 0.55, 0.1, 4);
+    // corbelled platform and the fire cage
+    const zp = 8 + H, pl = box(cx - r - 0.1, cy - r - 0.1, 2 * r + 0.2, 2 * r + 0.2, zp, 3, shade(stone(), -0.12));
+    for (const side of ['L', 'R']) for (let u = 0.06; u < 2 * r + 0.2; u += 0.16) poly((side === 'L' ? A.onL : A.onR)(pl, u, u + 0.07, -2.5, 0), shade(stone(), -0.32), null);
+    const met = X.era >= 3 ? VERD : X.era >= 2 ? BRONZE : IRON, zc = zp + 3;
+    const posts = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, c]) => [cx + a * r * 0.75, cy + c * r * 0.75]);
+    for (const [px, py] of posts.slice(0, 3)) line(P(px, py, zc), P(px, py, zc + 14), met, 1.3);
+    const [bx, by] = P(cx, cy, zc + 3);
+    poly([[bx - 7, by - 3], [bx + 7, by - 3], [bx + 4.5, by + 2], [bx - 4.5, by + 2]], met);
+    A.lampDot(bx, by - 4, 4.2, FIRE_D, FIRE_N); A.lampDot(bx, by - 6.5, 2.4, '#f0a040', '#fff0b0');
+    A.rec('fires', { x: bx, y: by - 4, s: 1.1 });
+    { const [ex, ey, erx, ery] = A.ell(cx, cy, zc + 10, r * 0.75 * Math.SQRT2), c = A.c; c.beginPath(); c.ellipse(ex, ey, erx, ery, 0, 0.05, Math.PI - 0.05); c.strokeStyle = A.F(met); c.lineWidth = 0.9; c.stroke(); }   // a cage band in front of the flame
+    let zt = zc + 14;
+    if (X.era >= 2) { const hb = { x: cx - r * 0.85, y: cy - r * 0.85, w: r * 1.7, d: r * 1.7, z: zt, h: 1.2, col: met }; zt = A.hip(hb, 8, met, 0.06); }
+    else { for (let k = 0; k < 4; k++) line(P(...posts[k], zc + 14), P(...posts[(k + 1) % 4], zc + 14), met, 1); }
+    const [tx, ty] = P(cx, cy, zt); circ(tx, ty - 1, 1.6, X.era >= 3 ? GOLD : met, A.OUT);
+    A.rec('beams', { x: bx, y: by - 5 }); A.rec('lights', { x: bx, y: by - 5, r: 34 });
+    return { top: zt + 4, noDress: true };
   });
 })();
 

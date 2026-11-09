@@ -916,8 +916,251 @@
     return S.run();
   });
 
+  // ---------------- the shore: root-woven jetties, living boathouses, swan boats, a lantern-tree lighthouse ----------------
+  // everything is placed through the shore ctx (pt/at/depth), so one drawing fits any edge of the plot
+  const swanWhite = () => era() >= 2 ? '#f2efe6' : era() >= 1 ? '#e8dcc0' : '#d8c8a0';
+  // a swan-prowed hull lying along the shore normal: bow (neck) toward open water at d0, stern at d1
+  function swanBoat(sc, u, d0, d1, o = {}) {
+    const big = !!o.big, hw = o.hw || (big ? 0.26 : 0.16), hh = big ? 8 : 5, len = d1 - d0;
+    const col = o.col || (era() >= 1 ? swanWhite() : BARK);
+    const G2 = (dd, du) => sc.pt(dd, u + du);
+    // a smooth hull: the bow sweeps up into the neck, a rounded stern
+    const nearS = (() => { const p = sc.pt(d0 + len / 2, u + hw), q = sc.pt(d0 + len / 2, u - hw); return p[0] + p[1] > q[0] + q[1] ? 1 : -1; })();
+    const gp = (t, sg, z) => A.P(...G2(d0 + len * t, sg * hw), z);
+    const bt = A.P(...G2(d0, 0), hh + 2.5), sp = A.P(...G2(d1, 0), hh + 2);
+    A.c.beginPath(); A.c.moveTo(bt[0], bt[1]); A.c.bezierCurveTo(...gp(0.25, -nearS, hh + 1), ...gp(0.9, -nearS, hh + 1), sp[0], sp[1]); A.c.bezierCurveTo(...gp(0.9, nearS, hh), ...gp(0.25, nearS, hh), bt[0], bt[1]); A.c.closePath();
+    A.c.fillStyle = A.F(era() >= 1 ? A.shade(WOOD, -0.05) : A.shade(col, -0.2)); A.c.fill(); stroke(snowy(col), 1.6); stroke(A.OUT, 0.4);
+    if (!A.GLOW) for (const t of [0.4, 0.65]) A.line(gp(t, -1, hh + 1), gp(t, 1, hh), WOOD_D, 0.8);
+    A.c.beginPath(); A.c.moveTo(bt[0], bt[1]); A.c.bezierCurveTo(...gp(0.2, nearS * 1.1, hh - 0.5), ...gp(0.9, nearS * 1.15, hh - 0.5), sp[0], sp[1]); A.c.bezierCurveTo(...gp(0.85, nearS * 0.6, -2.5), ...gp(0.25, nearS * 0.5, -2.5), bt[0], bt[1]); A.c.closePath();
+    A.c.fillStyle = A.F(snowy(col)); A.c.fill(); stroke(A.OUT, 0.7);
+    // folded wings: feather strokes along the near side
+    if (!A.GLOW) for (let k = 1; k <= (big ? 4 : 2); k++) { const t = 0.3 + k * 0.13, p = gp(t, nearS * 0.95, hh - 1.5); A.line(p, [p[0] + 3, p[1] - 1.2], A.shade(col, -0.3), 0.6); }
+    if (era() >= 3) { A.c.beginPath(); A.c.moveTo(...gp(0.15, nearS, hh)); A.c.bezierCurveTo(...gp(0.35, nearS * 1.1, hh - 0.7), ...gp(0.75, nearS * 1.1, hh - 0.7), ...gp(0.95, nearS * 0.8, hh + 1)); stroke(GOLD, 0.8); }
+    // the swan neck rising from the bow, head turned forward
+    const b0 = A.P(...G2(d0, 0), hh + 2.5), st = A.P(...G2(d1, 0), hh + 2), dx = b0[0] - st[0], dy = b0[1] - st[1], dl = Math.hypot(dx, dy) || 1, fx = dx / dl, fy = dy / dl;
+    const nh = big ? 15 : 10, head = [b0[0] - fx * 2, b0[1] - nh];
+    curve(b0, [b0[0] + fx * 5, b0[1] - nh * 0.45], head, swanWhite(), big ? 2.6 : 2);
+    A.circ(head[0], head[1], big ? 1.8 : 1.4, swanWhite());
+    A.poly([[head[0] + fx * 1, head[1] - 0.6], [head[0] + fx * 4.2, head[1] + 0.8], [head[0] + fx * 1, head[1] + 0.8]], era() >= 3 ? GOLD : '#e07a2a', null);
+    if (!A.GLOW) A.circ(head[0] + fx * 0.4, head[1] - 0.6, 0.45, '#1a1410');
+    // tail feathers raised at the stern
+    A.poly([[st[0], st[1]], [st[0] - fx * 3, st[1] - (big ? 7 : 5)], [st[0] - fx * 1, st[1] - 2]], A.shade(swanWhite(), -0.08));
+    // a leaf sail on a slim mast (raised) or furled
+    if (o.mast) {
+      const m = d0 + len * 0.5, mb = A.P(...G2(m, 0), hh), mh = big ? 30 : 18, mt = [mb[0], mb[1] - mh];
+      A.line(mb, mt, WOOD_D, big ? 1.4 : 1);
+      if (o.sail) {
+        const sc2 = A.GLOW ? A.F('#d8ecc8') : (era() >= 3 ? '#eef4e0' : '#cfe4b8'), w2 = big ? 9 : 6;
+        A.c.beginPath(); A.c.moveTo(mt[0], mt[1] + 1); A.c.quadraticCurveTo(mt[0] + w2 * 1.6, mt[1] + mh * 0.35, mt[0] + 0.5, mb[1] - 4); A.c.quadraticCurveTo(mt[0] - w2 * 0.4, mt[1] + mh * 0.4, mt[0], mt[1] + 1); A.c.fillStyle = sc2; A.c.fill(); stroke(A.OUT, 0.6);
+        if (!A.GLOW) curve([mt[0], mt[1] + 2], [mt[0] + w2 * 0.8, mt[1] + mh * 0.35], [mt[0] + 0.5, mb[1] - 5], '#8aa86a', 0.6);
+      } else A.line([mt[0] - 4, mt[1] + 4], [mt[0] + 4, mt[1] + 2], '#e8e0c8', 2);
+      A.rec('flags', { x: mt[0], y: mt[1] + 1, col: A.STY.flag, len: big ? 9 : 6, seed: A.R() });
+    }
+    if (o.lamp) { const p = A.P(...G2(d1 - 0.05, 0), hh + 9); A.line([p[0], p[1] + 9], [p[0], p[1]], WOOD_D, 0.8); hang(p[0] + 2, p[1] + 4, 1.2, 3); }
+    return hh + (o.mast ? (big ? 30 : 18) : nh);
+  }
+  // a jetty of living roots: deck strands woven lengthwise, root arches plunging into the water
+  function rootJetty(sc, u, band, extra = 0) {
+    const dd0 = sc.depth(u), e0 = dd0 + 0.4, out = Math.max(0.5, dd0 - 2.4 - extra), hw = 0.24, z0 = 2;
+    const at = (dd, du, z) => sc.at(dd, u + du, z);
+    for (let dd = out + 0.12; dd < dd0 - 0.1; dd += 0.5) for (const s of [-1, 1]) curve(at(dd, s * hw, z0), at(dd + 0.08, s * (hw + 0.22), z0 - 1), at(dd + 0.3, s * (hw + 0.12), -3), s > 0 ? BARK_D : BARK, 1.6);
+    const st = era() >= 2 ? MOON : null, deckCol = era() >= 3 ? '#b89670' : WOOD;
+    if (st) { const [hx, hy] = sc.pt(out + 0.18, u); A.cyl(hx, hy, 0.22, -2, z0 + 0.5, st, A.shade(st, 0.08)); }
+    A.poly([at(e0, -hw, z0), at(e0, hw, z0), at(out, hw, z0), at(out, -hw, z0)], A.SNOW ? A.mix(deckCol, '#f2f6f8', 0.6) : deckCol);
+    if (!A.GLOW) for (const f of [-0.66, -0.22, 0.22, 0.66]) { A.c.beginPath(); for (let dd = out; dd <= e0 + 0.001; dd += 0.1) { const p = at(dd, hw * f + 0.035 * Math.sin(dd * 11 + f * 5), z0); dd === out ? A.c.moveTo(p[0], p[1]) : A.c.lineTo(p[0], p[1]); } stroke(A.shade(deckCol, -0.28), 0.5); }
+    A.line(at(out, -hw, z0), at(out, hw, z0), A.shade(deckCol, -0.4), 1);
+    // a twisted root rail along the jetty from the first growth band
+    if (band >= 1) for (const s of [-1, 1]) { const pts = []; for (let dd = out + 0.1; dd <= dd0 + 0.1; dd += 0.2) pts.push(at(dd, s * hw * 0.95, z0 + 4 + Math.sin(dd * 6) * 0.8)); A.c.beginPath(); pts.forEach((p, k) => k ? A.c.lineTo(p[0], p[1]) : A.c.moveTo(p[0], p[1])); stroke(BARK_D, 0.9); for (let k = 0; k < pts.length; k += 3) { const q = pts[k]; A.line(q, [q[0], q[1] + 4], BARK_D, 0.7); } }
+    return out;
+  }
+  // a curled lantern post on the jetty head
+  function jettyLamp(sc, dd, u, h = 13) {
+    const b = sc.at(dd, u, 2), t = [b[0], b[1] - h];
+    A.line(b, t, WOOD_D, 1.2); curve(t, [t[0] + 1, t[1] - 4], [t[0] + 5, t[1] - 2], WOOD_D, 1);
+    hang(t[0] + 5, t[1] + 3, 1.4, 4);
+    return h + 2;
+  }
+  // a living boathouse: a leaf-roofed shed on root stilts at the water's edge, a sapling grown through its roof
+  function boathouse(sc, u, s = 1) {
+    const dd0 = sc.depth(u), a = sc.pt(dd0 - 0.7 * s, u - 0.32 * s), b = sc.pt(dd0 + 0.35, u + 0.32 * s);
+    const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]), d = Math.abs(a[1] - b[1]);
+    for (const [px, py] of [[x, y + d], [x + w, y + d], [x + w, y], [x + w / 2, y + d], [x + w, y + d / 2]]) A.line(A.P(px, py, -2), A.P(px, py, 4), BARK_D, 1.6);
+    const bx = A.box(x, y, w, d, 3, 9 * s, bark(), { right: A.shade(bark(), -0.25) });
+    if (!A.GLOW) for (const side of ['L', 'R']) { const f = side === 'L' ? A.onL : A.onR, Lf = side === 'L' ? w : d; for (let k = 1; k < Math.round(Lf / 0.12); k++) { const q = f(bx, Lf * k / Math.round(Lf / 0.12), Lf * k / Math.round(Lf / 0.12), 0.5, 9 * s - 0.5); A.line(q[0], q[3], A.shade(bark(), -0.3), 0.4); } }
+    // a round lit window on each face
+    for (const side of ['L', 'R']) { const f = side === 'L' ? A.onL : A.onR, Lf = side === 'L' ? w : d, q = f(bx, Lf * 0.5, Lf * 0.5, 5 * s, 5 * s)[0]; A.circ(q[0], q[1], 2.2, A.STY.trim); A.lampDot(q[0], q[1], 1.5, '#3a4a40', '#ffd27a'); }
+    const zt = A.gable(bx, 10 * s, snowy(roofOf()), sc.along ? 'y' : 'x', 'thatch', 0.12);
+    const [tx, ty] = [x + w * 0.85, y + d * 0.85];
+    trunk(tx, ty, 0.06, 3, 9 * s + 10, { noRoots: true });
+    crown(tx, ty, 9 * s + 18, 0.26);
+    return zt + 8;
+  }
+  // a bent "hoist tree": a living tree trained over the water, its bough a crane with a net of cargo
+  function hoistTree(sc, u, band) {
+    const cdd = sc.depth(u) + 0.6, [gx, gy] = sc.pt(cdd, u), H = 24 + band * 4;
+    trunk(gx, gy, 0.11, 0, H);
+    const top = A.P(gx, gy, H), tip = sc.at(Math.max(0.6, cdd - 1.6), u, H + 4);
+    curve(top, [(top[0] + tip[0]) / 2, Math.min(top[1], tip[1]) - 8], tip, bark(), 2.4);
+    const hook = sc.at(Math.max(0.6, cdd - 1.6), u, 12);
+    A.line(tip, hook, '#cdbf98', 0.6);
+    seedPod(hook[0], hook[1], 0.9);
+    crown(gx, gy, H + 8, 0.36);
+    return H + 18;
+  }
+  function coastHarbor(slot, L, band, sc) {
+    if (!L) return undefined;
+    const S = scene(), us = sc.piers.slice(), u0 = sc.u0;
+    // the quay along the shoreline: woven roots, then moon-white stone
+    const qa = us[0] - 0.35, qb = us[us.length - 1] + 0.35, qc = era() >= 2 ? MOON : era() >= 1 ? '#9a7a52' : WICKER;
+    for (let u = qa; u < qb - 0.01; u += 0.25) { const u1 = Math.min(qb, u + 0.25); A.poly([sc.at(sc.depth(u) - 0.15, u, 2), sc.at(sc.depth(u1) - 0.15, u1, 2), sc.at(sc.depth(u1) + 0.35, u1, 2), sc.at(sc.depth(u) + 0.35, u, 2)], snowy(qc), null); }
+    A.line(sc.at(sc.depth(qa) - 0.15, qa, 2), sc.at(sc.depth(qb) - 0.15, qb, 2), A.shade(qc, -0.4), 0.9);
+    if (era() >= 2 && !A.GLOW) for (let u = qa + 0.3; u < qb; u += 0.5) A.line(sc.at(sc.depth(u) - 0.15, u, 2), sc.at(sc.depth(u) + 0.35, u, 2), A.shade(qc, -0.16), 0.5);
+    const outs = us.map((u, i) => [u, rootJetty(sc, u, band, i === us.indexOf(u0) && band >= 2 ? 0.3 : 0)]);
+    outs.forEach(([u, out], i) => {
+      const dd0 = sc.depth(u), len = dd0 - out, side = i % 2 ? -0.5 : 0.5;
+      S.add(...sc.pt(out + 0.05, u + 0.18), () => jettyLamp(sc, out + 0.1, u + 0.18, 12 + band));
+      if (band >= 2 && u === u0 && len > 1.6) S.add(...sc.pt(out + 0.6, u - 0.55), () => swanBoat(sc, u - 0.58, out + 0.05, out + Math.min(2.3, len - 0.05), { big: true, mast: true, sail: band >= 3, lamp: era() >= 1 }));
+      else if (len > 0.9) S.add(...sc.pt(out + 0.4, u + side), () => swanBoat(sc, u + side, out + 0.1, out + Math.min(1.1, len * 0.6), { mast: band >= 1 && i % 2 === 0, sail: band >= 1 && L >= 8 && i % 2 === 0 }));
+    });
+    // moored at the quay: a little swan skiff drawn up on the shore
+    if (L >= 3) { const u = qa - 0.35, dd = sc.depth(u) - 0.3; if (u > sc.a + 0.4) S.add(...sc.pt(dd, u), () => swanBoat(sc, u, dd - 0.6, dd + 0.15, {})); }
+    if (L >= 5) { const cu = u0 + 0.62; S.add(...sc.pt(sc.depth(cu) + 0.6, cu), () => hoistTree(sc, cu, band)); }
+    if (L >= 8) { const bu = us[0] - 0.55 > sc.a + 0.5 ? us[0] - 0.55 : us[us.length - 1] + 0.55; S.add(...sc.pt(sc.depth(bu) - 0.2, bu), () => boathouse(sc, bu, 1)); }
+    if (L >= 15) { const bu = us[us.length - 1] + 0.55; if (bu < sc.b - 0.5) S.add(...sc.pt(sc.depth(bu) - 0.2, bu), () => boathouse(sc, bu, 1.15)); }
+    // a leaf banner at the root of the main jetty and fireflies over the water at night
+    S.add(...sc.pt(sc.depth(u0) + 0.55, u0 - 0.38), () => leafBanner(...sc.pt(sc.depth(u0) + 0.55, u0 - 0.38), 20 + band * 3));
+    if (band >= 1) { const [fx, fy] = sc.pt(sc.depth(u0) - 1, u0); fireflies(fx, fy, 10, 24); }
+    const top = S.run();
+    return { top: Math.max(top, 24), noDress: true };
+  }
+
+  // a tower grown from one great trunk: footing, a deck at the wall walk, a spire (or a leafy crown) on top
+  function treeTower(gx, gy, r, H, o = {}) {
+    let z = 0;
+    if (o.st) { A.cyl(gx, gy, r * 1.4, 0, o.base + 2, o.st, A.shade(o.st, 0.08)); if (!A.GLOW) { const [x, y, rx, ry] = A.ell(gx, gy, o.base * 0.5 + 1, r * 1.4); A.c.beginPath(); A.c.ellipse(x, y, rx, ry, 0, 0.15, Math.PI - 0.15); stroke(A.shade(o.st, -0.2), 0.6); } z = o.base + 2; }
+    const dz = o.deckZ;
+    if (o.stair) stair(gx, gy, r, z + 2, dz, Math.max(0.8, (dz - z) / 26), 'back');
+    trunk(gx, gy, r, z, dz - z, { civic: true, noRoots: z > 0 });
+    if (o.stair) stair(gx, gy, r, z + 2, dz, Math.max(0.8, (dz - z) / 26), 'front');
+    deck(gx, gy, r + 0.18, dz, r); rail(gx, gy, r + 0.18, dz + 2.2, false);
+    const r2 = r * 0.86, z2 = dz + 2.2;
+    trunk(gx, gy, r2, z2, H - z2, { civic: true, noRoots: true });
+    if (H - z2 > 12) { roundWin(gx, gy, r2, z2 + (H - z2) * 0.5, 0.15); roundWin(gx, gy, r2, z2 + (H - z2) * 0.5, 1.35); }
+    rail(gx, gy, r + 0.18, dz + 2.2, true);
+    { const [lx, ly] = Gp(gx, gy, 0.75, r + 0.18, dz); hang(lx, ly + 7, 1.4); }
+    if (era() >= 1 && !A.GLOW) { const [x, y, rx, ry] = A.ell(gx, gy, H - 2, r2); A.c.beginPath(); A.c.ellipse(x, y, rx, ry, 0, 0.1, Math.PI - 0.1); stroke(era() >= 3 ? GOLD : '#c9a874', 1); }
+    let zt;
+    if (o.crown) { boughs(gx, gy, H, 0.4); zt = crown(gx, gy, H + 6, o.crown); }
+    else {
+      // a leafy collar under the spire
+      const lc = leaves(); for (let k = 0; k < 7; k++) { const t = -Math.PI * 0.15 + k / 6 * Math.PI * 1.1, [x, y] = Gp(gx, gy, t, r2 * 1.25, H + 1); A.circ(x, y, 2.6, lc[k % 2], A.OUT); }
+      zt = spireRoof(gx, gy, r * 1.35, H, o.rh || 18);
+    }
+    if (o.flag) { leafBanner(gx, gy, 12, zt - 3); zt += 12; }
+    if (o.ff) fireflies(gx, gy, H, 16);
+    return zt;
+  }
+  // wall measures matching def('wall') below
+  function wallDims(band) {
+    const fort = T('fortification'), st = band >= 3 && stoneOf() ? stoneOf() : band >= 2 && stoneOf() === MOON ? MOON : null;
+    const base = st ? 5 + band : band >= 2 ? 3 : 0, H = 14 + band * 3 + (fort ? 3 : 0);
+    return { st, base, H, top: base + H, fort };
+  }
+  def('walltower', (slot, L, band, ctx) => {
+    const gx = ctx.gx, gy = ctx.gy, corner = !!ctx.corner, W = wallDims(band);
+    if (band <= 1) { // a watch-tree: one trunk, a deck at the wall walk, a leafy crown
+      const top = treeTower(gx, gy, 0.2, W.top + 14, { deckZ: W.top + 1, crown: 0.4, st: null });
+      return { top, noDress: true };
+    }
+    const r = corner ? 0.29 + (band - 2) * 0.03 : 0.24;
+    const H = W.top + (corner ? 18 : 13) + (band - 2) * 6;
+    const top = treeTower(gx, gy, r, H, { deckZ: W.top + 1, st: W.st, base: W.base, stair: band >= 3 && corner, rh: 16 + band * 3 + (corner ? 4 : 0), flag: corner && band >= 3, ff: band >= 3 });
+    return { top, noDress: true };
+  });
+  // gates: bent-sapling arch → two living trunks knitting their boughs overhead → a gatehouse of two tree-towers and a bridge-hall
+  function sylGate(ctx, band, wide) {
+    const { along, fixed, g0, g1 } = ctx, W = wallDims(band), m = (g0 + g1) / 2;
+    const pt = u => along ? [u, fixed] : [fixed, u];
+    const at = (u, z = 0) => A.P(...pt(u), z);
+    if (band === 0) {
+      const h = wide ? 24 : 18;
+      for (const u of [g0, g1]) { curve(at(u), at(u, h * 0.95), at(m, h), BARK, wide ? 2.8 : 2.2); curve(at(u + (u < m ? 0.05 : -0.05)), at(u, h * 0.8), at(m, h - 2), BARK_D, 1); }
+      const lc = leaves(), [tx, ty] = at(m, h); A.circ(tx - 3, ty, 3.2, lc[0], A.OUT); A.circ(tx + 2, ty - 1, 3, lc[1], A.OUT); A.circ(tx, ty - 3, 2.4, lc[2]);
+      if (A.SEASON === 0 && !A.SNOW) A.circ(tx + 1, ty - 2, 1, '#f7c6d6');
+      hang(tx, ty + 6, 1.4, 4);
+      return h + 6;
+    }
+    if (band === 1 || !wide) {
+      const r = wide ? 0.15 : 0.11, h = W.top + (wide ? 8 : 4);
+      if (W.st && !wide) { A.cyl(...pt(g0 - r), r * 1.4, 0, W.base, W.st); }
+      trunk(...pt(g0 - r * 0.8), r, 0, h, { civic: true });
+      // boughs knitting into a leafy arch
+      const a = at(g0 - r * 0.4, h - 3), b = at(g1 + r * 0.4, h - 3), apex = at(m, h + (wide ? 12 : 8));
+      curve(a, [apex[0] - 6, apex[1] - 4], apex, bark(true), 3.4); curve(b, [apex[0] + 6, apex[1] - 4], apex, bark(true), 3.4);
+      curve(at(g0 - r * 0.4, h - 7), [apex[0] - 3, apex[1] + 2], [apex[0], apex[1] + 4], BARK_D, 1.2); curve(at(g1 + r * 0.4, h - 7), [apex[0] + 3, apex[1] + 2], [apex[0], apex[1] + 4], BARK_D, 1.2);
+      const lc = leaves();
+      for (let k = 0; k <= 6; k++) { const t = k / 6, p = t < 0.5 ? [a[0] + (apex[0] - a[0]) * t * 2, a[1] + (apex[1] - a[1]) * Math.sqrt(t * 2) - 2] : [apex[0] + (b[0] - apex[0]) * (t - 0.5) * 2, apex[1] + (b[1] - apex[1]) * Math.pow((t - 0.5) * 2, 2) - 2]; A.circ(p[0], p[1] - 2, 3.4 - Math.abs(t - 0.5) * 1.5, lc[k % 2], A.OUT); if (A.SNOW) A.circ(p[0] - 0.6, p[1] - 3.6, 1.8, '#f2f6f8'); }
+      if (era() >= 2 && wide) { const [rx, ry] = apex; A.lampDot(rx, ry + 2, 1.6, '#9ad8e8', '#d8f8ff'); }
+      if (W.st && !wide) { A.cyl(...pt(g1 + r), r * 1.4, 0, W.base, W.st); }
+      trunk(...pt(g1 + r * 0.8), r, 0, h, { civic: true });
+      hang(apex[0], apex[1] + 9, 1.6, 5);
+      // the two trunks crown into the arch
+      for (const u of [g0 - r * 0.8, g1 + r * 0.8]) { boughs(...pt(u), h, 0.25); crown(...pt(u), h + 4, wide ? 0.3 : 0.22); }
+      if (wide && band >= 1) { leafBanner(...pt(g1 + r * 0.8), 12, h + 6); }
+      return h + 20;
+    }
+    // the gatehouse
+    const r = 0.25 + (band - 2) * 0.03, H = W.top + 18 + (band - 2) * 6, zb = W.top - 3, bh = 10;
+    const t0 = treeTower(...pt(g0 - 0.28), r, H, { deckZ: W.top + 1, st: W.st, base: W.base, rh: 16 + band * 3, ff: band >= 3 });
+    // the bridge-hall over the road: bark walls under a leaf roof, lit round windows, a moon-white arch below in the Empire
+    const bx = along ? A.box(g0 - 0.05, fixed - 0.22, g1 - g0 + 0.1, 0.44, zb, bh, bark(true)) : A.box(fixed - 0.22, g0 - 0.05, 0.44, g1 - g0 + 0.1, zb, bh, bark(true));
+    const f = along ? A.onL : A.onR, Lf = g1 - g0 + 0.1;
+    for (const k of [0.25, 0.5, 0.75]) { const q = f(bx, Lf * k, Lf * k, bh * 0.55, bh * 0.55)[0]; A.circ(q[0], q[1], 2.2, A.STY.trim); A.lampDot(q[0], q[1], 1.5, '#3a4a40', '#ffd27a'); }
+    if (W.st || era() >= 2) { const st = W.st || MOON, q0 = f(bx, 0, 0, 0, 0)[0], q1 = f(bx, Lf, Lf, 0, 0)[0], mm = [(q0[0] + q1[0]) / 2, (q0[1] + q1[1]) / 2]; A.c.beginPath(); A.c.moveTo(q0[0], q0[1]); A.c.quadraticCurveTo(mm[0], mm[1] - 12, q1[0], q1[1]); stroke(st, 2.2); }
+    const zr = A.gable(bx, 9, snowy(roofOf()), along ? 'x' : 'y', 'thatch', 0.1);
+    { const q = f(bx, Lf * 0.5, Lf * 0.5, 0, 0)[0]; hang(q[0], q[1] + 5, 1.6, 4); }
+    if (band >= 3) { const [px, py] = at(m, zr); void px; void py; leafBanner(...pt(m), 14, zr - 2); }
+    const t1 = treeTower(...pt(g1 + 0.28), r, H, { deckZ: W.top + 1, st: W.st, base: W.base, rh: 16 + band * 3, flag: band >= 3 });
+    return Math.max(t0, t1, zr + 14);
+  }
+  def('gate', (slot, L, band, ctx) => ({ top: sylGate(ctx, band, true), noDress: true }));
+  def('postern', (slot, L, band, ctx) => ({ top: sylGate(ctx, band, false), noDress: true }));
+  // the lighthouse: a great tree on a rocky islet, a spiral stair to a cage of boughs round a lantern, a leaf spire over it
+  def('lighthouse', ([x, y, w, d], L, band) => {
+    const gx = x + w / 2, gy = y + d / 2;
+    A.rock(gx - 0.1, gy + 0.15, 1.3, '#8c8a7c'); A.rock(gx + 0.3, gy - 0.2, 0.9, '#9c9a8a');
+    const st = stoneOf(); let z = 0;
+    if (st) { A.cyl(gx, gy, 0.34, 0, 5, st, A.shade(st, 0.08)); z = 5; }
+    const r = 0.19, H = 48 + band * 8, dz = H * 0.5;
+    stair(gx, gy, r, z + 2, H - 6, 2, 'back');
+    trunk(gx, gy, r, z, dz - z, { civic: true, noRoots: z > 0 });
+    deck(gx, gy, 0.36, dz, r); rail(gx, gy, 0.36, dz + 2.2, false);
+    trunk(gx, gy, r * 0.85, dz + 2.2, H - dz - 2.2, { civic: true, noRoots: true });
+    rail(gx, gy, 0.36, dz + 2.2, true);
+    stair(gx, gy, r, z + 2, H - 6, 2, 'front');
+    roundWin(gx, gy, r * 0.85, H - 10, 0.3);
+    // the lantern deck and its cage of boughs
+    deck(gx, gy, 0.3, H, r * 0.85);
+    const zl = H + 2.2, ch = 15 + band * 2, cr = 0.22;
+    const ribs = [0, 1, 2, 3, 4, 5, 6, 7].map(k => k / 8 * Math.PI * 2 + 0.2);
+    for (const t of ribs) if (!front(t)) curve(Gp(gx, gy, t, cr, zl), Gp(gx, gy, t, cr * 1.5, zl + ch * 0.55), A.P(gx, gy, zl + ch), bark(true), 1.3);
+    const [lx, ly] = A.P(gx, gy, zl + ch * 0.45);
+    A.c.beginPath(); A.c.ellipse(lx, ly, 6, 7, 0, 0, Math.PI * 2); A.c.fillStyle = A.GLOW ? 'rgba(255,230,140,0.9)' : 'rgba(255,226,140,0.45)'; A.c.fill();
+    A.lampDot(lx, ly, 3.4, lampCol(), '#fff2b8');
+    for (const t of ribs) if (front(t)) curve(Gp(gx, gy, t, cr, zl), Gp(gx, gy, t, cr * 1.5, zl + ch * 0.55), A.P(gx, gy, zl + ch), bark(true), 1.3);
+    rail(gx, gy, 0.3, zl, true);
+    A.rec('beams', { x: lx, y: ly });
+    A.rec('lights', { x: lx, y: ly, r: 40 });
+    const zt = spireRoof(gx, gy, 0.3, zl + ch - 2, 14 + band * 2);
+    // leaves trailing from the deck, fireflies about the light
+    const lc = leaves(); for (let k = 0; k < 5; k++) { const [px, py] = Gp(gx, gy, 0.2 + k * 0.5, 0.3, H); A.circ(px, py + 2, 2.2, lc[k % 2], A.OUT); }
+    fireflies(gx, gy, H, 22);
+    if (band >= 3) leafBanner(gx, gy, 10, zt - 2);
+    return { top: zt + (band >= 3 ? 10 : 0), noDress: true };
+  });
+
   def('harbor', ([x, y, w, d], L, band, ctx) => {
-    if (ctx && ctx.coastal) return undefined;   // inland design: on a coast cityview's stock piers stand until a coastal harbor is drawn
+    if (ctx && ctx.coastal) return coastHarbor([x, y, w, d], L, band, ctx);
     const S = scene(), cx = x + w / 2, cy = y + d / 2;
     // a lily pond with a swan-prowed boat at a root jetty
     S.add(cx - 0.3, cy - 0.3, () => { const [px, py, rx, ry] = A.ell(cx, cy, 0, Math.min(w, d) * 0.4); A.c.beginPath(); A.c.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); A.c.fillStyle = A.F(A.SEASON === 3 ? '#cfe2ee' : '#4f8fb8'); A.c.fill(); stroke('#6a8a5a', 1.2); if (!A.SNOW) for (let k = 0; k < 4; k++) A.circ(px - rx * 0.5 + k * rx * 0.33, py + Math.sin(k * 2) * ry * 0.5, 1.8, '#5e9447'); });

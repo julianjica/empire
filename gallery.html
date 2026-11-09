@@ -24,9 +24,10 @@
 <div class="muted">Every portrait in the game, drawn by js/portraits.js and js/portrait-gear.js. Reload after edits.</div>
 <div class="gbar">
   <label>Size <select id="size"><option>128</option><option selected>96</option><option>64</option><option>40</option><option>32</option></select></label>
-  <label>Section <select id="sec"><option value="all">All</option><option value="units">Troops</option><option value="heroes">Heroes</option><option value="council">Advisors & governors</option><option value="others">Spies, rulers, citizens, monsters</option></select></label>
+  <label>Section <select id="sec"><option value="all">All</option><option value="units">Troops</option><option value="heroes">Heroes</option><option value="council">Advisors & governors</option><option value="others">Spies, rulers, citizens, monsters</option><option value="variety">Variety (16 seeds per kind)</option></select></label>
   <label>People <select id="race"><option value="all">All eight</option></select></label>
   <label>Era <select id="era"><option value="by">by unit</option><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
+  <label>Variety kind <select id="vk"><option>all</option><option>hero</option><option>citizen</option><option>advisor</option><option>ruler</option><option>governor</option><option>spy</option><option>unit</option></select></label>
   <label><input type="checkbox" id="small"> also show at 32px</label>
 </div>
 <div id="out"></div>
@@ -78,11 +79,22 @@
         + [0, 1].map(i => cell({ race: r, kind: 'citizen', seed: 'cit' + i, color: col }, 'Citizen', '')).join('');
       h += `<div class="race"><h2 style="color:${col}">${R.name}</h2><div class="grid">${g}</div></div>`;
     }
+    if (sec === 'variety') { // 16 seeds per people per kind, at 96px and 40px: faces should read as distinct individuals
+      h = '';
+      for (const r of races) {
+        const col = DATA.races[r].color, offs = ['steward', 'marshal', 'spymaster', 'priest', 'archmage'];
+        for (const k of ($('vk') && $('vk').value !== 'all' ? [$('vk').value] : ['hero', 'citizen', 'advisor', 'ruler'])) {
+          const specs = [...Array(16).keys()].map(i => ({ race: r, kind: k, seed: 'v' + i, color: col, rank: k === 'hero' ? i % 3 : 3, role: k === 'advisor' ? offs[i % 5] : undefined, unit: k === 'unit' ? DATA.races[r].units[i % 3] : undefined, era: i % 4 }));
+          h += `<div class="race"><h2 style="color:${col}">${DATA.races[r].name} · ${k}</h2><div class="grid">${specs.map(s => G.portraitHtml(s, Math.max(96, +$('size').value))).join('')}</div><div class="grid" style="margin-top:6px">${specs.map(s => G.portraitHtml(s, 40)).join('')}</div></div>`;
+        }
+      }
+      $('out').innerHTML = h; return;
+    }
     if (rf === 'all' && (sec === 'all' || sec === 'units')) h += `<div class="race"><h2>Shared troops</h2><div class="grid">${sharedUnits().map((u, i) => cell({ race: 'hearth', kind: 'unit', unit: u, color: '#8a6d3b', era: eraFor(i) }, DATA.units[u].name, G.roleOf(u) + ' · era ' + eraFor(i))).join('')}</div></div>`;
     if (rf === 'all' && (sec === 'all' || sec === 'others')) h += `<div class="race"><h2>Monsters</h2><div class="grid">${['wyrm', 'demon', 'undead', 'beast', 'brigand', 'elemental'].map(m => cell({ race: 'hearth', kind: 'monster', role: m, seed: m }, m, 'monster')).join('')}</div></div>`;
     $('out').innerHTML = h;
   };
-  for (const id of ['size', 'sec', 'race', 'small', 'era']) $(id).addEventListener('change', draw);
+  for (const id of ['size', 'sec', 'race', 'small', 'era', 'vk']) $(id).addEventListener('change', draw);
   draw();
 })();
 </script>

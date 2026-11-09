@@ -104,14 +104,41 @@ PORTRAIT.palette = {
 
   // every random choice about the PERSON is rolled here, up front, so gear layers drawing from ctx.rnd
   // (or skipping hair under a helmet) never change the face. Layers read ctx.look only.
+  //  look = { female, age 0 young|1 adult|2 old, skin (blend of two palette skins), hair (palette + extras), cloth,
+  //    wid/chin -1..1 face width + chin length, jaw 0..1, cheek (cheekbones), eye 0..4 shape, eyeCol, gap (eye spacing),
+  //    brow -1..1 tilt, browSt 0..3, nose 0..4, mouth 0 neutral|1 smile|2 stern|3 scowl|4 smirk, beard 0..7,
+  //    hairStyle 0..5, scar 0..4, mark 0..4 (people-style tattoo/paint/stars/stitches), jewel 0..3 (earring, nose ring,
+  //    circlet), patch (eyepatch), freckle, trait 0..4 + t2 0..1 (people shape: horns, antennae, fins, crest, skull,
+  //    beard braids, ear length), broken (ash horn 0|1|2), col2 (people colour: glow, crest, ornament, fin), tusks, hood, v }
+  const HAIR_X = { hearth: ['#efd98c', '#7a3418', '#2a1f18'], delver: ['#c4682c', '#d6b36a'], sylvan: ['#c9a44a', '#8c3c1c', '#7d9a52', '#f3efe4'], ash: ['#7a2416', '#4c4744', '#a8482a'],
+    tide: ['#3f8f8a', '#5a4a78', '#c9a46a'], veil: ['#e9b9df', '#86a6dc', '#171330'], grave: ['#8a7a5a', '#a9a99a'], wind: ['#b8562a', '#2e3e5c', '#d4b45e', '#6a3a2a', '#f4f0e6'] };
+  const EYES = { hearth: ['#3d5f80', '#5a3a20', '#4a6a3a', '#7a6a3a', '#6a7480'], delver: ['#2e2016', '#5a6670', '#8a5a1a', '#3a4a2a'], sylvan: ['#2f6e34', '#a08420', '#5a5a8a', '#3a7aa0'],
+    ash: ['#f2a22a', '#e8402a', '#f0dc50', '#f6f0d8'], tide: ['#0f2f3a', '#1f7a78', '#d0a030', '#3a2a5a'], veil: ['#160d24', '#2c1a5c', '#4a1040', '#0c2c3c'],
+    grave: ['#8dffd4', '#9cc8ff', '#ffc870', '#e09cff', '#ff8a7a'], wind: ['#e8a020', '#e86a20', '#f0d860', '#2a1a10'] };
+  const COL2 = { hearth: ['#d6a83e', '#b0402a'], delver: ['#d6a83e', '#c9ccd0', '#c87a3e', '#3a6ab0'], sylvan: ['#5f9a45', '#8a6a3c', '#a8c060'], ash: ['#e0632a', '#f2c040', '#c23a1f'],
+    tide: ['#3f8f94', '#c8705a', '#6a5aa0', '#d8b04a'], veil: ['#fbf3ff', '#d6ecff', '#ffd6f0', '#e4ffe6'], grave: ['#d6a83e', '#7a8086'], wind: ['#c9461f', '#f2f0e6', '#2b2f3a', '#d9a630', '#4f8fdc'] };
+  const FRECK = { hearth: 0.45, delver: 0.2, sylvan: 0.18, wind: 0.1 };
+  const AGE = { unit: [0.4, 0.9], hero: [0.3, 0.85], advisor: [0.12, 0.5], governor: [0.12, 0.5], ruler: [0.15, 0.55], citizen: [0.3, 0.78], spy: [0.3, 0.9] };
+  const hx = c => [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16));
+  const mixC = (a, b, t) => '#' + hx(a).map((v, i) => Math.round(v + (hx(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
   const rollLook = (race, spec, r) => {
-    const pal = PORTRAIT.palette[race] || PORTRAIT.palette.hearth;
+    const pal = PORTRAIT.palette[race] || PORTRAIT.palette.hearth, kind = spec.kind || 'unit';
+    const troop = kind === 'unit', star = kind === 'hero' || kind === 'ruler';
     const female = spec.female != null ? !!spec.female : r() < 0.4;
+    const a = r(), th = AGE[kind] || AGE.unit, age = a < th[0] ? 0 : a < th[1] ? 1 : 2;
     const L = {
-      female, skin: pick(r, pal.skin), hair: pick(r, pal.hair), cloth: pick(r, pal.cloth),
-      jaw: r(), eye: Math.floor(r() * 3), brow: r() * 2 - 1, nose: Math.floor(r() * 3), mouth: Math.floor(r() * 3),
-      beard: female ? 0 : Math.floor(r() * 5), hairStyle: Math.floor(r() * 4), scar: r() < 0.22, age: r(), tusks: r() < 0.5,
-      paint: Math.floor(r() * 3), orn: Math.floor(r() * 3), hood: r() < 0.45, v: r(),
+      female, age, skin: mixC(pick(r, pal.skin), pick(r, pal.skin), r() * 0.7), hair: pick(r, pal.hair.concat(HAIR_X[race] || [])), cloth: pick(r, pal.cloth),
+      wid: r() * 2 - 1, jaw: star ? 0.4 + r() * 0.6 : r(), chin: r() * 2 - 1, cheek: r() < (star ? 0.65 : 0.3),
+      eye: Math.floor(r() * 5), eyeCol: pick(r, EYES[race] || EYES.hearth), gap: r() * 1.6 - 0.8,
+      brow: r() * 2 - 1, browSt: Math.floor(r() * 4), nose: Math.floor(r() * 5),
+      mouth: pick(r, star ? [0, 1, 2, 2, 3, 4, 4] : troop ? [0, 0, 2, 3, 1, 4] : [0, 1, 1, 2, 3, 4]),
+      beard: female ? 0 : star ? 2 + Math.floor(r() * 6) : Math.floor(r() * 8), hairStyle: Math.floor(r() * 6),
+      scar: r() < (kind === 'hero' ? 0.32 : troop || kind === 'spy' ? 0.22 : 0.12) ? 1 + Math.floor(r() * 4) : 0,
+      mark: r() < (troop ? 0.45 : 0.62) ? 1 + Math.floor(r() * 4) : 0,
+      jewel: r() < (troop ? 0.14 : kind === 'ruler' || kind === 'governor' ? 0.6 : 0.4) ? 1 + Math.floor(r() * 3) : 0,
+      patch: r() < (troop || kind === 'hero' || kind === 'spy' ? 0.07 : 0.03), freckle: r() < (FRECK[race] || 0),
+      trait: Math.floor(r() * 5), t2: r(), broken: r() < 0.16 ? 1 + (r() < 0.5) : 0, col2: pick(r, COL2[race] || COL2.hearth),
+      tusks: r() < 0.5, hood: r() < 0.45, v: r(),
     };
     return L;
   };

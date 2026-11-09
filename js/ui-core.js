@@ -24,8 +24,10 @@ const TOP_EXTRAS = [];
 //   TILE_EXTRAS (city, tile) — html added to the world-map tile panel (before the send form)
 //   TILE_PANELS (city, tile, vis) — return a whole tile panel to take over a tile (e.g. a free city), or '' to pass
 //   EMPIRE_EXTRAS () — cards appended to the Empire tab · ENDGAME_EXTRAS () — html shown under the endgame banner
+//   MILITARY_EXTRAS (city) — cards on the Military tab, after the garrison card (e.g. generals)
+//   REPORT_EXTRAS (body) — html at the top of a battle report (e.g. the generals who fought) · MOVE_EXTRAS (move) — html after a march's troops in Movements
 const CITY_EXTRAS = [], REALM_EXTRAS = [], MARKET_EXTRAS = [], TILE_EXTRAS = [], TILE_PANELS = [], EMPIRE_EXTRAS = [], ENDGAME_EXTRAS = [],
-  START_EXTRAS = [], DEFEAT_EXTRAS = [];   // START_EXTRAS () — cards on the start screen · DEFEAT_EXTRAS () — html under 'your last city has fallen'
+  START_EXTRAS = [], DEFEAT_EXTRAS = [], MILITARY_EXTRAS = [], REPORT_EXTRAS = [], MOVE_EXTRAS = [];   // START_EXTRAS () — cards on the start screen · DEFEAT_EXTRAS () — html under 'your last city has fallen'
 if (G.seasonChip) CITY_EXTRAS.push(G.seasonChip);
 const extras = (list, ...a) => list.map(f => { try { return f(...a) || ''; } catch (e) { console.error(e); return ''; } }).join('');
 const runMountHooks = () => { for (const h of MOUNT_HOOKS) { try { h(UI.tab); } catch (e) { console.error(e); } } };
@@ -522,6 +524,7 @@ const renderMilitary = city => {
     <p class="muted" style="font-size:12.5px;margin-bottom:0">Walls and Town Hall: ×${cd.mult.toFixed(2)} and +${cd.flat} defense. Research: ×${G.mod(S, 'p', null, 'atk').toFixed(2)} attack, ×${G.mod(S, 'p', null, 'def').toFixed(2)} defense.</p>
   </div>`);
 
+  parts.push(extras(MILITARY_EXTRAS, city));
   parts.push(renderForge(city));
   const byBuilding = {};
   for (const u of G.unitsFor(S, city)) (byBuilding[DATA.units[u].at] = byBuilding[DATA.units[u].at] || []).push(u);
@@ -584,7 +587,7 @@ const renderMoves = () => {
   const mine = S.moves.filter(m => m.owner === 'p').sort((a, b) => a.arrive - b.arrive);
   const inc = incoming();
   return `<div class="card"><h3>⚠️ Incoming</h3>${inc.length ? `<table><tr><th>From</th><th>Target</th><th>Arrives</th></tr>${inc.map(m => `<tr><td class="pt-cell">${ptHtml(rulerSpec(S.empires[m.owner]), 28, '', 'Ruler of ' + S.empires[m.owner].name)} ${esc(S.empires[m.owner].name)}</td><td>${placeName(m.x, m.y)}</td><td class="bad">${fmtTime(realSecs(m.arrive - S.time))}</td></tr>`).join('')}</table>` : '<p class="muted">No hostile armies are marching on your lands.</p>'}</div>
-  <div class="card"><h3>Your movements</h3>${mine.length ? `<table><tr><th>Type</th><th>To</th><th>Troops / cargo</th><th>Arrives</th></tr>${mine.map(m => `<tr><td>${MOVE_LABEL[m.type]}</td><td>${m.type === 'return' ? esc((S.cities[m.from] || {}).name || 'home') : placeName(m.x, m.y)} (${m.x}, ${m.y})</td><td>${G.unitsCount(m.units) ? unitTokens(m.units, 'p', null, 26) : Object.keys(m.cargo).length ? '' : '<span class="muted">none</span>'}${Object.keys(m.cargo).length ? (G.unitsCount(m.units) ? ' · ' : '') + goodsHtml(m.cargo) : ''}</td><td>${fmtTime(realSecs(m.arrive - S.time))}</td></tr>`).join('')}</table>` : '<p class="muted">Nothing on the roads.</p>'}</div>`;
+  <div class="card"><h3>Your movements</h3>${mine.length ? `<table><tr><th>Type</th><th>To</th><th>Troops / cargo</th><th>Arrives</th></tr>${mine.map(m => `<tr><td>${MOVE_LABEL[m.type]}</td><td>${m.type === 'return' ? esc((S.cities[m.from] || {}).name || 'home') : placeName(m.x, m.y)} (${m.x}, ${m.y})</td><td>${G.unitsCount(m.units) ? unitTokens(m.units, 'p', null, 26) : Object.keys(m.cargo).length ? '' : '<span class="muted">none</span>'}${Object.keys(m.cargo).length ? (G.unitsCount(m.units) ? ' · ' : '') + goodsHtml(m.cargo) : ''}${extras(MOVE_EXTRAS, m)}</td><td>${fmtTime(realSecs(m.arrive - S.time))}</td></tr>`).join('')}</table>` : '<p class="muted">Nothing on the roads.</p>'}</div>`;
 };
 
 const renderMarket = city => {
@@ -620,7 +623,7 @@ const reportBody = r => {
   }
   if (!b.attSent) return b.extra ? `<p>${esc(b.extra)}</p>` : '';
   const aId = (ptEmpByName(b.att) || {}).id, dId = (ptEmpByName(b.def) || {}).id;
-  return `${duelHtml(b, aId, dId)}<table style="margin-top:8px">
+  return `${duelHtml(b, aId, dId)}${extras(REPORT_EXTRAS, b)}<table style="margin-top:8px">
       <tr><th></th><th>Attacker: ${esc(b.att)}</th><th>Defender: ${esc(b.def)}</th></tr>
       <tr><td>Strength</td><td>⚔️ ${fmt(b.A)}</td><td>🛡️ ${fmt(b.D)}</td></tr>
       <tr><td>Troops</td><td>${unitTokens(b.attSent, aId, b.attLost)}</td><td>${unitTokens(b.defHad, dId, b.defLost)}</td></tr>
@@ -659,6 +662,7 @@ const tacticsHtml = b => {
     <div>⛰️ Battlefield: ${ground || '<span class="muted">open field</span>'}${bt && bt.text ? ` <span class="muted">— ${esc(bt.text)}</span>` : ''}</div>
     <table style="margin-top:6px"><tr><th></th><th>${esc(b.att)}</th><th>${esc(b.def)}</th></tr>
       <tr><td>Army mix</td><td>${roles('att')}</td><td>${roles('def')}</td></tr>
+      ${t.stances ? `<tr><td>Stance</td><td>${t.stances.att ? `${t.stances.att.icon || ''} ${esc(t.stances.att.name)}` : '—'}</td><td>${t.stances.def ? `${t.stances.def.icon || ''} ${esc(t.stances.def.name)}` : '<span class="muted">—</span>'}</td></tr>` : ''}
       <tr><td>Modifiers</td><td style="vertical-align:top">${mods('att')}</td><td style="vertical-align:top">${mods('def')}</td></tr>
       ${t.phases.map(ph => `<tr><td>${ph.icon || ''} ${esc(ph.name)}</td><td class="bad">${lost(ph.attLost, aId)}</td><td class="bad">${lost(ph.defLost, dId)}</td></tr>`).join('')}
     </table></div>`;

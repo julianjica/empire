@@ -932,7 +932,7 @@
 
   // ----- moon quay (inland harbor) -----
   ART.harbor = ([x, y, w, d], L, band, ctx) => {
-    if (ctx && ctx.coastal) return undefined;   // inland design: on a coast cityview's stock piers stand until a coastal harbor is drawn
+    if (ctx && ctx.coastal) return coastHarbor([x, y, w, d], L, band, ctx);
     const cx = x + w * 0.5, cy = y + d * 0.55;
     pool(cx, cy, Math.min(w, d) * 0.4, Math.min(w, d) * 0.32, { stars: 4, moon: false });
     // a swan-necked crescent boat
@@ -1075,6 +1075,248 @@
     if (band >= 3) { const [sx, sy] = pt(len / 2, H + 9); A.rec('sparks', { x: sx, y: sy, kind: 'star' }); }
     if (ctx.tech('fortification')) { const [gx, gy] = pt(len * 0.5, H * 0.6, 1.02); A.lampDot(gx, gy, 1.4, E.accent, E.ng); }
     return H + 6;
+  };
+
+  // ---------------------------------------------------------------
+  // the shore: glass piers, moon-sail skiffs, mirror-stones and lilies; a moonlit lighthouse spire
+  // (everything placed through the shore ctx — pt/at/depth — so it fits any edge)
+  // ---------------------------------------------------------------
+  const glassFill = () => A.GLOW ? 'rgba(150,130,230,0.55)' : 'rgba(214,232,255,0.62)';
+  // a crescent-hulled skiff along the shore normal: prow toward open water at d0, stern at d1
+  function moonSkiff(sc, u, d0, d1, o = {}) {
+    const big = !!o.big, hw = o.hw || (big ? 0.25 : 0.15), hh = big ? 7.5 : 5, len = d1 - d0;
+    const col = o.col || (era >= 1 ? A.mix(E.metal, '#ffffff', 0.45) : E.wood);
+    const G2 = (dd, du) => sc.pt(dd, u + du);
+    // a smooth crescent hull: both ends sweep up like the horns of the moon
+    const m = (d0 + d1) / 2, nearS = (() => { const a = sc.pt(m, u + hw), b = sc.pt(m, u - hw); return a[0] + a[1] > b[0] + b[1] ? 1 : -1; })();
+    const horn = big ? 8 : 5.5, bt = P(...G2(d0, 0), hh + horn), st2 = P(...G2(d1, 0), hh + horn * 0.8);
+    const gp = (t, sg, z) => P(...G2(d0 + len * t, sg * hw), z);
+    c.beginPath(); c.moveTo(bt[0], bt[1]); c.bezierCurveTo(...gp(0.2, -nearS, hh + 1), ...gp(0.8, -nearS, hh + 1), st2[0], st2[1]); c.bezierCurveTo(...gp(0.8, nearS, hh), ...gp(0.2, nearS, hh), bt[0], bt[1]); c.closePath();
+    fill(A.shade(E.wood2, -0.05)); stroke(sn(col), 1.6); stroke(A.OUT, 0.4, A.F(A.OUT));
+    if (!A.GLOW) for (const t of [0.38, 0.62]) A.line(gp(t, -1, hh + 1), gp(t, 1, hh), A.shade(E.wood2, -0.3), 0.7);
+    c.beginPath(); c.moveTo(bt[0], bt[1]); c.bezierCurveTo(...gp(0.18, nearS * 1.1, hh - 0.5), ...gp(0.82, nearS * 1.1, hh - 0.5), st2[0], st2[1]); c.bezierCurveTo(...gp(0.75, nearS * 0.55, -2.5), ...gp(0.25, nearS * 0.55, -2.5), bt[0], bt[1]); c.closePath();
+    fill(sn(col)); stroke(A.OUT, 0.7, A.F(A.OUT));
+    // a glowing rune line along the gunwale
+    c.beginPath(); c.moveTo(...gp(0.12, nearS * 0.95, hh + 1.2)); c.bezierCurveTo(...gp(0.3, nearS * 1.1, hh - 1.4), ...gp(0.7, nearS * 1.1, hh - 1.4), ...gp(0.88, nearS * 0.95, hh + 0.8)); stroke(E.accent, 0.9, E.ng);
+    const gun = [[G2(d0, 0), hh + horn]];
+    const prow = P(...gun[0][0], gun[0][1]);
+    if (era >= 3) A.circ(prow[0], prow[1], 1.2, GOLD);
+    if (o.crystal) { A.crystal(...gun[0][0], gun[0][1] - 1, 7, 0.05, '#c8b0ff'); light(prow[0], prow[1] - 4, 14); }
+    if (o.mast) {
+      const m = d0 + len * 0.5, mb = P(...G2(m, 0), hh), mh = big ? 32 : 19, mt = [mb[0], mb[1] - mh];
+      A.line(mb, mt, era >= 3 ? GOLD : E.wood2, big ? 1.4 : 1);
+      if (o.sail) { // a crescent moon-sail of dreamsilk
+        const r = big ? 11 : 7, cy = mt[1] + mh * 0.42;
+        c.beginPath(); c.arc(mt[0], cy, r, -Math.PI / 2, Math.PI / 2, false); c.quadraticCurveTo(mt[0] + r * 0.9, cy, mt[0], cy - r); c.closePath();
+        c.fillStyle = A.GLOW ? '#b8a8f0' : sn(E.silk); c.fill(); stroke(A.OUT, 0.6, A.F(A.OUT));
+        if (!A.GLOW) { c.beginPath(); c.arc(mt[0], cy, r * 0.7, -Math.PI / 2.4, Math.PI / 2.4, false); stroke(E.accent, 0.6); }
+        if (A.GLOW) light(mt[0] + r * 0.5, cy, r * 2.2);
+      } else A.line([mt[0] - 3, mt[1] + 5], [mt[0] + 3, mt[1] + 4], E.silk, 2);
+      crescent(mt[0], mt[1] - 3, big ? 2.6 : 1.8);
+    }
+    if (o.lamp) { const p = P(...G2(d1 - 0.05, 0), hh + 8); A.line([p[0], p[1] + 6], [p[0], p[1]], E.wood2, 0.8); A.lampDot(p[0] + 2, p[1] + 2, 1.2, E.accent, E.ng); light(p[0] + 2, p[1] + 2, 10); }
+    return hh + (o.mast ? (big ? 34 : 21) : 9);
+  }
+  // a glass pier: a pale translucent deck on slender crystal piles, lit studs along its edges
+  function glassPier(sc, u, band, extra = 0) {
+    const dd0 = sc.depth(u), e0 = dd0 + 0.4, out = Math.max(0.5, dd0 - 2.4 - extra), hw = 0.22, z0 = 2.5;
+    const at = (dd, du, z) => sc.at(dd, u + du, z);
+    for (let dd = out + 0.1; dd < dd0 - 0.05; dd += 0.55) for (const s of [-1, 1]) { const a = at(dd, s * hw * 0.85, z0), b = at(dd, s * hw * 0.85, -3); A.line(a, b, era >= 2 ? A.mix(E.stone, E.accent, 0.3) : E.wood2, 1.3); }
+    const frame = era >= 1 ? A.mix(E.stone, '#ffffff', 0.2) : E.wood;
+    A.poly([at(e0, -hw - 0.04, z0), at(e0, hw + 0.04, z0), at(out, hw + 0.04, z0), at(out, -hw - 0.04, z0)], frame);
+    A.poly([at(e0, -hw + 0.04, z0), at(e0, hw - 0.04, z0), at(out + 0.06, hw - 0.04, z0), at(out + 0.06, -hw + 0.04, z0)], era >= 1 ? glassFill() : A.shade(E.wood, -0.06), null);
+    if (!A.GLOW) for (let dd = out + 0.3; dd < e0; dd += 0.35) A.line(at(dd, -hw + 0.04, z0), at(dd, hw - 0.04, z0), era >= 1 ? 'rgba(255,255,255,0.7)' : A.shade(E.wood, -0.2), 0.5);
+    A.line(at(out, -hw - 0.04, z0), at(out, hw + 0.04, z0), A.shade(frame, -0.35), 1);
+    // lit studs along both edges; a silk rail from the second band
+    for (let dd = out + 0.25; dd < dd0; dd += 0.5) for (const s of [-1, 1]) { const p = at(dd, s * (hw + 0.02), z0 + 0.5); A.lampDot(p[0], p[1], 0.7, E.accent, E.ng); }
+    if (band >= 1) for (const s of [-1, 1]) { const a = at(out + 0.1, s * hw, z0 + 5), b = at(dd0, s * hw, z0 + 5); A.line(at(out + 0.1, s * hw, z0), a, E.metal, 0.7); A.line(at(dd0, s * hw, z0), b, E.metal, 0.7); thread(a, b, 2); }
+    return out;
+  }
+  // a glass boathouse: a little vaulted hall over the water's edge on crystal piles
+  function glassBoathouse(sc, u, s = 1) {
+    const dd0 = sc.depth(u), a = sc.pt(dd0 - 0.7 * s, u - 0.3 * s), b = sc.pt(dd0 + 0.35, u + 0.3 * s);
+    const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]), d = Math.abs(a[1] - b[1]);
+    for (const [px, py] of [[x, y + d], [x + w, y + d], [x + w, y], [x + w / 2, y + d], [x + w, y + d / 2]]) A.line(P(px, py, -2), P(px, py, 4), E.stone, 1.4);
+    const h = glassHall(x, y, w, d, 10 * s, { z: 3, axis: sc.along ? 'y' : 'x', gap: 0.26, steep: 22 });
+    const zt = moonFinial(x + w / 2, y + d / 2, h.zt - 1, 4, 2.2);
+    return zt;
+  }
+  // the silk hoist: a slender moonstone arch at the quay, a crystal at its crown, dreamsilk lifting a floating crate
+  function silkHoist(sc, u, band) {
+    const cdd = sc.depth(u) + 0.55, [gx, gy] = sc.pt(cdd, u), H = 28 + band * 4;
+    A.cyl(gx, gy, 0.12, 0, 3, E.stone);
+    const base = P(gx, gy, 3), top = P(gx, gy, H), tip = sc.at(Math.max(0.6, cdd - 1.5), u, H + 2);
+    A.line(base, top, sn(E.stone), 2.4); A.line([base[0] + 1, base[1]], [top[0] + 1, top[1]], A.shade(E.stone, -0.25), 0.8);
+    c.beginPath(); c.moveTo(top[0], top[1]); c.quadraticCurveTo((top[0] + tip[0]) / 2, Math.min(top[1], tip[1]) - 7, tip[0], tip[1]); stroke(E.stone, 1.8);
+    A.crystal(gx, gy, H, 8 + band, 0.05, '#c8b0ff'); light(top[0], top[1] - 4, 16);
+    const [cx2, cy2] = sc.pt(Math.max(0.6, cdd - 1.5), u), cz = 10 + band * 2;
+    thread(tip, P(cx2, cy2, cz + 4), 0, A.GLOW ? '#c8b8ff' : 'rgba(250,244,255,0.95)');
+    A.box(cx2 - 0.07, cy2 - 0.07, 0.14, 0.14, cz - 3, 4, A.mix(E.wood2, E.silk, 0.3));
+    const [mx, my] = P(cx2, cy2, cz - 6); A.rec('sparks', { x: mx, y: my, kind: 'motes', r: 6, n: 3, h: 10 });
+    return H + 12;
+  }
+  function coastHarbor(slot, L, band, sc) {
+    if (!L) return undefined;
+    const q = [], add = (g, f) => q.push([g[0] + g[1], f]);
+    const us = sc.piers.slice(), u0 = sc.u0;
+    // the quay: pale boards, then moonstone with a lit edge
+    const qa = us[0] - 0.35, qb = us[us.length - 1] + 0.35, qc = stoneWalls() ? E.stone : E.wood;
+    for (let u = qa; u < qb - 0.01; u += 0.25) { const u1 = Math.min(qb, u + 0.25); A.poly([sc.at(sc.depth(u) - 0.15, u, 2), sc.at(sc.depth(u1) - 0.15, u1, 2), sc.at(sc.depth(u1) + 0.35, u1, 2), sc.at(sc.depth(u) + 0.35, u, 2)], sn(qc), null); }
+    A.line(sc.at(sc.depth(qa) - 0.15, qa, 2), sc.at(sc.depth(qb) - 0.15, qb, 2), A.shade(qc, -0.35), 0.9);
+    if (!A.GLOW) for (let u = qa + 0.25; u < qb; u += 0.5) A.line(sc.at(sc.depth(u) - 0.15, u, 2), sc.at(sc.depth(u) + 0.35, u, 2), A.shade(qc, -0.14), 0.5);
+    if (band >= 1) for (let u = qa + 0.2; u < qb; u += 0.4) { const p = sc.at(sc.depth(u) - 0.12, u, 2.4); A.lampDot(p[0], p[1], 0.7, E.accent, E.ng); }
+    const outs = us.map(u => [u, glassPier(sc, u, band, u === u0 && band >= 2 ? 0.3 : 0)]);
+    outs.forEach(([u, out], i) => {
+      const len = sc.depth(u) - out, side = i % 2 ? -0.48 : 0.48;
+      // pier head: a crystal on a moonstone stub, glowing
+      add(sc.pt(out + 0.1, u), () => { const [hx, hy] = sc.pt(out + 0.12, u); A.cyl(hx, hy, 0.1, 2.5, 3, E.stone); const zt = A.crystal(hx, hy, 5.5, 8 + band * 2, 0.06, i % 2 ? '#88c8f0' : '#c8b0ff'); const p = P(hx, hy, 9); light(p[0], p[1], 14); return zt; });
+      if (band >= 2 && u === u0 && len > 1.6) add(sc.pt(out + 0.6, u - 0.55), () => moonSkiff(sc, u - 0.56, out + 0.05, out + Math.min(2.3, len - 0.05), { big: true, mast: true, sail: band >= 3, crystal: true, lamp: true }));
+      else if (len > 0.9) add(sc.pt(out + 0.4, u + side), () => moonSkiff(sc, u + side, out + 0.1, out + Math.min(1.15, len * 0.6), { mast: i % 2 === 0, sail: L >= 8 && i % 2 === 0 }));
+    });
+    // moon-lilies on the still water between the piers; mirror-stones and moth posts on the quay
+    for (let k = 0; k < outs.length - 1; k++) { const u = (outs[k][0] + outs[k + 1][0]) / 2, dd = sc.depth(u) - 0.7; add(sc.pt(dd, u), () => A.moonLily(...sc.pt(dd, u), 0.6)); }
+    { const u = qb + 0.35; if (u < sc.b - 0.3) add(sc.pt(sc.depth(u) - 0.5, u), () => A.moonLily(...sc.pt(sc.depth(u) - 0.5, u), 0.7)); }
+    if (L >= 3) { const u = qa - 0.25, dd = sc.depth(u) + 0.45; add(sc.pt(dd, u), () => A.mirrorStone(...sc.pt(dd, u), 0.85)); }
+    add(sc.pt(sc.depth(u0) + 0.55, u0 - 0.36), () => mothPost(...sc.pt(sc.depth(u0) + 0.55, u0 - 0.36), 14 + band * 2));
+    if (L >= 5) { const cu = u0 + 0.62; add(sc.pt(sc.depth(cu) + 0.55, cu), () => silkHoist(sc, cu, band)); }
+    if (L >= 8) { const bu = us[0] - 0.55 > sc.a + 0.5 ? us[0] - 0.55 : us[us.length - 1] + 0.55; add(sc.pt(sc.depth(bu) - 0.2, bu), () => glassBoathouse(sc, bu, 1)); }
+    if (L >= 15) { const bu = us[us.length - 1] + 0.55; if (bu < sc.b - 0.5) add(sc.pt(sc.depth(bu) - 0.2, bu), () => glassBoathouse(sc, bu, 1.15)); const u = qb + 0.15, dd = sc.depth(u) + 0.5; add(sc.pt(dd, u), () => A.mirrorStone(...sc.pt(dd, u), 1)); }
+    { const [sx, sy] = sc.pt(sc.depth(u0) - 1.1, u0), p = P(sx, sy); A.rec('sparks', { x: p[0], y: p[1], kind: 'star' }); }
+    q.sort((a, b) => a[0] - b[0]);
+    let top = 24; for (const [, f] of q) { const h = f(); if (typeof h === 'number' && h > top) top = h; }
+    return { top, noDress: true };
+  }
+
+  // a Veilborn tower: briar-woven (band ≤ 1) or moonstone with lancets, crescent merlons, a floating glass lantern and crystals
+  function wovenDrum(cx, cy, r, z, h) {
+    A.cyl(cx, cy, r, z, h, E.wood, A.shade(E.wood, 0.06));
+    const [bx, by, rx, ry] = A.ell(cx, cy, z, r);
+    if (!A.GLOW) for (let k = -3; k <= 3; k++) { const f = k / 3.6, yb = by + Math.sqrt(1 - f * f) * ry; A.line([bx + rx * f, yb], [bx + rx * Math.min(0.96, f + 0.25), yb - h], E.wood2, 0.6); A.line([bx + rx * f, yb], [bx + rx * Math.max(-0.96, f - 0.25), yb - h], E.wood2, 0.6); }
+  }
+  function lanternRoom(cx, cy, r, z, h) { // glass drum glowing violet-white at night
+    const [x, y, rx] = A.ell(cx, cy, z, r);
+    A.cyl(cx, cy, r, z, h, E.glass);
+    A.lamp([[x - rx * 0.85, y], [x + rx * 0.85, y], [x + rx * 0.85, y - h], [x - rx * 0.85, y - h]], A.mix(E.glass, E.accent, 0.35), E.ng);
+    if (!A.GLOW) for (const f of [-0.5, 0, 0.5]) A.line([x + rx * f, y + 0.5], [x + rx * f, y - h], E.metal, 0.6);
+    if (!A.GLOW) A.line([x - rx * 0.6, y - h * 0.8], [x - rx * 0.4, y - h * 0.2], 'rgba(255,255,255,0.6)', 0.7);
+    return [x, y - h / 2];
+  }
+  function veilTower(gx, gy, r, H, band, o = {}) {
+    if (band <= 1) { // a woven watch-spire with an ogee hood
+      A.cyl(gx, gy, r * 1.25, 0, 2, E.wood2);
+      wovenDrum(gx, gy, r, 2, H - 2);
+      drumWins(gx, gy, r, H * 0.5, H * 0.3, [0.1], 5);
+      A.cyl(gx, gy, r * 1.3, H, 1.4, E.wood2);
+      const [mx, my] = P(gx + r * 1.1, gy + r * 1.1, H - 6); A.lampDot(mx, my, 1.4, E.accent, E.ng); light(mx, my, 12);
+      const zt = ogee(gx, gy, r * 1.3, H + 1.4, 16, E.roof);
+      return moonFinial(gx, gy, zt, 3, 2.2);
+    }
+    A.cyl(gx, gy, r * 1.25, 0, 3, A.shade(E.stone, -0.06), E.stone);
+    const body = H - 3;
+    A.cyl(gx, gy, r, 3, body, sn(E.stone), A.shade(E.stone, 0.08));
+    if (!A.GLOW) { const [x, y, rx, ry] = A.ell(gx, gy, 0, r); for (let v = 7; v < body; v += 5) { c.beginPath(); c.ellipse(x, y - 3 - v, rx, ry, 0, 0.15, Math.PI - 0.15); stroke(A.shade(E.stone, -0.14), 0.5); } }
+    if (o.twist !== false) A.twistLines(gx, gy, 3, H, r, A.mix(E.accent, E.stone, 0.4), 1.2, 0, o.ph || 0);
+    drumWins(gx, gy, r, H * 0.42, H * 0.25, [-0.35, 0.45], 7);
+    // gallery with crescent merlons
+    A.cyl(gx, gy, r * 1.28, H, 2, era >= 3 ? GOLD : E.metal);
+    for (const t of [0.0, 0.8, 1.6, 2.3]) { const [mx, my] = P(gx + Math.cos(t) * r * 1.15, gy + Math.sin(t) * r * 1.15, H + 2); crescent(mx - 1, my - 2.4, 2.2, era >= 3 ? GOLD : A.mix(E.stone, '#ffffff', 0.4), '#f0e8ff'); }
+    let z = H + 2;
+    if (o.lantern) { // the crown floats: a glass lantern room hovering over the gallery
+      const gap = 3 + band;
+      hover(gx, gy, r * 0.8, z, gap, 3);
+      z += gap;
+      const [lx, ly] = lanternRoom(gx, gy, r * 0.78, z, 8 + band);
+      light(lx, ly, 22 + band * 4);
+      z += 8 + band;
+      A.cyl(gx, gy, r * 0.95, z, 1.2, era >= 3 ? GOLD : E.metal);
+      z += 1.2;
+    }
+    const zt = ogee(gx, gy, r * (o.lantern ? 0.95 : 1.2), z, 14 + band * 3, E.roof);
+    // crystal crown: a cluster for corners, a single shard otherwise
+    if (o.crystals) { A.crystal(gx - 0.07, gy + 0.05, zt - 3, 6 + band, 0.04, '#88c8f0'); A.crystal(gx + 0.06, gy - 0.07, zt - 3, 6 + band, 0.04, '#a888f0'); }
+    const ct = A.crystal(gx, gy, zt - 2, 9 + band * 2 + (o.crystals ? 3 : 0), 0.06, '#c8b0ff');
+    const tp = P(gx, gy, ct); light(tp[0], tp[1] + 4, 14);
+    if (band >= 3) A.rec('sparks', { x: tp[0], y: tp[1], kind: 'star' });
+    return ct + 2;
+  }
+  const veilWallH = band => band === 0 ? 9 : 14 + band * 5;   // matches ART.wall
+  ART.walltower = (slot, L, band, ctx) => {
+    const gx = ctx.gx, gy = ctx.gy, corner = !!ctx.corner, WH = veilWallH(band);
+    const r = band <= 1 ? 0.2 : corner ? 0.3 : 0.25;
+    const H = WH + (band <= 1 ? 12 : corner ? 16 + (band - 2) * 6 : 11);
+    return { top: veilTower(gx, gy, r, H, band, { lantern: corner || band >= 3, crystals: corner, ph: gx + gy }), noDress: true };
+  };
+  // gates: a briar arch → woven pylons under a great briar arch → a crystal gatehouse with a glowing runic arch
+  function veilGate(ctx, band, wide) {
+    const { along, fixed, g0, g1 } = ctx, m = (g0 + g1) / 2, WH = veilWallH(band);
+    const pt = u => along ? [u, fixed] : [fixed, u];
+    const at = (u, z = 0) => P(...pt(u), z);
+    if (band === 0) {
+      if (wide) mothPost(...pt(g0 + 0.1), 19);
+      briar(pt(g0), pt(g1), wide ? 30 : 22, { moon: wide, lw: wide ? 3.4 : 2.6 });
+      if (wide) mothPost(...pt(g1 - 0.1), 19);
+      else { const t = at(m, 21); A.lampDot(t[0], t[1] + 4, 1.2, E.accent, E.ng); light(t[0], t[1] + 4, 10); }
+      return (wide ? 30 : 22) + 8;
+    }
+    if (band === 1 || !wide) {
+      const pw = wide ? 0.2 : 0.14, ph = WH + (wide ? 8 : 5), stone = band >= 2;
+      const pylon = u => { const [px, py] = pt(u); const b = stone ? wallBox(px - pw / 2, py - pw / 2, pw, pw, 0, ph, { stone: true }) : A.box(px - pw / 2, py - pw / 2, pw, pw, 0, ph, E.wood); if (!stone) weave(b, E.wood2); const zt = A.cone(px, py, pw * 0.7, ph, 8, E.roof); const tp = P(px, py, zt); A.lampDot(tp[0], tp[1] + 3, 1.1, E.accent, E.ng); };
+      pylon(g0 - pw / 2);
+      // the arch: briar early; a pointed moonstone arch with a glowing rune band later
+      if (stone) {
+        const a = at(g0, ph - 4), b = at(g1, ph - 4), apex = at(m, ph + (wide ? 14 : 10));
+        c.beginPath(); c.moveTo(a[0], a[1]); c.quadraticCurveTo(a[0] + (apex[0] - a[0]) * 0.1, apex[1], apex[0], apex[1]); c.quadraticCurveTo(b[0] - (b[0] - apex[0]) * 0.1, apex[1], b[0], b[1]); stroke(sn(E.stone), 4); stroke(E.accent, 1, E.ng);
+        A.crystal(...pt(m), ph + (wide ? 14 : 10) - 1, 8 + band * 2, 0.05, '#c8b0ff'); light(apex[0], apex[1] - 3, 16);
+      } else briar(pt(g0), pt(g1), ph + (wide ? 12 : 8), { moon: wide, lw: 3 });
+      pylon(g1 + pw / 2);
+      return ph + (wide ? 24 : 18);
+    }
+    // the crystal gatehouse
+    const r = 0.26, H = WH + 15 + (band - 2) * 5, zb = WH - 3, bh = 11;
+    const t0 = veilTower(...pt(g0 - 0.26), r, H, band, { lantern: band >= 3, crystals: band >= 3, ph: 1 });
+    const bx = along ? wallBox(g0 - 0.02, fixed - 0.22, g1 - g0 + 0.04, 0.44, zb, bh, { stone: true }) : wallBox(fixed - 0.22, g0 - 0.02, 0.44, g1 - g0 + 0.04, zb, bh, { stone: true });
+    const side = along ? 'L' : 'R', Lf = g1 - g0 + 0.04;
+    archRow(bx, side, bh * 0.25, bh * 0.5, 0.3, 0.1);
+    // the glowing pointed arch: from the road up to the bridge's underside, on the gate's outer face
+    const f = along ? A.onL : A.onR, off = 0.22, fp = (u, z) => along ? P(u, fixed + off, z) : P(fixed + off, u, z);
+    const q0 = fp(g0 + 0.02, 0), q1 = fp(g1 - 0.02, 0), ap = fp(m, zb + 1), k0 = fp(g0 + 0.02, zb * 0.55), k1 = fp(g1 - 0.02, zb * 0.55);
+    c.beginPath(); c.moveTo(q0[0], q0[1]); c.lineTo(k0[0], k0[1]); c.quadraticCurveTo(k0[0] + (ap[0] - k0[0]) * 0.1, ap[1] + 2, ap[0], ap[1]); c.quadraticCurveTo(k1[0] - (k1[0] - ap[0]) * 0.1, ap[1] + 2, k1[0], k1[1]); c.lineTo(q1[0], q1[1]);
+    stroke(sn(E.stone), 3.4); stroke(E.accent, 1, E.ng);
+    for (const t of [0.2, 0.5, 0.8]) { const p = t < 0.5 ? [k0[0] + (ap[0] - k0[0]) * t * 2, k0[1] + (ap[1] - k0[1]) * Math.sqrt(t * 2)] : [ap[0] + (k1[0] - ap[0]) * (t - 0.5) * 2, ap[1] + (k1[1] - ap[1]) * Math.pow((t - 0.5) * 2, 2)]; A.lampDot(p[0], p[1], 1, E.ng, '#ffffff'); }
+    // crescent merlons and a great crescent over the arch
+    for (let k = 0; k < 4; k++) { const u = (k + 0.5) / 4 * Lf, p = f(bx, u, u, bh, bh)[0]; crescent(p[0] - 1, p[1] - 3, 2.4, era >= 3 ? GOLD : A.mix(E.stone, '#ffffff', 0.4), '#f0e8ff'); }
+    const cp = at(m, zb + bh + 10); crescent(cp[0] - 2, cp[1], 5 + band * 0.5); light(cp[0], cp[1], 22); A.rec('sparks', { x: cp[0], y: cp[1], kind: 'moon' });
+    const t1 = veilTower(...pt(g1 + 0.26), r, H, band, { lantern: band >= 3, crystals: band >= 3, ph: 2 });
+    return Math.max(t0, t1, zb + bh + 16);
+  }
+  ART.gate = (slot, L, band, ctx) => ({ top: veilGate(ctx, band, true), noDress: true });
+  ART.postern = (slot, L, band, ctx) => ({ top: veilGate(ctx, band, false), noDress: true });
+  // the lighthouse: a moonstone spire on a mirror-stone islet, its glass lantern floating free, a moon-lamp within
+  ART.lighthouse = ([x, y, w, d], L, band) => {
+    const gx = x + w / 2, gy = y + d / 2;
+    A.rock(gx - 0.1, gy + 0.15, 1.3, '#8a86a0'); A.rock(gx + 0.3, gy - 0.2, 0.9, '#9a96b0');
+    A.mirrorStone(gx - 0.32, gy - 0.05, 0.7, 2);
+    const r = 0.2, H = 46 + band * 8;
+    A.cyl(gx, gy, 0.34, 0, 4, A.shade(E.stone, -0.06), E.stone);
+    A.cyl(gx, gy, r * 1.15, 4, 3, E.stone);
+    A.cyl(gx, gy, r, 7, H - 7, sn(E.stone), A.shade(E.stone, 0.08));
+    A.twistLines(gx, gy, 7, H, r, A.mix(E.accent, E.stone, 0.3), 2.2, 0, 0.4);
+    for (let v = 14; v < H - 6; v += 12) { const [wx, wy] = P(gx + r * 0.6, gy + r * 0.6, v); A.lamp([[wx - 1.2, wy], [wx + 1.2, wy], [wx + 1.2, wy - 3.5], [wx, wy - 5], [wx - 1.2, wy - 3.5]], E.glass, E.ng); }
+    A.cyl(gx, gy, r * 1.45, H, 2, era >= 3 ? GOLD : E.metal);
+    for (const t of [0.2, 1.0, 1.8, 2.6, 3.4]) { const [mx, my] = P(gx + Math.cos(t) * r * 1.3, gy + Math.sin(t) * r * 1.3, H + 2); crescent(mx - 1, my - 2.4, 2, era >= 3 ? GOLD : A.mix(E.stone, '#ffffff', 0.4), '#f0e8ff'); }
+    // the floating lantern with a crescent moon-lamp inside
+    const gap = 5; hover(gx, gy, r * 0.9, H + 2, gap, 5);
+    const zl = H + 2 + gap, lh = 12 + band * 2;
+    const [lx, ly] = lanternRoom(gx, gy, r * 0.95, zl, lh);
+    c.beginPath(); c.ellipse(lx, ly, 7, 7, 0, 0, TAU); c.fillStyle = A.GLOW ? 'rgba(240,232,255,0.85)' : 'rgba(240,232,255,0.4)'; c.fill();
+    crescent(lx - 1, ly, 3.4, '#f4f0ff', '#ffffff');
+    A.rec('beams', { x: lx, y: ly });
+    light(lx, ly, 44);
+    A.cyl(gx, gy, r * 1.15, zl + lh, 1.4, era >= 3 ? GOLD : E.metal);
+    const zt = ogee(gx, gy, r * 1.15, zl + lh + 1.4, 16 + band * 2, E.roof);
+    const ct = A.crystal(gx, gy, zt - 2, 10 + band * 2, 0.06, '#c8b0ff');
+    for (let k = 0; k < 2 + band; k++) flyMoth(gx + Math.cos(k * 2.1) * 0.6, gy + Math.sin(k * 2.1) * 0.5, H * (0.5 + k * 0.12));
+    return { top: ct + 3, noDress: true };
   };
 
   // ---------------------------------------------------------------

@@ -1383,6 +1383,7 @@
   // wyrm lair, undead horde, fallen star (calamities.js)
   function drawMonster(c, camp, lw, t, lights) {
     c.strokeStyle = INK; c.lineWidth = lw;
+    if (camp.kind === 'crisis') { drawCrisisSource(c, camp, lw, t, lights); return; }
     if (camp.kind === 'wyrm') {
       // cave mouth in a crag
       c.fillStyle = '#9a8f80'; c.beginPath(); c.moveTo(-30, 22); c.lineTo(-18, -8); c.lineTo(-4, -18); c.lineTo(12, -10); c.lineTo(30, 22); c.closePath(); c.fill(); c.stroke();
@@ -1473,6 +1474,220 @@
     c.globalAlpha = 1;
     c.restore();
     lights.push([0, -4, 2.6]);
+  }
+  // ------------------------------------------------------------------
+  // Roaming creatures (js/monsters.js): ink beasts that walk, fly and
+  // swim along their legs (G.movePos), drawn only where we can see.
+  // ------------------------------------------------------------------
+  const ROAM_COL = { herd: '#7a5232', trolls: '#71805a', giants: '#9a8468', griffons: '#b8904c', serpent: '#3f7470', werewolves: '#6b6660',
+    fiends: '#8e2a22', wraiths: '#d6e8f4', drakes: '#9e3020', deadcol: '#dcd7c6' };
+  const ROAM_N = { herd: [3, 3, 6], trolls: [4, 2, 4], giants: [1, 1, 3], griffons: [3, 2, 4], serpent: [9, 1, 1], werewolves: [2, 2, 4],
+    fiends: [5, 3, 5], wraiths: [5, 3, 5], drakes: [3, 2, 4], deadcol: [6, 4, 6] };
+  const sig2 = v => { if (v < 100) return Math.round(v); const p = Math.pow(10, Math.floor(Math.log10(v)) - 1); return Math.round(v / p) * p; };
+  function roamerTip(mon) {
+    const k = DATA.monsterKinds[mon.kind] || { name: 'Creatures', icon: '?' };
+    const h = G.monsterHeading(S, mon), est = G.monsterEstimate(mon);
+    return `${k.icon} ${k.name} · about ${est} ${G.monsterUnitName(mon, est)} · ⚔️ ~${sig2(G.monsterPower(S, mon))} · ${h ? 'heading ' + h : 'resting'}`;
+  }
+  // a four-legged beast facing +x (aurochs, wolves)
+  function quad(c, sc, lw, t, ph, moving, col, wolf) {
+    c.save(); c.scale(sc, sc); lw /= sc;
+    const bob = moving ? Math.sin(t * 9 + ph) * 0.8 : 0;
+    c.strokeStyle = INK; c.lineWidth = lw * 1.1;
+    c.beginPath();
+    for (const [lx, o] of [[-7, 0], [-4, Math.PI], [5, Math.PI], [8, 0]]) { const sw = moving ? Math.sin(t * 9 + ph + o) * 3 : 0; c.moveTo(lx, 2); c.lineTo(lx + sw, 10); }
+    c.stroke();
+    c.fillStyle = col; c.lineWidth = lw;
+    if (wolf) { c.beginPath(); c.moveTo(-10, -3 + bob); c.quadraticCurveTo(-17, -8, -18, -2 + bob); c.stroke(); }
+    c.beginPath(); c.ellipse(0, -1 + bob, wolf ? 10 : 11, wolf ? 5 : 6.5, 0, 0, TAU); c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(11.5, -5 + bob, wolf ? 5.5 : 5, wolf ? 3 : 3.8, -0.35, 0, TAU); c.fill(); c.stroke();
+    if (wolf) {
+      c.beginPath(); c.moveTo(9, -7 + bob); c.lineTo(10, -12 + bob); c.lineTo(12, -8 + bob); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#f2d36b'; c.beginPath(); c.arc(13, -6 + bob, 0.9, 0, TAU); c.fill();
+    } else {
+      c.strokeStyle = '#efe6cf'; c.lineWidth = lw * 1.2;
+      c.beginPath(); c.arc(10, -10 + bob, 3, Math.PI * 0.9, Math.PI * 1.9); c.stroke();
+    }
+    c.restore();
+  }
+  // an upright brute facing +x (trolls, giants, fiends, the dead, wraiths)
+  function brute(c, sc, lw, t, ph, moving, col, kind) {
+    c.save(); c.scale(sc, sc); lw /= sc;
+    const sw = moving ? Math.sin(t * 7 + ph) : 0, bob = moving ? Math.abs(sw) * -1.2 : 0;
+    c.strokeStyle = INK; c.lineWidth = lw;
+    if (kind === 'wraiths') {
+      const g = 0.6 + 0.4 * Math.sin(t * 3 + ph);
+      c.fillStyle = `rgba(214,232,244,${0.55 + 0.3 * g})`;
+      c.beginPath(); c.moveTo(-6, -18); c.quadraticCurveTo(0, -26, 6, -18); c.quadraticCurveTo(8, -4, 3 + Math.sin(t * 4 + ph) * 3, 8); c.quadraticCurveTo(0, 2, -4 + Math.sin(t * 4 + ph + 1) * 3, 9); c.quadraticCurveTo(-8, -4, -6, -18); c.fill(); c.stroke();
+      c.fillStyle = '#1e3a52'; c.beginPath(); c.arc(-2, -17, 1.2, 0, TAU); c.arc(2.5, -17, 1.2, 0, TAU); c.fill();
+      c.restore(); return;
+    }
+    // legs
+    c.lineWidth = lw * 1.6;
+    c.beginPath(); c.moveTo(-3, 0 + bob); c.lineTo(-4 + sw * 3, 10); c.moveTo(3, 0 + bob); c.lineTo(4 - sw * 3, 10); c.stroke();
+    c.lineWidth = lw;
+    // body and head
+    c.fillStyle = col;
+    c.beginPath(); c.moveTo(-7, 1 + bob); c.quadraticCurveTo(-9, -12 + bob, -2, -15 + bob); c.quadraticCurveTo(8, -15 + bob, 7, 1 + bob); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = kind === 'deadcol' ? '#efeadc' : col;
+    c.beginPath(); c.arc(3, -17 + bob, 4.2, 0, TAU); c.fill(); c.stroke();
+    if (kind === 'fiends') { c.fillStyle = '#2b1210'; for (const sx of [0, 6]) { c.beginPath(); c.moveTo(sx, -19 + bob); c.lineTo(sx - 1 + (sx ? 3 : -3), -26 + bob); c.lineTo(sx + 2, -20 + bob); c.closePath(); c.fill(); } }
+    if (kind === 'deadcol') { c.fillStyle = INK; c.beginPath(); c.arc(2, -17.5 + bob, 1, 0, TAU); c.arc(5, -17.5 + bob, 1, 0, TAU); c.fill(); }
+    else { c.fillStyle = kind === 'fiends' ? '#ffd24a' : '#2b1d12'; c.beginPath(); c.arc(5, -18 + bob, 0.9, 0, TAU); c.fill(); }
+    // arm with a club (trolls, giants) or a rusty blade (the dead)
+    c.lineWidth = lw * 1.5; c.beginPath(); c.moveTo(4, -10 + bob); c.lineTo(10, -4 + bob - sw * 2); c.stroke();
+    if (kind === 'trolls' || kind === 'giants') { c.fillStyle = '#6a4a2a'; c.lineWidth = lw; c.beginPath(); c.ellipse(12, -9 + bob - sw * 2, 2.6, 6, 0.5, 0, TAU); c.fill(); c.stroke(); }
+    if (kind === 'deadcol') { c.strokeStyle = '#8f8a80'; c.beginPath(); c.moveTo(10, -4 + bob); c.lineTo(15, -13 + bob); c.stroke(); }
+    c.restore();
+  }
+  // a winged hunter facing +x, with its shadow on the ground (griffons, drakes)
+  function flyer(c, sc, lw, t, ph, col, drake) {
+    c.save(); c.scale(sc, sc); lw /= sc;
+    const alt = 16 + Math.sin(t * 1.7 + ph) * 2.5, f = Math.sin(t * 7 + ph);
+    c.fillStyle = 'rgba(40,28,16,.2)'; c.beginPath(); c.ellipse(4, 10, 9, 3, 0, 0, TAU); c.fill();
+    c.translate(0, -alt);
+    c.strokeStyle = INK; c.lineWidth = lw; c.fillStyle = col;
+    // far wing, body, near wing
+    const wing = sg => { c.beginPath(); c.moveTo(-2, -1); c.quadraticCurveTo(-6, -10 * f * sg - 4, -14, -16 * f * sg - (drake ? 2 : 0)); c.quadraticCurveTo(-4, -4 * f * sg, 4, -1); c.closePath(); c.fill(); c.stroke(); };
+    c.globalAlpha = 0.8; wing(-1); c.globalAlpha = 1;
+    c.beginPath(); c.ellipse(0, 0, 9, 3.6, 0, 0, TAU); c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(-8, 0); c.lineTo(-15, drake ? 3 : -2); c.stroke();
+    c.beginPath(); c.arc(9.5, -1.5, 3, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = drake ? '#3a1a10' : '#e0b24a'; c.beginPath(); c.moveTo(12, -2); c.lineTo(16, -0.5); c.lineTo(12, 0); c.closePath(); c.fill();
+    if (drake && Math.sin(t * 2 + ph) > 0.6) { c.fillStyle = 'rgba(240,140,40,.75)'; c.beginPath(); c.moveTo(15, -0.5); c.quadraticCurveTo(22, -3, 26, 1); c.quadraticCurveTo(21, 1, 15, -0.5); c.fill(); }
+    wing(1);
+    c.restore();
+  }
+  // coils breaking the water, facing +x
+  function serpentCoils(c, sc, lw, t, col) {
+    c.save(); c.scale(sc, sc); lw /= sc;
+    c.strokeStyle = 'rgba(240,248,255,.7)'; c.lineWidth = lw;
+    for (let i = 0; i < 4; i++) { const r = 6 + ((t * 6 + i * 5) % 14); c.globalAlpha = 1 - r / 20; c.beginPath(); c.ellipse(-4, 6, r * 1.6, r * 0.45, 0, 0, TAU); c.stroke(); }
+    c.globalAlpha = 1;
+    c.strokeStyle = INK; c.fillStyle = col;
+    for (let i = 0; i < 3; i++) {
+      const x = -22 + i * 11, h = 6 + 2.5 * Math.sin(t * 2.4 - i * 1.3);
+      c.beginPath(); c.moveTo(x - 5, 6); c.quadraticCurveTo(x - 4, 6 - h * 1.6, x, 6 - h * 1.6); c.quadraticCurveTo(x + 4, 6 - h * 1.6, x + 5, 6); c.lineTo(x + 2.5, 6); c.quadraticCurveTo(x, 6 - h * 0.8, x - 2.5, 6); c.closePath(); c.fill(); c.stroke();
+    }
+    const hy = 6 - 10 - 2 * Math.sin(t * 2);
+    c.beginPath(); c.moveTo(10, 6); c.quadraticCurveTo(12, hy + 4, 15, hy); c.quadraticCurveTo(22, hy - 2, 23, hy + 3); c.quadraticCurveTo(18, hy + 5, 15, 6); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = '#f2d36b'; c.beginPath(); c.arc(18, hy + 0.5, 1.1, 0, TAU); c.fill();
+    c.strokeStyle = INK; c.beginPath(); c.moveTo(15, hy); c.lineTo(13, hy - 5); c.lineTo(17, hy - 1); c.stroke();
+    c.restore();
+  }
+  // the frost of the Long Winter creeping down from the north
+  function drawWinterFront(c, t, tp, SX, SY) {
+    const fy = G.winterFront ? G.winterFront(S) : 0;
+    if (fy <= 0) return;
+    const x0 = SX(0), x1 = SX(S.map), y0 = SY(0), y1 = SY(fy), y2 = y1 + tp * 1.5;
+    if (y2 < 0 || y0 > H) return;
+    c.save();
+    const g = c.createLinearGradient(0, y0, 0, y2);
+    g.addColorStop(0, 'rgba(226,238,250,.38)'); g.addColorStop(clamp((y1 - y0) / Math.max(1, y2 - y0), 0, 1), 'rgba(226,238,250,.28)'); g.addColorStop(1, 'rgba(226,238,250,0)');
+    c.fillStyle = g; c.fillRect(x0, y0, x1 - x0, y2 - y0);
+    if (!reduceMotion) {
+      c.fillStyle = 'rgba(255,255,255,.85)';
+      for (let i = 0; i < 70; i++) {
+        const px = x0 + (((i * 0.6180339) % 1) + t * 0.004 * (1 + i % 3)) % 1 * (x1 - x0);
+        const py = y0 + (((i * 0.4142) % 1) + t * 0.02 * (1 + i % 2)) % 1 * (y1 - y0);
+        c.beginPath(); c.arc(px, py, Math.max(1, tp * 0.025), 0, TAU); c.fill();
+      }
+    }
+    c.restore();
+  }
+  function drawRoamers(c, t, tp, SX, SY, lights) {
+    if (!S.monsters || !vis) return;
+    const N = S.map, ak = clamp(tp * 1.25, 28, 72) / 100, lw = Math.max(1.4, 0.9 / ak);
+    const list = [];
+    for (const mon of Object.values(S.monsters)) {
+      const p = G.movePos(S, mon);
+      const ii = clamp(Math.round(p.y), 0, N - 1) * N + clamp(Math.round(p.x), 0, N - 1);
+      if (!vis[ii]) continue;
+      const ax = SX(p.x + 0.5), ay = SY(p.y + 0.5);
+      if (ax < -60 || ay < -60 || ax > W + 60 || ay > H + 60) continue;
+      list.push({ mon, ax, ay });
+    }
+    list.sort((a, b) => a.ay - b.ay);
+    for (const { mon, ax, ay } of list) {
+      const k = DATA.monsterKinds[mon.kind];
+      if (!k) continue;
+      const moving = S.time < mon.arrive && (mon.x !== mon.fx || mon.y !== mon.fy);
+      const dx = mon.x - mon.fx, dy = mon.y - mon.fy, dir = moving ? (dx < -0.01 ? -1 : 1) : (hash(mon.id) & 1 ? 1 : -1);
+      const col = ROAM_COL[mon.kind] || '#6b5a48', seed = hash(mon.id);
+      const [per, lo, hi] = ROAM_N[mon.kind] || [3, 1, 4];
+      const n = clamp(Math.round(G.unitsCount(mon.units) / per), lo, hi);
+      c.save(); c.translate(ax, ay); c.scale(ak, ak); c.lineCap = 'round'; c.lineJoin = 'round';
+      if (k.crisis) {
+        const pu = 0.5 + 0.5 * Math.sin(t * 4);
+        c.strokeStyle = `rgba(200,30,20,${0.3 + pu * 0.35})`; c.lineWidth = 2 + pu * 1.5;
+        c.beginPath(); c.ellipse(0, 4, 30 + pu * 3, 14 + pu * 2, 0, 0, TAU); c.stroke();
+      }
+      if (mon.kind === 'serpent') {
+        c.scale(dir, 1); serpentCoils(c, 1, lw, t, col);
+      } else {
+        const figs = [];
+        for (let i = 0; i < n; i++) {
+          const r1 = ((seed >> (i * 3)) & 7) / 7, r2 = ((seed >> (i * 3 + 11)) & 7) / 7;
+          let ox, oy;
+          if (mon.kind === 'deadcol') { ox = (i - (n - 1) / 2) * 9 * dir; oy = (i % 2) * 5 - 2; }
+          else { const a = i * 2.39996 + seed % 7, rr = n === 1 ? 0 : 6 + 10 * r1; ox = Math.cos(a) * rr * 1.5; oy = Math.sin(a) * rr * 0.7 + (r2 - 0.5) * 4; }
+          figs.push([ox, oy, i]);
+        }
+        figs.sort((a, b) => a[1] - b[1]);
+        for (const [ox, oy, i] of figs) {
+          c.save(); c.translate(ox, oy); c.scale(dir, 1);
+          const ph = i * 1.7 + (seed % 10);
+          if (mon.kind === 'herd') quad(c, 0.85, lw, t, ph, moving, col, false);
+          else if (mon.kind === 'werewolves') quad(c, 0.95, lw, t, ph, moving, col, true);
+          else if (mon.kind === 'griffons') flyer(c, 0.9, lw, t, ph, col, false);
+          else if (mon.kind === 'drakes') flyer(c, 1.05, lw, t, ph, col, true);
+          else brute(c, mon.kind === 'giants' ? 1.7 : mon.kind === 'trolls' ? 1.15 : 1, lw, t, ph, moving, col, mon.kind);
+          c.restore();
+        }
+      }
+      c.restore();
+      if (mon.kind === 'werewolves' && G.daylight(S) < 0.3) lights.push([ax, ay - 4 * ak, 0.7]);
+      if (mon.kind === 'drakes') lights.push([ax, ay - 16 * ak, 1]);
+    }
+  }
+  // the crisis' sources: a great rift, a frost cairn, a dragon eyrie, a barrow gate
+  function drawCrisisSource(c, camp, lw, t, lights) {
+    const ck = camp.ck, p = 0.5 + 0.5 * Math.sin(t * 2.2);
+    const glow = (col, r, y) => { const g = c.createRadialGradient(0, y, 2, 0, y, r); g.addColorStop(0, col.replace('A', String(0.45 + 0.25 * p))); g.addColorStop(1, col.replace('A', '0')); c.fillStyle = g; c.beginPath(); c.arc(0, y, r, 0, TAU); c.fill(); };
+    if (ck === 'demons') {
+      glow('rgba(220,60,40,A)', 52, -2);
+      c.save(); c.scale(1.2, 1.2); drawRift(c, lw / 1.2, t, lights); c.restore();
+      return;
+    }
+    c.strokeStyle = INK; c.lineWidth = lw;
+    if (ck === 'winter') {
+      glow('rgba(170,215,255,A)', 46, -6);
+      c.fillStyle = '#9aa3ab';
+      for (const [x, y, w, h] of [[-16, 20, 32, 10], [-12, 10, 24, 10], [-9, 0, 18, 10], [-6, -10, 12, 10]]) { c.beginPath(); c.roundRect ? c.roundRect(x, y - h, w, h, 3) : c.rect(x, y - h, w, h); c.fill(); c.stroke(); }
+      c.fillStyle = '#e8f4ff';
+      for (const [x, y, s] of [[-20, 14, 1], [18, 10, 0.8], [0, -26, 1.3], [-14, -6, 0.7], [14, -12, 0.9]]) {
+        c.save(); c.translate(x, y); c.rotate(t * 0.3); c.scale(s, s);
+        c.beginPath(); for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; c.moveTo(0, 0); c.lineTo(Math.cos(a) * 6, Math.sin(a) * 6); } c.strokeStyle = '#cfe6ff'; c.lineWidth = lw; c.stroke(); c.restore();
+      }
+      lights.push([0, -6, 2.2, 'c']);
+    } else if (ck === 'wyrmking') {
+      glow('rgba(240,120,40,A)', 44, -10);
+      c.fillStyle = '#8f8576'; c.beginPath(); c.moveTo(-32, 22); c.lineTo(-20, -6); c.lineTo(-8, -22); c.lineTo(8, -16); c.lineTo(22, -2); c.lineTo(32, 22); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#6a4a2a'; c.beginPath(); c.ellipse(0, -18, 14, 5, 0, 0, TAU); c.fill(); c.stroke();
+      const f = Math.sin(t * 2.5) * 0.3;
+      c.fillStyle = '#a8321e'; c.beginPath(); c.moveTo(-4, -20); c.quadraticCurveTo(0, -40 - f * 8, 10, -36); c.quadraticCurveTo(16, -32, 12, -26); c.quadraticCurveTo(4, -24, 2, -20); c.closePath(); c.fill(); c.stroke();
+      for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(2, -28); c.quadraticCurveTo(sg * 20, -48 - f * 14, sg * 28, -30); c.quadraticCurveTo(sg * 14, -32, 4, -26); c.closePath(); c.fill(); c.stroke(); }
+      c.fillStyle = '#f2d36b'; c.beginPath(); c.arc(11, -34, 1.4, 0, TAU); c.fill();
+      lights.push([0, -18, 2.2, 'f']);
+    } else {
+      glow('rgba(110,220,140,A)', 44, 4);
+      c.fillStyle = '#7b8a5a'; c.beginPath(); c.ellipse(0, 14, 34, 16, 0, Math.PI, 0); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#9b9a92'; c.beginPath(); c.moveTo(-10, 14); c.lineTo(-10, -2); c.lineTo(10, -2); c.lineTo(10, 14); c.closePath(); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(-13, -2); c.lineTo(13, -2); c.lineTo(13, -6); c.lineTo(-13, -6); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#10140e'; c.fillRect(-6, 1, 12, 13);
+      c.fillStyle = `rgba(120,240,150,${0.3 + 0.4 * p})`; c.beginPath(); c.arc(-2, 7, 1.4, 0, TAU); c.arc(2.5, 7, 1.4, 0, TAU); c.fill();
+      lights.push([0, 6, 1.8, 'g']);
+    }
   }
   // holy sites (religion.js): a soft golden halo with the god's emblem above the ruin or oasis
   function drawHoly(c, tile, lw, t, lights) {
@@ -1800,6 +2015,8 @@
     const i = t.y * S.map + t.x;
     const pos = ` (${t.x}, ${t.y})`;
     if (!S.explored[i]) return 'Unexplored lands' + pos;
+    const roam = vis && vis[i] && G.monsterAt ? G.monsterAt(S, t.x, t.y) : null;
+    if (roam) return roamerTip(roam) + ' · ' + baseName(t, pos);
     const holy = G.holySiteInfo ? G.holySiteInfo(S, t) : null, god = holy && DATA.gods && DATA.gods[holy.god];
     return baseName(t, pos) + (god ? ` · Holy site of ${god.short}` : '') + leyName(t);
   }
@@ -1823,7 +2040,7 @@
   }
   function baseName(t, pos) {
     if (t.city && S.cities[t.city]) return cityTip(S.cities[t.city]) + pos;
-    if (t.camp) { const cp = S.camps[t.camp]; if (cp && cp.kind) return ({ wyrm: "The Wyrm's lair", undead: 'Horde of the restless dead', star: 'Crater of a fallen star', rift: 'Demon rift' }[cp.kind] || 'Strange camp') + pos; return `Brigand camp${cp ? ', tier ' + cp.tier : ''}` + pos; }
+    if (t.camp) { const cp = S.camps[t.camp]; if (cp && cp.kind === 'crisis') { const cd = DATA.crises && DATA.crises[cp.ck]; return `${cd ? cd.icon + ' ' + cd.srcName + ' · ' + cd.name : 'Crisis source'}` + pos; } if (cp && cp.kind) return ({ wyrm: "The Wyrm's lair", undead: 'Horde of the restless dead', star: 'Crater of a fallen star', rift: 'Demon rift' }[cp.kind] || 'Strange camp') + pos; return `Brigand camp${cp ? ', tier ' + cp.tier : ''}` + pos; }
     if (t.oasis) { const o = t.oasis, oc = o.owner && S.cities[o.owner]; return `Oasis (+25% ${DATA.goods[o.bonus] ? DATA.goods[o.bonus].name : o.bonus})${oc ? ' · held by ' + oc.name : ''}` + pos; }
     if (t.ruin) return `Ruins, tier ${t.ruin.tier}${t.ruin.readyAt > S.time ? ' (plundered)' : ''}` + pos;
     const mi = G.minorAt ? G.minorAt(S, t) : null;
@@ -2076,6 +2293,10 @@
       else drawBanner(c, col, alw, t, dir, seed);
       c.restore();
     }
+
+    // roaming creatures and the crisis' frost (js/monsters.js)
+    drawWinterFront(c, t, tp, SX, SY);
+    drawRoamers(c, t, tp, SX, SY, lights);
 
     // drifting cloud shadows (world space)
     const cl = cloud();
@@ -2420,6 +2641,48 @@
     start();
   });
 
+  // ------------------------------------------------------------------
+  // roaming creatures and the crisis in the tile panel and the top bar
+  // (js/monsters.js; renderTilePanel in ui-world.js hands these tiles here)
+  // ------------------------------------------------------------------
+  const HUNT_NOTE = `🐾 It moves. Your army marches to where it stands now; if it has moved on by then, they follow fresh tracks once (up to 4.5 tiles) — any farther and the trail goes cold. Attack to kill it outright; a raid only wounds it and sends it fleeing.`;
+  G.monsterPanel = (city, t, mon) => {
+    const k = DATA.monsterKinds[mon.kind], terr = DATA.terrain[t.terrain];
+    const h = G.monsterHeading(S, mon), est = G.monsterEstimate(mon);
+    const pic = ptHtml({ kind: 'monster', role: k.portrait || 'beast', seed: mon.id }, 64, 'pt-card', k.name);
+    const doing = { north: 'migrating north', south: 'migrating south', raid: 'on the prowl toward a town', return: 'going back to its lair', flee: 'fleeing, wounded', prey: 'hunting', lair: 'lying low in its lair' }[mon.mode] || (h ? 'wandering' : 'resting');
+    const head0 = `<h3>${k.icon} ${esc(k.name)}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${G.dist(city, t).toFixed(1)} tiles from ${esc(city.name)}</div>`;
+    const info = `<p>${esc(k.text)}</p><p style="font-size:12.5px">About <b>${est}</b> ${esc(G.monsterUnitName(mon, est))} · ⚔️ ~${sig2(G.monsterPower(S, mon))} · ${doing}${h ? ', heading ' + h : ''}.</p><p class="muted" style="font-size:12.5px">${HUNT_NOTE}${k.move === 'sea' ? ' Only ships can sail out against it.' : k.move === 'fly' ? ' Over water it cannot be reached.' : ''}</p>`;
+    return `<div class="pt-panelhead">${pic}<div>${head0}</div></div>${info}${sendForm(city, t, k.move === 'sea' ? ['attack'] : ['attack', 'raid'])}`;
+  };
+  G.crisisCampPanel = (city, t, camp) => {
+    const def = DATA.crises[camp.ck], ci = G.crisisInfo(S), terr = DATA.terrain[t.terrain];
+    const pic = ptHtml({ kind: 'monster', role: def.portrait, seed: camp.id }, 64, 'pt-card', def.srcName);
+    const head0 = `<h3>${def.icon} ${esc(def.srcName)}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${G.dist(city, t).toFixed(1)} tiles from ${esc(city.name)}</div>`;
+    const info = `<div class="calam bad">${def.icon} <b>${esc(def.name)}</b>${ci && ci.status === 'active' ? ` · stage ${ci.stage}/4 (${ci.stageName}) · ${ci.sources}/${ci.nSources} sources stand · rite ${Math.round(ci.progress)}/${ci.goal} · ${fmtTime(realSecs(ci.left))} left` : ''}<br><span style="font-size:12px">${esc(def.text)}</span></div>
+      <p>A source of the crisis, guarded by ${esc(DATA.units[def.srcUnit].name.toLowerCase())}s. Cast it down to bring the end nearer (+20 to the rite). Only an all-out attack can destroy it; a raid becomes a full assault here.</p>${intelHtml(t)}`;
+    return `<div class="pt-panelhead">${pic}<div>${head0}</div></div>${info}${sendForm(city, t, ['attack', 'scout'])}`;
+  };
+  // the crisis pill: stage and progress, a jump to the nearest source, and the rite
+  TOP_EXTRAS.push(() => {
+    if (!S) return '';
+    if (S.crisisOmen && DATA.crises[S.crisisOmen.kind]) return `<span class="pill bad" title="Dark omens: ${esc(DATA.crises[S.crisisOmen.kind].name)} is coming.">⚠️ Omens</span>`;
+    const ci = G.crisisInfo && G.crisisInfo(S);
+    if (!ci || ci.status !== 'active') return '';
+    const cost = G.ritualCost(S, 'p'), err = G.ritualStatus(S, 'p', UI.city);
+    const costTxt = Object.entries(cost).map(([g, v]) => `${v} ${DATA.goods[g] ? DATA.goods[g].name.toLowerCase() : g}`).join(', ');
+    return `<span class="ec-crisis"><button class="small" style="border-color:#b3261e;color:#b3261e;font-weight:600" data-act="crisisGo" title="${esc(ci.name)} — stage ${ci.stage}/4 (${ci.stageName}). ${ci.sources}/${ci.nSources} sources stand; the rite stands at ${Math.round(ci.progress)}/${ci.goal}. ${fmtTime(realSecs(ci.left))} until it ravages every realm. Click to find a source.">${ci.icon} ${ci.stage}/4 · ${Math.round(ci.progress)}%</button><button class="small" data-act="crisisRitual" ${err ? 'disabled' : ''} title="${esc(ci.ritual)}: give ${esc(costTxt)} from the selected city (+${G.RITUAL_PTS} to the rite).${err ? ' ' + esc(err) : ''}" aria-label="${esc(ci.ritual)}">🔥</button></span>`;
+  });
+  Object.assign(act, {
+    crisisGo: () => {
+      const ids = G.crisisSourcesLeft(S), cur = curCity();
+      const ks = ids.map(id => S.camps[id]).filter(Boolean).sort((a, b) => (cur ? G.dist(a, cur) - G.dist(b, cur) : 0));
+      if (!ks.length) return;
+      UI.tab = 'world'; UI.sel = { x: ks[0].x, y: ks[0].y }; UI.mode = 'attack';
+      render(true);
+    },
+    crisisRitual: () => { const err = G.crisisContribute(S, 'p', UI.city); toast(err || '🔥 The rite goes on.'); render(true); },
+  });
   // debug / test helpers
   window.ECMAP = {
     cam,

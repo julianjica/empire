@@ -1071,7 +1071,7 @@
   //  a moored boat and a crane
   // =================================================================
   B.harbor = wrap(([x, y, w, d], L, band, ctx) => {
-    if (ctx && ctx.coastal) return undefined;   // inland design: on a coast cityview's stock piers stand until a coastal harbor is drawn
+    if (ctx && ctx.coastal) return coastalHarbor([x, y, w, d], L, band, ctx);   // the shore harbour (below)
     pool(x + 0.15, y + 0.5, w - 0.3, d - 0.65);
     A.box(x + 0.1, y + 0.15, w - 0.2, 0.35, 0, 3, E.stone);
     boat(x + w / 2, y + d * 0.65, 0.8, true);
@@ -1201,6 +1201,361 @@
     if (T('fortification') && Math.round(a) % 2 === 1) { const p = ptF(a + len / 2, H + 2); A.line([p[0], p[1]], [p[0], p[1] - 9], PILE, 1); A.lantern(p[0] + 2.5, p[1] - 5, 1.3); }
     return H + 3;
   });
+  // =================================================================
+  //  SHORE & WALL PIECES — shared helpers
+  // =================================================================
+  // the wall's own stone per band (matches B.wall): driftwood → coral rubble → coral ashlar → pearl-white
+  const WALLSTONE = ['#cfc2ac', '#cfc2ac', '#e2d4c4', '#f2ece6'];
+  // a convex prism over a grid polygon: the visible side faces, then the top
+  function prism(pts, z0, z1, col, o = {}) {
+    const n = pts.length; let cx = 0, cy = 0; for (const p of pts) { cx += p[0] / n; cy += p[1] / n; }
+    const st = o.stroke === undefined ? A.OUT : o.stroke;
+    for (let i = 0; i < n; i++) {
+      const p = pts[i], q = pts[(i + 1) % n];
+      let nx = q[1] - p[1], ny = -(q[0] - p[0]);
+      if (nx * ((p[0] + q[0]) / 2 - cx) + ny * ((p[1] + q[1]) / 2 - cy) < 0) { nx = -nx; ny = -ny; }
+      if (nx + ny <= 1e-4) continue;
+      A.poly([P(p[0], p[1], z0), P(q[0], q[1], z0), P(q[0], q[1], z1), P(p[0], p[1], z1)], A.shade(o.side || col, ny > nx ? -0.04 : -0.2), st, 0.6);
+    }
+    A.poly(pts.map(p => P(p[0], p[1], z1)), o.top || sn(A.shade(col, 0.1)), st, 0.6);
+  }
+  // a round drum of coral stone with courses, shell inlay and a weed line at the foot
+  function drum(cx, cy, r, z, h, col, wet = true) {
+    A.cyl(cx, cy, r, z, h, col);
+    const [x, y, rx, ry] = A.ell(cx, cy, z, r);
+    for (let v = 4; v < h - 1; v += 4) { c.beginPath(); c.ellipse(x, y - v, rx, ry, 0, 0.12, Math.PI - 0.12); stroke(A.shade(col, -0.16), 0.55); }
+    if (!A.GLOW && !A.SNOW) {
+      for (let v = 6, k = 0; v < h - 3; v += 7, k++) for (const a of [0.5 + (k % 2) * 0.5, 1.9 + (k % 2) * 0.4]) A.circ(x + Math.cos(a) * rx * 0.9, y - v + Math.sin(a) * ry * 0.9, 0.75, k % 3 ? SHELL : CORAL[0]);
+      if (wet) { c.beginPath(); c.ellipse(x, y - 1.4, rx, ry, 0, 0.05, Math.PI - 0.05); stroke('#4f7a46', 1.8); }
+    }
+  }
+  // a crown of scallop merlons round the front half of a drum
+  function scallopCrown(cx, cy, r, z, col, s = 1) {
+    const [x, y, rx, ry] = A.ell(cx, cy, z, r), pts = [];
+    for (let k = 0; k <= 6; k++) { const a = k / 6 * Math.PI; pts.push([x + Math.cos(a) * rx, y + Math.sin(a) * ry, Math.sin(a)]); }
+    pts.sort((p, q) => p[2] - q[2]);
+    for (const [px, py] of pts) {
+      c.beginPath(); c.moveTo(px - 2.6 * s, py); c.arc(px, py, 2.6 * s, Math.PI, TAU); c.closePath(); fill(A.SNOW ? '#f2f6f8' : col); stroke(A.OUT, 0.55);
+      if (!A.GLOW && !A.SNOW) for (const o of [-1.3, 0, 1.3]) A.line([px, py], [px + o * s, py - 2.3 * s], A.shade(col, -0.25), 0.4);
+    }
+  }
+  // an auger-shell conch cap; era 3 nacre sheen and a pearl
+  function conchCap(cx, cy, r, z, h, pearl) {
+    const col = era >= 3 ? '#e4dcee' : era >= 2 ? E.cap : era >= 1 ? '#d0705a' : '#8a7a56';
+    const tip = A.cone(cx, cy, r, z, h, col);
+    if (!A.SNOW) A.twistLines(cx, cy, z, tip, r, A.shade(col, -0.32), 2.6, 0.95);
+    if (era >= 3 && !A.GLOW && !A.SNOW) { const [x0, y0, rx] = A.ell(cx, cy, z, r); nacreSheen([[x0 - rx, y0], [x0, y0 - h], [x0 + rx, y0]]); }
+    if (pearl) { const [px, py] = P(cx, cy, tip); pearlTip(px, py, 1.6); return tip + 8; }
+    return tip;
+  }
+  // a little pearl-boat: a coral-red hull, its scallop-shell sail
+  function pearlBoat(dd, u, len, col, sail, z = 0) {
+    const S = X, [gx, gy] = S.pt(dd, u);
+    boat(gx, gy, len, S.edge === 'N' || S.edge === 'S', col, z);
+    if (!A.GLOW) { const [bx, by] = P(gx, gy, z); A.line([bx - 5, by + 1.5], [bx + 5, by + 1.5], 'rgba(255,255,255,0.5)', 0.7); }
+    if (!sail) return z + 4;
+    const [mx, my] = S.at(dd, u, z + 1.5), h = 10 + len * 7;
+    A.line([mx, my], [mx, my - h], PILE, 1);
+    const sc = era >= 3 ? '#f4eef6' : sail === true ? SHELL : sail;
+    c.beginPath(); c.moveTo(mx + 0.5, my - 3); for (let k = 0; k <= 10; k++) { const a = -Math.PI * 0.95 + k / 10 * Math.PI * 0.62, rr = h * 0.72 * (1 + 0.06 * (k % 2)); c.lineTo(mx + 0.5 + Math.cos(a) * rr * 0.75 + h * 0.42, my - 3 + Math.sin(a) * rr); } c.closePath(); fill(sc); stroke(A.OUT, 0.6);
+    if (!A.GLOW) for (let k = 1; k < 6; k++) { const a = -Math.PI * 0.95 + k / 6 * Math.PI * 0.62; A.line([mx + 0.5, my - 3], [mx + 0.5 + Math.cos(a) * h * 0.7 * 0.75 + h * 0.42, my - 3 + Math.sin(a) * h * 0.7], A.shade(sc, -0.22), 0.5); }
+    return z + h + 3;
+  }
+  // a tall ship moored along a pier: hull, two masts with coral-striped square sails and a shell banner
+  function tideShip(d0, d1, u, big) {
+    const S = X, p0 = S.pt(d0, u), p1 = S.pt(d1, u), alongX = S.edge === 'N' || S.edge === 'S';
+    const gx = Math.min(p0[0], p1[0]), gy = Math.min(p0[1], p1[1]), len = Math.abs(d1 - d0);
+    const hh = big ? 7 : 5, top = shipHull(gx, gy, len, big ? 0.46 : 0.36, -1, hh, alongX, era >= 3 ? '#7a5a6a' : era >= 2 ? '#3f6a7a' : '#8a5a3a');
+    let zt = top;
+    const masts = big ? [0.32, 0.68] : [0.5];
+    for (const f of masts) {
+      const dm = d0 + (d1 - d0) * f, [bx, by] = S.at(dm, u, top), H = (big ? 34 : 24) * (f === masts[0] && big ? 0.85 : 1);
+      A.line([bx, by], [bx, by - H], '#4a3a2a', big ? 1.5 : 1.1);
+      for (const [v, w] of [[H * 0.45, 8], [H * 0.78, 6]]) {
+        const y0 = by - v - 7, q = [[bx - w, y0], [bx + w, y0], [bx + w * 1.05, y0 + 9], [bx - w * 1.05, y0 + 9]];
+        A.line([bx - w - 1, y0], [bx + w + 1, y0], '#4a3a2a', 0.9);
+        A.poly(q, era >= 3 ? '#f6f0f2' : '#f2ead6', A.OUT, 0.5);
+        if (!A.GLOW) A.poly([[bx - w * 0.33, y0], [bx + w * 0.33, y0], [bx + w * 0.35, y0 + 9], [bx - w * 0.35, y0 + 9]], era >= 2 ? E.accent : CORAL[0], null);
+      }
+      A.rec('flags', { x: bx, y: by - H + 1, col: A.STY.flag, len: 9, seed: A.R() });
+      zt = Math.max(zt, top + H);
+    }
+    if (big) { const [fx, fy] = S.at(d0, u, top + 3); A.circ(fx, fy, 1.6, era >= 3 ? '#e6c45a' : '#d8b080', A.OUT); }
+    return zt;
+  }
+
+  // =================================================================
+  //  HARBOR on the coast — coral moles and shell-roofed boathouses: one driftwood jetty and a
+  //  pearl-boat at first; then moles of coral rubble, boathouses with keel or shell roofs, a diving
+  //  platform over the pearl-beds, net racks; then tall ships, a whalebone crane, and at last a
+  //  nacre beacon on the mole head
+  // =================================================================
+  function coastalHarbor(slot, L, band, S) {
+    if (!L) return undefined;
+    const D = S.depth, u0 = S.u0, us = S.piers.slice().sort((p, q) => p - q), molC = WALLSTONE[Math.min(3, era + 1)];
+    const stone = era >= 1;
+    const jobs = [], J = (dd, u, fn, bias = 0) => { const g = S.pt(dd, u); jobs.push([g[0] + g[1] + bias, fn]); };
+    let top = 20;
+    // quay along the shore joining the piers: driftwood boards, coral stone from the second era
+    const qa = us[0] - 0.4, qb = us[us.length - 1] + 0.4;
+    J(0, -99, () => {
+      for (let u = qa; u < qb - 0.01; u += 0.25) {
+        const u1 = Math.min(qb, u + 0.25), pts = [S.pt(D(u) - 0.2, u), S.pt(D(u1) - 0.2, u1), S.pt(D(u1) + 0.32, u1), S.pt(D(u) + 0.32, u)];
+        prism(pts, -1, 3, stone ? molC : E.wood, { stroke: null });
+      }
+      const ln = []; for (let u = qa; u <= qb + 0.001; u += 0.25) ln.push(S.at(D(u) - 0.2, u, 3));
+      c.beginPath(); ln.forEach((p, k) => k ? c.lineTo(...p) : c.moveTo(...p)); stroke(A.shade(stone ? molC : E.wood, -0.35), 0.8);
+      if (stone && !A.GLOW && !A.SNOW) { const w2 = []; for (let u = qa; u <= qb + 0.001; u += 0.25) w2.push(S.at(D(u) - 0.2, u, 0.6)); c.beginPath(); w2.forEach((p, k) => k ? c.lineTo(...p) : c.moveTo(...p)); stroke('#4f7a46', 1.4); }
+    }, -1000);
+    // piers: the main coral mole at u0, driftwood jetties on pilings beside it
+    const outs = [];
+    us.forEach((u, i) => {
+      const dd0 = D(u), main = Math.abs(u - u0) < 0.01, reach = main ? (band >= 2 ? 2.7 : band >= 1 ? 2.3 : 1.9) : 1.8 + band * 0.2;
+      const out = Math.max(0.45, dd0 - reach); outs.push([u, out, dd0, main]);
+      J((out + dd0) / 2, u, () => {
+        if (main && stone) {
+          const hw = 0.26 + band * 0.02;
+          prism([S.pt(dd0 + 0.2, u - hw), S.pt(dd0 + 0.2, u + hw), S.pt(out + 0.3, u + hw), S.pt(out + 0.3, u - hw)], -2, 4, molC);
+          // round mole head
+          const hr = hw + 0.14, oc = []; for (let k = 0; k < 8; k++) { const a = k / 8 * TAU + Math.PI / 8; oc.push(S.pt(out + 0.3 + Math.cos(a) * hr, u + Math.sin(a) * hr)); }
+          prism(oc, -2, 4.6, molC);
+          if (!A.GLOW && !A.SNOW) for (let dd = out + 0.6; dd < dd0; dd += 0.45) { const p = S.at(dd, u + (dd * 7 % 2 ? 0.12 : -0.1), 4); A.circ(p[0], p[1], 0.7, (dd * 3 | 0) % 2 ? SHELL : CORAL[(dd * 5 | 0) % 3]); }
+        } else {
+          const hw = main ? 0.24 : 0.19, z = 3;
+          for (let dd = out + 0.1; dd < dd0; dd += 0.55) for (const du of [-hw + 0.02, hw - 0.02]) { const a = S.at(dd, u + du, -3), b = S.at(dd, u + du, z); A.line(a, b, PILE, 1.4); if (!A.GLOW) A.line(a, S.at(dd, u + du, -0.8), '#4f7a46', 1.6); }
+          A.poly([S.at(dd0 + 0.3, u - hw, z), S.at(dd0 + 0.3, u + hw, z), S.at(out, u + hw, z), S.at(out, u - hw, z)], sn(E.wood), A.OUT, 0.5);
+          if (!A.SNOW) for (let dd = out + 0.12; dd < dd0 + 0.3; dd += 0.2) A.line(S.at(dd, u - hw, z), S.at(dd, u + hw, z), A.shade(E.wood, -0.22), 0.45);
+          for (const du of [-hw, hw]) A.line(S.at(out + 0.05, u + du, z + 3), S.at(Math.min(dd0, out + 1.4), u + du, z + 3), ROPE, 0.6);
+        }
+      }, -500);
+    });
+    // boats and ships on the water beside the piers
+    outs.forEach(([u, out, dd0, main], i) => {
+      const len = dd0 - out;
+      if (main && band >= 2 && len > 1.6) J(out + 1, u - 0.62, () => { top = Math.max(top, tideShip(out + 0.15, out + Math.min(2.1, len - 0.1), u - 0.62, true)); });
+      else if (!main && band >= 3 && len > 1.3 && i === outs.length - 1) J(out + 0.9, u + 0.56, () => { top = Math.max(top, tideShip(out + 0.15, out + Math.min(1.7, len - 0.1), u + 0.56, false)); });
+      else if (len > 0.8) { const du = i % 2 ? -0.5 : 0.5, dd = out + Math.min(0.75, len * 0.4); J(dd, u + du, () => pearlBoat(dd, u + du, 0.62, i % 2 ? '#3f8a9a' : '#c0604a', true)); }
+      if (len > 1.4 && (band >= 1 || main)) { const du = i % 2 ? 0.48 : -0.48, dd = out + len * 0.72; J(dd, u + du, () => pearlBoat(dd, u + du, 0.48, '#a86a44', band >= 1 && i % 3 === 1 ? '#f0c0b0' : false)); }
+      // buoys and a lantern post at each pier head
+      J(out - 0.25, u + 0.3, () => { buoy(...S.pt(Math.max(0.15, out - 0.25), u + 0.3), i % 2 ? '#f0c050' : '#d8503a'); });
+      J(out + 0.06, u - 0.2, () => { const p = S.at(out + 0.08, u - 0.2, main && stone ? 4.6 : 3); A.line(p, [p[0], p[1] - 9], PILE, 1); A.lantern(p[0], p[1] - 6, 1.3); }, 0.01);
+    });
+    // the diving platform over the pearl-beds, off the main mole (band 1+)
+    if (band >= 1) {
+      const o = outs.find(q => q[3]) || outs[0], [u, out] = o, du = 0.62, dd = out + 0.25, z = 12 + band * 2;
+      J(dd, u + du, () => {
+        const p = S.pt(dd, u + du), s = 0.2;
+        for (const [ax, ay] of [[-s, -s], [s, -s], [-s, s], [s, s]]) { const a = P(p[0] + ax, p[1] + ay, -3), b = P(p[0] + ax, p[1] + ay, z); A.line(a, b, PILE, 1.5); if (!A.GLOW) A.line(a, P(p[0] + ax, p[1] + ay, -0.6), '#4f7a46', 1.8); }
+        A.line(P(p[0] - s, p[1] + s, 1), P(p[0] + s, p[1] + s, z - 1), PILE, 0.6); A.line(P(p[0] + s, p[1] - s, 1), P(p[0] + s, p[1] + s, z - 1), PILE, 0.6);
+        deck(p[0] - s - 0.04, p[1] - s - 0.04, 2 * s + 0.08, 2 * s + 0.08, z, 1.2);
+        const tip = S.pt(dd - 0.55, u + du); A.poly([P(p[0], p[1] - 0.06, z + 1.2), P(p[0], p[1] + 0.06, z + 1.2), P(tip[0], tip[1] + 0.06, z + 1.2), P(tip[0], tip[1] - 0.06, z + 1.2)], E.trim, A.OUT, 0.5);
+        const [wx, wy, wrx, wry] = A.ell(...S.pt(Math.max(0.3, dd - 0.6), u + du), 0, 0.5);
+        A.rec('divers', { x: wx, y: wy, rx: wrx, ry: wry, seed: A.R() });
+        const [hx, hy] = P(p[0], p[1], z + 1.2); A.circ(hx, hy - 6, 1.5, '#c89a7a', A.OUT); A.line([hx, hy - 4.5], [hx, hy], '#3f8a9a', 1.6);
+        if (band >= 2) { A.line([hx + 4, hy], [hx + 4, hy - 13], PILE, 0.9); scallop(hx + 4, hy - 15, 0.7, era >= 3 ? '#f0e8f4' : SHELL); }
+        top = Math.max(top, z + 20);
+      });
+    }
+    // boathouse(s): stilted sheds half over the water, keel-up hull roofs → shell domes
+    const bh = band >= 2 ? [u0 - 0.58, u0 + 1.68] : band >= 1 ? [u0 - 0.58] : [];
+    for (const u of bh) {
+      if (u < S.a + 0.5 || u > S.b - 0.5) continue;
+      const dd0 = D(u);
+      J(dd0 + 0.1, u, () => {
+        const a = S.pt(dd0 - 0.32, u - 0.3), b = S.pt(dd0 + 0.36, u + 0.3);
+        const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]), d = Math.abs(a[1] - b[1]);
+        pilings(x, y, w, d, 3);
+        deck(x - 0.05, y - 0.05, w + 0.1, d + 0.1, 3, 1.2);
+        const bd = body(x, y, w, d, 4.2, 8 + band, { wood: era < 2 });
+        sheen(bd);
+        const alongX = S.edge === 'N' || S.edge === 'S';
+        A.door(bd, 'L', w * 0.5, Math.min(0.32, w * 0.6), 6, '#2e4a58'); roundWin(bd, 'R', d * 0.5, (8 + band) * 0.55, 1.3);
+        let t2;
+        if (era >= 2) t2 = shellDome(x + w / 2, y + d / 2, Math.min(w, d) * 0.62, bd.z + bd.h, 9 + band * 2);
+        else t2 = hullRoof(x, y, w, d, bd.z + bd.h, 7 + band, alongX ? 'x' : 'y');
+        if (era >= 3) { const [px, py] = P(x + w / 2, y + d / 2, t2); pearlTip(px, py, 1.4); t2 += 6; }
+        else { const [fx, fy] = P(x + w / 2, y + d / 2, t2); gull(fx, fy); }
+        top = Math.max(top, t2 + 4);
+      });
+    }
+    // net racks and fish racks along the quay
+    { const u = u0 + 0.56, dd = D(u) + 0.12; J(dd, u, () => A.netRack(...S.pt(dd, u), !(S.edge === 'N' || S.edge === 'S'))); }
+    if (band >= 2 && us.length > 3) { const u = us[0] + 0.55, dd = D(u) + 0.12; J(dd, u, () => fishRack(...S.pt(dd, u), !(S.edge === 'N' || S.edge === 'S'), 4)); }
+    if (L >= 3) { const u = u0 - 0.2, dd = D(u) + 0.25; J(dd, u, () => { A.shellPile(...S.pt(dd, u), 3 + band); A.crate(...S.pt(dd + 0.05, u + 0.25), 0.2); }); }
+    // the whalebone crane at the root of the main mole (level 5+): bone shear-legs, a jib and a net of pearl-shell
+    if (L >= 5) {
+      const cu = u0 + 0.36, cdd = D(cu) + 0.05, H = 30 + band * 5;
+      J(cdd, cu, () => {
+        const bone = era >= 2 ? '#f2ead8' : '#e8dcc0';
+        const f1 = S.at(cdd + 0.22, cu - 0.2, 3), f2 = S.at(cdd + 0.22, cu + 0.2, 3), t0 = S.at(cdd, cu, H), j = S.at(Math.max(0.5, cdd - 1.4), cu, H - 4);
+        for (const f of [f1, f2]) { c.beginPath(); c.moveTo(...f); c.quadraticCurveTo(f[0] + (t0[0] - f[0]) * 0.4 - 4, f[1] + (t0[1] - f[1]) * 0.55, t0[0], t0[1]); stroke(A.OUT, 3.4); c.beginPath(); c.moveTo(...f); c.quadraticCurveTo(f[0] + (t0[0] - f[0]) * 0.4 - 4, f[1] + (t0[1] - f[1]) * 0.55, t0[0], t0[1]); stroke(bone, 2.2); }
+        A.line(t0, j, A.OUT, 2.6); A.line(t0, j, bone, 1.6); A.line(S.at(cdd, cu, H - 10), j, ROPE, 0.7);
+        const hk = S.at(Math.max(0.5, cdd - 1.4), cu, 12); A.line(j, hk, ROPE, 0.6);
+        c.beginPath(); c.ellipse(hk[0], hk[1] + 2, 3, 2.6, 0, 0, TAU); fill('#c8b890'); stroke(A.OUT, 0.5); A.line([hk[0] - 3, hk[1] + 1], [hk[0] + 3, hk[1] + 3], ROPE, 0.5);
+        if (!A.GLOW) { A.circ(hk[0] - 1, hk[1] + 1.5, 0.8, '#f6f2ff'); A.circ(hk[0] + 1, hk[1] + 2.4, 0.7, '#f0d8e8'); }
+        const [wx, wy] = S.at(cdd + 0.3, cu, 5); c.beginPath(); c.arc(wx, wy, 4, 0, TAU); stroke(PILE, 0.9); A.line([wx - 4, wy], [wx + 4, wy], PILE, 0.6); A.line([wx, wy - 4], [wx, wy + 4], PILE, 0.6);
+        top = Math.max(top, H + 4);
+      });
+    }
+    // a nacre beacon on the mole head in the Legend band
+    if (band >= 3) {
+      const o = outs.find(q => q[3]) || outs[0], [u, out] = o;
+      J(out + 0.3, u, () => {
+        const [gx, gy] = S.pt(out + 0.3, u), t = spiralTower(gx, gy, 0.13, stone ? 4.6 : 3, 20, { gallery: false, capH: 6, col: era >= 3 ? '#f6f0f4' : undefined });
+        const [px, py] = P(gx, gy, t); A.lampDot(px, py - 3, 2.2, '#f4eef6', '#fff6e0'); A.rec('lights', { x: px, y: py - 3, r: 26 }); A.rec('sparks', { x: px, y: py - 3, kind: 'star' });
+        top = Math.max(top, t + 6);
+      }, 0.02);
+    }
+    // gulls and glints on the water
+    { const [gx, gy] = S.at(Math.max(0.5, D(u0) - 1.4), u0 + 0.6, 30); gulls(gx, gy, 26, 2 + band); }
+    if (!A.SNOW) { const [sx, sy] = S.at(Math.max(0.4, D(u0) * 0.45), u0 - 1, 0); A.rec('sparks', { x: sx, y: sy, kind: 'water', rx: 30, ry: 12 }); }
+    jobs.sort((p, q) => p[0] - q[0]);
+    for (const [, fn] of jobs) fn();
+    return top;
+  }
+
+  // =================================================================
+  //  LIGHTHOUSE (town hall 10+) — the Pearl Light: a nautilus-wound tower on a coral reef,
+  //  a gilded lantern cage holding a great pearl; taller, with buttresses and a gallery, in the Legend band
+  // =================================================================
+  B.lighthouse = wrap(([x, y, w, d], L, band, ctx) => {
+    const gx = x + w / 2, gy = y + d / 2;
+    // the reef: foam, rocks and coral heads
+    if (!A.SNOW && !A.GLOW) { const [fx, fy, rx, ry] = A.ell(gx, gy, 0, 0.62); c.beginPath(); c.ellipse(fx, fy, rx, ry, 0, 0, TAU); stroke('rgba(255,255,255,0.65)', 1.2); }
+    A.rock(gx - 0.18, gy - 0.2, 1.1, A.SNOW ? '#d8dcde' : '#8a948e'); A.rock(gx + 0.25, gy - 0.12, 0.9, A.SNOW ? '#d8dcde' : '#9aa49e');
+    coral(gx - 0.42, gy + 0.18, 0, 0.9, CORAL[0]); coral(gx + 0.1, gy + 0.42, 0, 0.8, CORAL[2]);
+    const base = era >= 1 ? WALLSTONE[Math.min(3, era + 1)] : '#bdb5a0';
+    drum(gx, gy, 0.4, 0, 5, base);
+    const H = 44 + band * 8 + Math.min(10, Math.max(0, L - 10));
+    const col = era >= 3 ? '#f6f0f4' : era >= 2 ? '#f8ece0' : '#efe2cc';
+    // tapered tower wound with a coral spiral
+    const [x0, y0] = P(gx, gy, 5), r0 = 0.3 * A.SQ2 * A.HW, r1 = 0.2 * A.SQ2 * A.HW;
+    c.beginPath(); c.moveTo(x0 - r0, y0); c.lineTo(x0 - r1, y0 - H); c.lineTo(x0 + r1, y0 - H); c.lineTo(x0 + r0, y0); c.ellipse(x0, y0, r0, r0 / 2, 0, 0, Math.PI); c.closePath(); A.gradFill(x0 - r0, x0 + r0, col);
+    if (!A.SNOW) for (let k = 0; k < 3; k++) { c.beginPath(); for (let i = 0; i <= 24; i++) { const t = i / 24, v = t * H, rr = r0 + (r1 - r0) * t, a = t * TAU * 1.6 + k * TAU / 3; if (Math.sin(a) < -0.05) { c.stroke(); c.beginPath(); continue; } const px = x0 + Math.cos(a) * rr, py = y0 - v + Math.sin(a) * rr * 0.5; c.lineTo(px, py); } stroke(era >= 2 ? E.accent : '#c0704a', 2.4); }
+    if (era >= 3) nacreSheen([[x0 - r0, y0], [x0 - r1, y0 - H], [x0 + r1, y0 - H], [x0 + r0, y0]]);
+    for (let v = 10; v < H - 8; v += 11) A.lampDot(x0 + r0 * 0.25, y0 - v, 1.3, E.glass, '#ffd27a');
+    A.poly([[x0 - 2.2, y0 + 2], [x0 + 2.2, y0 + 2], [x0 + 2.2, y0 - 5], [x0, y0 - 7], [x0 - 2.2, y0 - 5]], '#355a6a', A.OUT, 0.5);
+    // coral buttresses at the foot in the Legend band
+    if (band >= 3) for (const s of [-1, 1]) A.poly([[x0 + s * r0, y0], [x0 + s * (r0 + 5), y0 + 1], [x0 + s * r0 * 0.85, y0 - H * 0.3]], A.shade(col, -0.12), A.OUT, 0.5);
+    let z = 5 + H;
+    // gallery with a rope rail
+    A.cyl(gx, gy, 0.3, z, 2, E.wood); rail2(gx, gy, 0.3, z + 2);
+    // lantern cage: gold ribs round the great pearl
+    const [lx, ly] = P(gx, gy, z + 2), pr = 4 + band * 0.6, cageH = 13;
+    const gold = era >= 1 ? '#d9b44a' : '#8a7a56';
+    A.poly([[lx - 6, ly], [lx + 6, ly], [lx + 6, ly - cageH], [lx - 6, ly - cageH]], A.GLOW ? '#000' : 'rgba(200,230,240,0.35)', null);
+    A.lampDot(lx, ly - cageH / 2, pr, '#f4eef6', '#fff6e0');
+    if (!A.GLOW) { A.circ(lx - pr * 0.35, ly - cageH / 2 - pr * 0.4, pr * 0.3, '#ffffff'); c.beginPath(); c.arc(lx, ly - cageH / 2, pr, 0, TAU); stroke('rgba(180,150,200,0.7)', 0.7); }
+    for (const dx of [-6, -2, 2, 6]) A.line([lx + dx, ly], [lx + dx, ly - cageH], gold, 0.9);
+    z += 2 + cageH;
+    const tip = conchCap(gx, gy, 0.32, z, 14 + band * 2, false);
+    const [tx, ty] = P(gx, gy, tip); pearlTip(tx, ty, 1.6);
+    A.rec('beams', { x: lx, y: ly - cageH / 2 }); A.rec('lights', { x: lx, y: ly - cageH / 2, r: 40 + band * 6 }); A.rec('sparks', { x: lx, y: ly - cageH / 2, kind: 'star' });
+    gulls(lx, ly - 30, 26, 2);
+    return { top: tip + 8, hit: [[gx - 0.4, gy - 0.4, 0.8, 0.8, tip + 8]] };
+  });
+
+  // =================================================================
+  //  WALL TOWERS — coral drums matching the wall: rubble with a shell cap, then ashlar with a
+  //  scallop crown, then pearl-white with an auger-shell conch and a pearl
+  // =================================================================
+  B.walltower = wrap(([sx, sy, sw, sd], L, band, ctx) => {
+    const gx = ctx.gx, gy = ctx.gy, corner = !!ctx.corner, b = Math.max(1, band);
+    const col = WALLSTONE[b], r = corner ? 0.42 : 0.36, H = 18 + b * 4 + (corner ? 14 : 9) + b * 3;
+    A.cyl(gx, gy, r * 1.14, 0, 3, A.shade(col, -0.18));
+    drum(gx, gy, r, 3, H - 3, col);
+    // windows: lamp-lit round ports
+    for (let v = 12; v < H - 6; v += 11) { const [wx, wy] = P(gx + r * 0.55, gy + r * 0.8, v); A.lampDot(wx, wy, 1.3, E.glass, '#ffd27a'); }
+    let top = H;
+    if (b === 1) { // rubble drum: a low kelp / shell cap
+      A.cyl(gx, gy, r * 1.12, H, 2, A.shade(col, 0.05));
+      top = shellDome(gx, gy, r * 1.0, H + 2, 10, era === 0 ? '#c9b98e' : E.dome);
+      if (!A.SNOW) { const [x, y] = P(gx, gy, H + 2); A.line([x - 6, y + 1], [x - 7, y + 5], E.roof2, 0.9); }
+    } else {
+      A.cyl(gx, gy, r * 1.2, H, 2.2, b >= 3 ? ERA[2].roof : E.stone);
+      scallopCrown(gx, gy, r * 1.15, H + 2.2, b >= 3 ? '#f8f2ee' : col, 1);
+      top = H + 5;
+      if (b >= 3 || corner) top = conchCap(gx, gy, r * 0.9, H + 2.2, corner ? 18 + b * 3 : 14, b >= 3);
+      if (b >= 3 && !A.GLOW) { const [x, y] = P(gx + r * 0.7, gy + r * 0.7, H * 0.55); A.circ(x, y, 2.2, '#e6c45a', A.OUT); A.lampDot(x, y, 1.2, '#3f5a6a', '#ffd27a'); }
+    }
+    if (ctx.fortified || T('fortification')) { const [lx, ly] = P(gx + r * 0.95, gy + r * 0.4, H * 0.6); A.line([lx, ly], [lx + 2, ly], PILE, 0.7); A.lantern(lx + 2, ly + 4, 1.2); }
+    if (corner && b >= 2) { const [fx, fy] = P(gx, gy, top); A.rec('flags', { x: fx, y: fy + 1, col: A.STY.flag, len: 9, seed: A.R() }); }
+    return { top, hit: [[gx - 0.45, gy - 0.45, 0.9, 0.9, top]] };
+  });
+
+  // =================================================================
+  //  GATE (main road) — a whalebone arch hung with nets → coral pillars topped with shells and
+  //  a rope of floats → a gatehouse of two coral drums over a round-arched passage under a great scallop
+  // =================================================================
+  function gatePiece(ctx, band, wide) {
+    const along = ctx.along, f = ctx.fixed, g0 = ctx.g0, g1 = ctx.g1, mid = (g0 + g1) / 2;
+    const at = (u, z = 0, o = 0) => along ? P(u, f + o, z) : P(f + o, u, z);
+    const gp = (u, o = 0) => along ? [u, f + o] : [f + o, u];
+    if (band <= 0) {
+      // whalebone: two jawbones meeting in a point, nets and floats hung from the posts
+      const hgt = wide ? 32 : 22, a0 = at(g0), a1 = at(g1), tp = at(mid, hgt);
+      for (const [p0, sgn] of [[a0, 1], [a1, -1]]) for (const [lw, col] of [[4.4, A.OUT], [3, '#efe6d6']]) { c.beginPath(); c.moveTo(...p0); c.quadraticCurveTo(p0[0] - sgn * 5, tp[1] + 6, tp[0], tp[1]); stroke(col, lw); }
+      for (const u of [g0 - 0.18, g1 + 0.18]) { const [bx, by] = at(u), [tx, ty] = at(u, 15); A.poly([[bx - 2, by], [bx + 2, by], [tx + 2, ty + 2.5], [tx, ty - 1.5], [tx - 2, ty + 2.5]], '#a8987a', A.OUT, 0.6); }
+      if (wide) { nautilus(tp[0], tp[1] + 5, 3); A.line(at(g0 + 0.2, 20), at(g1 - 0.2, 20), ROPE, 0.6); for (let k = 1; k < 4; k++) { const p = lerp(at(g0 + 0.2, 20), at(g1 - 0.2, 20), k / 4); A.circ(p[0], p[1] + 2, 1.4, k % 2 ? '#e0a040' : '#d8503a', A.OUT); } }
+      return { top: hgt + 6 };
+    }
+    const b = band, col = WALLSTONE[Math.min(3, b)], H = 18 + b * 4, t = wide ? 0.5 : 0.42;
+    if (b === 1 || !wide) {
+      // pillars (gate) / a doorway in a raised wall block (postern)
+      if (!wide) {
+        const bx0 = g0, len = g1 - g0, bb = along ? A.box(bx0, f - t / 2, len, t, 0, H + 5, col) : A.box(f - t / 2, bx0, t, len, 0, H + 5, col);
+        coralCourses(bb, col);
+        const side = along ? 'L' : 'R', w0 = (g1 - g0) * 0.55, u = len / 2, face = along ? A.onL : A.onR;
+        const q = face(bb, u - w0 / 2, u + w0 / 2, 0, H * 0.5), tp = face(bb, u, u, H * 0.5 + w0 * 9, 0)[0];
+        c.beginPath(); c.moveTo(...q[0]); c.lineTo(...q[1]); c.lineTo(...q[2]); c.quadraticCurveTo(q[2][0], tp[1], tp[0], tp[1]); c.quadraticCurveTo(q[3][0], tp[1], q[3][0], q[3][1]); c.closePath(); fill(A.GLOW ? '#000' : '#2a3a40'); stroke(A.shade(col, -0.3), 1.2);
+        void side;
+        const ps = face(bb, u, u, H * 0.5 + w0 * 9 + 5, 0)[0]; scallop(ps[0], ps[1], 0.6, b >= 3 ? '#f0e8f4' : SHELL);
+        if (b >= 2) { const n = 3; for (let k = 0; k < n; k++) { const p = face(bb, len * (k + 0.5) / n, 0, H + 5, 0)[0]; c.beginPath(); c.moveTo(p[0] - 2.6, p[1]); c.arc(p[0], p[1], 2.6, Math.PI, TAU); c.closePath(); fill(A.SNOW ? '#f2f6f8' : col); stroke(A.OUT, 0.5); } }
+        const [lx, ly] = face(bb, u + w0 / 2 + 0.06, 0, H * 0.5 + 2, 0)[0]; A.lantern(lx + 1, ly, 1.2);
+        return { top: H + 10 };
+      }
+      for (const u of [g0 + 0.04, g1 - 0.04]) { const [cx, cy] = gp(u); drum(cx, cy, 0.2, 0, H + 6, col, true); scallop(...P(cx, cy, H + 12), 0.75, era >= 3 ? '#f0e8f4' : SHELL); }
+      const a = at(g0 + 0.04, H + 2), z = at(g1 - 0.04, H + 2), pts = [];
+      for (let k = 0; k <= 10; k++) { const tt = k / 10; pts.push([a[0] + (z[0] - a[0]) * tt, a[1] + (z[1] - a[1]) * tt + Math.sin(tt * Math.PI) * 7]); }
+      c.beginPath(); pts.forEach((p, k) => k ? c.lineTo(...p) : c.moveTo(...p)); stroke(ROPE, 1);
+      for (let k = 1; k < 10; k += 2) A.circ(pts[k][0], pts[k][1] + 1.5, 1.4, k % 4 === 1 ? '#e0a040' : '#d8503a', A.OUT);
+      return { top: H + 22 };
+    }
+    // gatehouse: two drum towers and a passage block between under a scallop pediment
+    const tr = 0.28, TH = H + 14 + (b - 2) * 6;
+    const [c0x, c0y] = gp(g0 + 0.02), [c1x, c1y] = gp(g1 - 0.02);
+    const tower = (cx, cy) => {
+      A.cyl(cx, cy, tr * 1.14, 0, 3, A.shade(col, -0.18)); drum(cx, cy, tr, 3, TH - 3, col);
+      A.cyl(cx, cy, tr * 1.2, TH, 2, b >= 3 ? ERA[2].roof : E.stone); scallopCrown(cx, cy, tr * 1.15, TH + 2, b >= 3 ? '#f8f2ee' : col, 0.9);
+      const [wx, wy] = P(cx + tr * 0.5, cy + tr * 0.85, TH * 0.6); A.lampDot(wx, wy, 1.3, E.glass, '#ffd27a');
+      return b >= 3 ? conchCap(cx, cy, tr * 0.95, TH + 2, 16, true) : TH + 5;
+    };
+    let top = tower(c0x, c0y);
+    // passage block
+    const p0 = g0 + 0.24, p1 = g1 - 0.24;
+    const bb = along ? A.box(p0, f - 0.25, p1 - p0, 0.5, 0, H + 6, col) : A.box(f - 0.25, p0, 0.5, p1 - p0, 0, H + 6, col);
+    coralCourses(bb, col);
+    const face = along ? A.onL : A.onR, len = p1 - p0, u = len / 2, ow = len * 0.8;
+    const q = face(bb, u - ow / 2, u + ow / 2, 0, H * 0.48), tp = face(bb, u, u, H * 0.48 + ow * 8, 0)[0];
+    const arch = () => { c.beginPath(); c.moveTo(...q[0]); c.lineTo(...q[1]); c.lineTo(...q[2]); c.quadraticCurveTo(q[2][0], tp[1], tp[0], tp[1]); c.quadraticCurveTo(q[3][0], tp[1], q[3][0], q[3][1]); c.closePath(); };
+    arch(); fill(A.GLOW ? '#000' : '#24343a'); stroke(A.shade(col, -0.32), 1.6);
+    // open sea-green doors folded back, a portcullis of driftwood
+    if (!A.GLOW) { for (let k = 1; k < 5; k++) { const p0 = lerp(q[0], q[1], k / 5); A.line(p0, [p0[0], p0[1] - (q[0][1] - q[3][1]) * 0.9], '#5a4a38', 0.7); } }
+    // merlons over the passage, the great scallop pediment, a gilt nautilus in the Legend band
+    const n = Math.max(2, Math.round(len / 0.33));
+    for (let k = 0; k < n; k++) { const p = face(bb, len * (k + 0.5) / n, 0, H + 6, 0)[0]; c.beginPath(); c.moveTo(p[0] - 2.8, p[1]); c.arc(p[0], p[1], 2.8, Math.PI, TAU); c.closePath(); fill(A.SNOW ? '#f2f6f8' : b >= 3 ? '#f8f2ee' : col); stroke(A.OUT, 0.5); }
+    const pc = face(bb, u, u, H * 0.48 + ow * 8 + 7, 0)[0];
+    scallop(pc[0], pc[1], 1.1 + (b - 2) * 0.2, era >= 3 ? '#f0e8f4' : era >= 1 ? '#f0c0b0' : SHELL);
+    if (b >= 3) nautilus(pc[0], pc[1] - 1, 2.4, '#e6c45a');
+    const ban = face(bb, u, u, H + 4, 0)[0];
+    if (ctx.side === 'S' || ctx.side === 'E' || b >= 3) for (const s of [-1, 1]) { const bx = ban[0] + s * 13, by = ban[1] + s * (along ? 6.5 : -6.5); A.poly([[bx - 2.5, by - 2], [bx + 2.5, by - 2], [bx + 2.5, by + 8], [bx, by + 6], [bx - 2.5, by + 8]], A.STY.flag, A.OUT, 0.5); if (!A.GLOW) A.circ(bx, by + 2.5, 1, SHELL); }
+    for (const s of [0.07, len - 0.07]) { const p = face(bb, s, 0, H * 0.5, 0)[0]; A.lantern(p[0], p[1], 1.2); }
+    top = Math.max(top, tower(c1x, c1y), H + 6 + 16);
+    return { top };
+  }
+  B.gate = wrap((s, L, band, ctx) => { const r = gatePiece(ctx, band, true); return { top: r.top, hit: [[s[0], s[1], s[2], s[3], r.top]] }; });
+  B.postern = wrap((s, L, band, ctx) => { const r = gatePiece(ctx, band, false); return { top: r.top, hit: [[s[0], s[1], s[2], s[3], r.top]] }; });
+
 })();
 
 // cityview opt-outs (the return-object format in js/cityart.js): stock extras this people's art already draws itself.

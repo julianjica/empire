@@ -49,7 +49,7 @@
     const st = document.createElement('style'); st.id = 'chr-style'; st.textContent = css; document.head.appendChild(st);
   }
 
-  const ICON = { dawn: '🌅', meet: '🤝', found: '🏘️', conq: '⚔️', freecity: '🏳️', revolt: '🔥', war: '⚔️', peace: '🕊️', ally: '🤝', fall: '💀', rise: '👑', wonder: '🏛️', cal: '🌋', calend: '🌤️', faith: '⛪', spell: '🔮', work: '🌌', slay: '🗡️', herofall: '☠️', wyrm: '🐉', feat: '🏅', tale: '📜', victory: '👑', defeat: '🥀' };
+  const ICON = { dawn: '🌅', meet: '🤝', found: '🏘️', conq: '⚔️', freecity: '🏳️', revolt: '🔥', war: '⚔️', peace: '🕊️', ally: '🤝', fall: '💀', rise: '👑', wonder: '🏛️', cal: '🌋', calend: '🌤️', faith: '⛪', spell: '🔮', work: '🌌', slay: '🗡️', herofall: '☠️', wyrm: '🐉', feat: '🏅', tale: '📜', hunt: '🏹', crisis: '☄️', victory: '👑', defeat: '🥀' };
   const when = t => `${G.chronSeason(S, t)}, ${clock(t).replace(/^Day /, 'D')}`;
   const fmtH = t => { const h = t / 3600; return h >= 10 ? Math.round(h) + 'h' : h >= 1 ? h.toFixed(1).replace(/\.0$/, '') + 'h' : Math.round(t / 60) + 'm'; };
 

@@ -781,7 +781,7 @@
   });
   // ================================================================ HARBOR (inland plot): the ferryman's landing
   def('harbor', ([x, y, w, d], L, band, p) => {
-    if (X && X.coastal) return undefined;   // inland design: on a coast cityview's stock piers stand until a coastal harbor is drawn
+    if (X && X.coastal) return L > 0 ? shoreHarbor(L, band, p) : undefined;   // the shore works (below); an unbuilt plot keeps cityview's stakes
     const { c, P } = A, cx = x + w / 2, cy = y + d / 2;
     const [ex, ey, rx, ry] = A.ell(cx, cy + 0.2, 0, Math.min(w, d) * 0.38);
     c.beginPath(); c.ellipse(ex, ey, rx, ry, 0, 0, TAU); c.fillStyle = X.night ? '#0a1a14' : (X.season === 3 ? '#c8d0d4' : '#24343a'); c.fill();
@@ -826,5 +826,261 @@
     return top;
   });
 
-  // generic spare-plot buildings keep the stock hall; walls keep the stock iron fence / stone curtain
+  // generic spare-plot buildings keep the stock hall
+
+  // ================================================================ WALLS: the iron fence and the black curtain, towers, gatehouses
+  // (the curtain keeps the stock look — courses, merlons, iron spikes, skulls — but is drawn here so the pieces that cityview
+  //  paints after a gatehouse / postern / back corner tower can be trimmed back to the tower's face instead of covering it)
+  const scene = () => { const q = []; let top = 0; return { add: (gx, gy, f) => q.push([gx + gy, f]), run: () => { q.sort((a, b) => a[0] - b[0]); for (const e of q) { const h = e[1](); if (typeof h === 'number' && h > top) top = h; } return top; } }; };
+  const WALLG = () => X.era >= 3 ? '#46464f' : '#4e4e56';
+  const wallH = band => 20 + band * 4;
+  const GSIDE = {};
+  const wallFrame = () => {
+    const along = X.along, f = X.fixed;
+    return {
+      at: (u, v, z = 0) => along ? A.P(u, f + v, z) : A.P(f + v, u, z),
+      g: (u, v) => along ? [u, f + v] : [f + v, u],
+      rect: (u0, u1, v0, v1) => along ? [u0, f + v0, u1 - u0, v1 - v0] : [f + v0, u0, v1 - v0, u1 - u0],
+    };
+  };
+  def('wall', (fp, L, band) => {
+    let a = X.a; const b = X.b, key = (X.city && X.city.id) + X.side, near = (v, t) => Math.abs(v - t) < 0.01;
+    if (near(a, 12.7)) { GSIDE[key] = 1; if (band >= 1) a = band >= 2 ? 13.34 : 13.04; }
+    else if (near(a, 12.38)) { GSIDE[key] = 2; if (band >= 1) a = 12.64; }
+    else if (near(a, 13) && GSIDE[key] === 1 && band >= 1) a = band >= 2 ? 13.34 : 13.04;
+    if (near(a, 4) && band >= 2) a = 4.42;
+    if (b - a < 0.03) return 1;
+    const along = X.along, t = fp[(along ? 3 : 2)], f0 = along ? fp[1] : fp[0];
+    const F = along ? [a, fp[1], b - a, fp[3]] : [fp[0], a, fp[2], b - a];
+    if (band <= 0) { // a crooked iron fence
+      A.ironFence(along ? [[a, f0 + t / 2], [b, f0 + t / 2]] : [[f0 + t / 2, a], [f0 + t / 2, b]], 12);
+      if (Math.round(a) % 3 === 0) { const [sx, sy] = along ? A.P(a + 0.5, f0 + t / 2, 13) : A.P(f0 + t / 2, a + 0.5, 13); A.skull(sx, sy - 1, 0.7); }
+      if (Math.round(a) % 4 === 1) A.witchLamp(along ? a + 0.5 : f0 + t / 2, along ? f0 + t / 2 : a + 0.5, 0, 14);
+      return 13;
+    }
+    const H = wallH(band), col = WALLG(), bw = A.box(F[0], F[1], F[2], F[3], 0, H, col);
+    A.courses(bw, 4, A.shade(col, -0.16));
+    const n = Math.max(1, Math.round((b - a) / 0.28));
+    for (let k = 0; k < n; k += 2) { const u0 = a + k * (b - a) / n, u1 = a + (k + 1) * (b - a) / n; if (along) A.box(u0, f0 + t * 0.45, u1 - u0, t * 0.55, H, 3.5, col); else A.box(f0 + t * 0.45, u0, t * 0.55, u1 - u0, H, 3.5, col); }
+    for (let k = 1; k < n; k += 2) { const u = a + (k + 0.5) * (b - a) / n; const [sx, sy] = along ? A.P(u, f0 + t * 0.7, H + 3.5) : A.P(f0 + t * 0.7, u, H + 3.5); A.poly([[sx - 1, sy], [sx + 1, sy], [sx, sy - 4]], IRON, null); }
+    if (Math.round(a) % 3 === 0) { const [kx, ky] = along ? A.P(a + 0.5, f0 + t, H * 0.6) : A.P(f0 + t, a + 0.5, H * 0.6); A.skull(kx, ky, 0.7); }
+    if (band >= 2 && b - a > 0.6) A.lancet(bw, along ? 'L' : 'R', (b - a) / 2, H * 0.35, 0.08, 5);
+    if (X.era >= 3 && Math.round(a) % 2 === 0 && b - a > 0.6) { const [lx, ly] = along ? A.P((a + b) / 2, f0 + t, H - 3) : A.P(f0 + t, (a + b) / 2, H - 3); A.lampDot(lx, ly, 1.1, '#3a6a4a', GLOW); }
+    return H + 4;
+  });
+  // a gothic tower: dark coursed stone, corner buttresses, lit lancets, a spiked parapet; a steep slate spire with a
+  // witch-light finial on the great towers, a witch lamp on the small ones
+  function gothTower(x, y, s, H, o = {}) {
+    const p = pal(), col = o.col || WALLG(), { box, shade } = A;
+    const b = box(x, y, s, s, 0, H, col); A.courses(b, 4.5, shade(col, -0.18));
+    for (const u of [0.04, s - 0.04]) { box(x + u - 0.05, y + s, 0.1, 0.1, 0, H * 0.45, shade(col, -0.06)); box(x + s, y + u - 0.05, 0.1, 0.1, 0, H * 0.45, shade(col, -0.12)); }
+    for (let v = 8; v < H - 10; v += 13) { A.lancet(b, 'L', s / 2, v, 0.1, 6); A.lancet(b, 'R', s / 2, v, 0.1, 6); }
+    if (o.skull !== false) { const q = A.onL(b, s / 2, s / 2, H - 5, 0)[0]; A.skull(q[0], q[1], 0.75); }
+    if (o.banner) { const q = A.onR(b, s * 0.3, s * 0.7, H * 0.3, H * 0.72); A.poly([q[3], q[2], q[1], [(q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2 - 3], q[0]], flagCol()); A.line(q[3], q[2], IRON, 1); }
+    const j = 0.06, cr = box(x - j, y - j, s + 2 * j, s + 2 * j, H, 3.5, shade(col, -0.08));
+    // spiked merlons on the front edges
+    const nW = Math.max(2, Math.round(cr.w / 0.18));
+    for (let k = 0; k <= nW; k++) { const gx = cr.x + cr.w * k / nW, gy = cr.y + cr.d * k / nW; for (const pp of [A.P(gx, cr.y + cr.d, H + 3.5), A.P(cr.x + cr.w, gy, H + 3.5)]) A.poly([[pp[0] - 1, pp[1]], [pp[0] + 1, pp[1]], [pp[0], pp[1] - (k % 2 ? 3 : 5.5)]], k % 2 ? IRON : shade(col, -0.1), null); }
+    const cx = x + s / 2, cy = y + s / 2;
+    if (o.spire) {
+      if (o.pinn) for (const [gx, gy] of [[x - j, y + s + j], [x + s + j, y + s + j], [x + s + j, y - j]]) pinnacle(gx, gy, H + 3.5, 8 + (o.big ? 3 : 0), shade(col, -0.1));
+      const zt = A.hip({ x: x + 0.02, y: y + 0.02, w: s - 0.04, d: s - 0.04, z: H, h: 3.5, col }, s * (o.big ? 62 : 48), p.roof, 0.02);
+      const [fx, fy] = A.P(cx, cy, zt); A.line([fx, fy], [fx, fy - 6], IRON, 1.1); A.line([fx - 2.5, fy - 4], [fx + 2.5, fy - 4], IRON, 0.8);
+      A.lampDot(fx, fy - 7.5, 1.8, '#4a8a5a', GLOW); A.rec('lights', { x: fx, y: fy - 7.5, r: 18, col: 'witch' });
+      if (o.raven) raven(fx + 5, fy + 6, 0.75);
+      return zt + 9;
+    }
+    A.witchLamp(x + s + j, y + s + j, H + 3.5, 9);
+    return H + 14;
+  }
+  def('walltower', ([x, y, w, d], L, band) => {
+    const wl = X.wallLevel || 0, wb = wl <= 4 ? 0 : wl <= 9 ? 1 : wl <= 14 ? 2 : 3, tb = X.fortified ? Math.max(1, wb) : wb, corner = !!X.corner;
+    const s = corner ? 0.86 : 0.7, H = wallH(tb) + (corner ? 18 + tb * 4 : 12);
+    return gothTower(x + (w - s) / 2, y + (d - s) / 2, s, H, { spire: corner || tb >= 2, pinn: corner && tb >= 3, big: corner && tb >= 3, banner: corner, raven: corner && (Math.round(X.gx + X.gy) % 3 === 0) });
+  });
+  def('gate', (fp, L, band) => {
+    const g0 = X.g0, g1 = X.g1, mid = (g0 + g1) / 2, F = wallFrame(), sc = scene(), H = wallH(Math.max(0, band));
+    const ironArch = (z0, zA, lw) => { // a wrought-iron arch with a hanging witch lantern and a skull keystone
+      const a = F.at(g0, 0, z0), b = F.at(g1, 0, z0), m = F.at(mid, 0, zA);
+      A.c.beginPath(); A.c.moveTo(...a); A.c.quadraticCurveTo(m[0], m[1] - (zA - z0) * 0.9, ...b); A.c.strokeStyle = A.F(IRON); A.c.lineWidth = lw; A.c.stroke();
+      A.c.beginPath(); A.c.moveTo(a[0], a[1] + 3); A.c.quadraticCurveTo(m[0], m[1] - (zA - z0) * 0.9 + 5, b[0], b[1] + 3); A.c.lineWidth = lw * 0.5; A.c.stroke();
+      for (let k = 1; k < 8; k++) { const q = lerp(a, b, k / 8), hy = Math.sin(k / 8 * Math.PI) * (zA - z0) * 0.45; A.line([q[0], q[1] + 3 - hy], [q[0], q[1] - 2 - hy], IRON, 0.7); }
+      const top = [m[0], m[1] - (zA - z0) * 0.45]; A.skull(top[0], top[1] - 2, 0.85);
+      A.line([top[0], top[1] + 1], [top[0], top[1] + 7], IRON, 0.6); A.lampDot(top[0], top[1] + 9, 1.7, '#4a8a5a', GLOW); A.rec('lights', { x: top[0], y: top[1] + 9, r: 18, col: 'witch' });
+      return zA + 8;
+    };
+    if (band <= 0) { // two little stone piers with skulls and an iron arch
+      for (const u of [g0 - 0.1, g1 + 0.1]) sc.add(...F.g(u, 0), () => { const r = F.rect(u - 0.11, u + 0.11, -0.11, 0.11); A.box(r[0], r[1], r[2], r[3], 0, 15, '#5c5c64'); const q = A.P(r[0] + r[2] / 2, r[1] + r[3] / 2, 15); A.skull(q[0], q[1] - 1.5, 0.8); return 18; });
+      sc.add(...F.g(mid, 0.05), () => ironArch(14, 26, 1.4));
+      return sc.run();
+    }
+    if (band === 1) { // tall gothic piers with pinnacles and a spiked iron arch
+      for (const u of [g0 - 0.3, g1]) sc.add(...F.g(u + 0.15, 0), () => {
+        const r = F.rect(u, u + 0.3, -0.22, 0.22), b = A.box(r[0], r[1], r[2], r[3], 0, H + 8, WALLG()); A.courses(b, 4.5, A.shade(WALLG(), -0.18));
+        A.lancet(b, X.along ? 'L' : 'R', 0.15, H * 0.45, 0.08, 5);
+        pinnacle(r[0] + r[2] / 2, r[1] + r[3] / 2, H + 8, 12, '#3a3a42');
+        const q = A.P(r[0] + r[2], r[1] + r[3], H + 8); A.lampDot(q[0], q[1] - 1, 1.5, '#4a8a5a', GLOW); A.rec('lights', { x: q[0], y: q[1] - 1, r: 14, col: 'witch' });
+        return H + 22;
+      });
+      sc.add(...F.g(mid, 0.05), () => ironArch(H + 2, H + 16, 1.8));
+      return sc.run();
+    }
+    // the gatehouse: two spired towers and a pointed-arch block with a skull frieze, portcullis teeth, a rose window in Legend
+    const TH = H + 18 + band * 3, s = 0.62;
+    sc.add(...F.g(g0 - 0.3, 0), () => gothTower(...F.rect(g0 - s, g0, -0.31, 0.31).slice(0, 2), s, TH, { spire: true, banner: true, pinn: band >= 3, big: band >= 3 }));
+    sc.add(...F.g(mid, 0), () => {
+      const r = F.rect(g0, g1, -0.26, 0.26), zb = H - 6, hh = 16 + band * 2, col = WALLG();
+      const b = A.box(r[0], r[1], r[2], r[3], zb, hh, col); A.courses(b, 4, A.shade(col, -0.18));
+      const side = X.along ? 'L' : 'R', f = side === 'L' ? A.onL : A.onR, Lf = X.along ? r[2] : r[3];
+      // the pointed arch under the block and the raised portcullis teeth
+      const q = f(b, 0.12, Lf - 0.12, 0, 0), tp = f(b, Lf / 2, Lf / 2, 6, 6)[0];
+      A.c.beginPath(); A.c.moveTo(...q[0]); A.c.quadraticCurveTo(q[0][0] + (tp[0] - q[0][0]) * 0.2, tp[1], ...tp); A.c.quadraticCurveTo(q[1][0] + (tp[0] - q[1][0]) * 0.2, tp[1], ...q[1]); A.c.closePath(); A.c.fillStyle = A.F('#141418'); A.c.fill();
+      for (let k = 1; k < 7; k++) { const u = Lf * k / 7, p0 = f(b, u, u, 0, 0)[0]; A.line(p0, [p0[0], p0[1] + 4], IRON, 0.9); }
+      skullRow(b, side, hh * 0.55, Math.max(3, Math.round(Lf / 0.22)), 0.5, 0.1);
+      if (band >= 3) { const c0 = f(b, Lf / 2, Lf / 2, hh * 0.82, 0)[0]; rose(c0[0], c0[1], 3, X.era); }
+      const n = Math.max(2, Math.round(Lf / 0.2));
+      for (let k = 0; k <= n; k++) { const pp = f(b, Lf * k / n, Lf * k / n, hh, hh)[0]; A.poly([[pp[0] - 1, pp[1]], [pp[0] + 1, pp[1]], [pp[0], pp[1] - (k % 2 ? 3 : 5)]], IRON, null); }
+      return zb + hh + 6;
+    });
+    sc.add(...F.g(g1 + 0.3, 0), () => gothTower(...F.rect(g1, g1 + s, -0.31, 0.31).slice(0, 2), s, TH, { spire: true, banner: true, pinn: band >= 3, big: band >= 3, raven: true }));
+    return sc.run();
+  });
+  def('postern', (fp, L, band) => {
+    const g0 = X.g0, g1 = X.g1, mid = (g0 + g1) / 2, F = wallFrame(), sc = scene();
+    if (band <= 0) { // an iron wicket between two black posts
+      for (const u of [g0, g1]) sc.add(...F.g(u, 0), () => { A.line(F.at(u, 0), F.at(u, 0, 15), IRON, 2.2); const q = F.at(u, 0, 16); A.poly([[q[0] - 1.2, q[1] + 1], [q[0] + 1.2, q[1] + 1], [q[0], q[1] - 3]], IRON, null); return 16; });
+      sc.add(...F.g(mid, 0.05), () => { const a = F.at(g0, 0, 12), b = F.at(g1, 0, 12), m = F.at(mid, 0, 12); A.c.beginPath(); A.c.moveTo(...a); A.c.quadraticCurveTo(m[0], m[1] - 7, ...b); A.c.strokeStyle = A.F(IRON); A.c.lineWidth = 1.2; A.c.stroke(); A.skull(m[0], m[1] - 4.5, 0.6); return 16; });
+      return sc.run();
+    }
+    const H = wallH(band), col = WALLG();
+    for (const u of [g0 - 0.24, g1]) sc.add(...F.g(u + 0.12, 0), () => { const r = F.rect(u, u + 0.26, -0.24, 0.24), b = A.box(r[0], r[1], r[2], r[3], 0, H + 6, col); A.courses(b, 4.5, A.shade(col, -0.18)); pinnacle(r[0] + r[2] / 2, r[1] + r[3] / 2, H + 6, 9, '#3a3a42'); return H + 15; });
+    sc.add(...F.g(mid, 0), () => {
+      const r = F.rect(g0, g1, -0.2, 0.2), b = A.box(r[0], r[1], r[2], r[3], H - 7, 7, col); A.courses(b, 3.5, A.shade(col, -0.18));
+      const f = X.along ? A.onL : A.onR, Lf = X.along ? r[2] : r[3], q = f(b, 0.06, Lf - 0.06, 0, 0), tp = f(b, Lf / 2, Lf / 2, 4, 4)[0];
+      A.line(q[0], tp, A.shade(col, -0.35), 1.1); A.line(tp, q[1], A.shade(col, -0.35), 1.1);
+      const k0 = f(b, Lf / 2, Lf / 2, 5, 0)[0]; A.skull(k0[0], k0[1], 0.6);
+      A.witchLamp(...F.g(g1 + 0.02, 0.3), 0, 13);
+      return H + 2;
+    });
+    return sc.run();
+  });
+
+  // ================================================================ SHORE: black-water docks, ferry barges, witch-lit quays
+  function shoreHarbor(L, band, p) {
+    const ctx = X, { pt, at, depth } = ctx, e = ctx.edge, sc = scene(), TAR = '#2e2a28', QUAY = '#3e3e46';
+    const add = (dd, u, f) => { const g = pt(dd, u); sc.add(g[0], g[1], f); };
+    const piers = ctx.piers.length ? ctx.piers : [ctx.u0], outs = [];
+    const quay = band >= 2 && (p.e >= 2 || X.tech('masonry'));
+    function prism(u, d0, d1, hw, h, col) {
+      const c = [[d0, u - hw], [d1, u - hw], [d1, u + hw], [d0, u + hw]], faces = [];
+      for (let i = 0; i < 4; i++) { const a = c[i], b = c[(i + 1) % 4], g = pt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2); faces.push([g[0] + g[1], [at(a[0], a[1], -3), at(b[0], b[1], -3), at(b[0], b[1], h), at(a[0], a[1], h)], i]); }
+      faces.sort((m, n) => m[0] - n[0]);
+      for (const [, q, i] of faces) A.poly(q, A.shade(col, i % 2 ? -0.22 : -0.1));
+      A.poly(c.map(([dd, uu]) => at(dd, uu, h)), rc(A.shade(col, 0.1)));
+      for (let dd = d0 + 0.3; dd < d1; dd += 0.3) A.line(at(dd, u - hw, h), at(dd, u + hw, h), A.shade(col, -0.18), 0.5);
+    }
+    function tarPier(u, d0, d1) {
+      for (let dd = d0 + 0.1; dd < d1 - 0.3; dd += 0.55) for (const du of [-0.24, 0.24]) A.line(at(dd, u + du, -3), at(dd, u + du, 3), '#1a1816', 1.5);
+      A.poly([at(d1, u - 0.24, 2), at(d1, u + 0.24, 2), at(d0, u + 0.24, 2), at(d0, u - 0.24, 2)], rc(TAR));
+      for (let dd = d0 + 0.12; dd < d1; dd += 0.22) A.line(at(dd, u - 0.24, 2), at(dd, u + 0.24, 2), '#1c1a18', 0.5);
+      A.line(at(d0, u + 0.24, 2), at(d1, u + 0.24, 2), '#14120f', 0.7);
+    }
+    for (const u of piers) {
+      const dd0 = depth(u), main = Math.abs(u - ctx.u0) < 0.01, out = Math.max(0.45, dd0 - (main ? 1.4 + band * 0.45 : 1.1 + band * 0.3));
+      outs.push([u, out, dd0, main]);
+      if (main && quay) prism(u, out, dd0 + 0.4, 0.32, 5, QUAY); else tarPier(u, out, dd0 + 0.4);
+    }
+    const bollard = (dd, u, z) => add(dd, u, () => { const q = at(dd, u, z); A.poly([[q[0] - 1.3, q[1]], [q[0] + 1.3, q[1]], [q[0] + 1, q[1] - 4], [q[0] - 1, q[1] - 4]], IRON, null); A.circ(q[0], q[1] - 4, 1.4, '#2c2c34'); return z + 5; });
+    // a flat black ferry barge: a hooded ferryman poling at the stern, a coffin (or two) amidships, a lantern on a crook
+    const barge = (u, d0, d1, coffins) => add((d0 + d1) / 2, u, () => {
+      const hw = 0.22, c = [[d0, u - hw * 0.6], [d0 + 0.15, u - hw], [d1, u - hw], [d1, u + hw], [d0 + 0.15, u + hw], [d0, u + hw * 0.6]], faces = [];
+      for (let i = 0; i < c.length; i++) { const a = c[i], b = c[(i + 1) % c.length], g = pt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2); faces.push([g[0] + g[1], [at(a[0], a[1], -1), at(b[0], b[1], -1), at(b[0], b[1], 3.5), at(a[0], a[1], 3.5)], i]); }
+      faces.sort((m, n) => m[0] - n[0]);
+      for (const [, q, i] of faces) A.poly(q, i % 2 ? '#141418' : '#1e1e24');
+      A.poly(c.map(([dd, uu]) => at(dd, uu, 3.5)), rc('#4a4036'), '#8a7a5a', 0.8);
+      for (let dd = d0 + 0.3; dd < d1; dd += 0.18) A.line(at(dd, u - hw + 0.03, 3.5), at(dd, u + hw - 0.03, 3.5), '#3a322a', 0.4);
+      for (let k = 0; k < coffins; k++) { const g = pt(d0 + (d1 - d0) * (0.35 + k * 0.25), u); coffinFlat(g[0] - 0.2, g[1] - 0.08, 3.5); }
+      const st = at(d1 - 0.12, u, 3.5); // ferryman
+      A.poly([[st[0] - 2.4, st[1]], [st[0] + 2.4, st[1]], [st[0] + 1.2, st[1] - 10], [st[0], st[1] - 12], [st[0] - 1.2, st[1] - 10]], '#3a3a48', A.OUT, 0.5);
+      A.circ(st[0] + 0.3, st[1] - 9.5, 0.9, BONE);
+      A.line([st[0] + 3, st[1] + 4], [st[0] - 4, st[1] - 16], '#4a3a2e', 0.9);
+      const lp = at(d0 + 0.1, u, 3.5); A.line(lp, [lp[0], lp[1] - 10], IRON, 0.9); A.line([lp[0], lp[1] - 10], [lp[0] + 3, lp[1] - 10], IRON, 0.8); A.lampDot(lp[0] + 3, lp[1] - 8, 1.4, '#4a8a5a', GLOW); A.rec('lights', { x: lp[0] + 3, y: lp[1] - 8, r: 14, col: 'witch' });
+      return 14;
+    });
+    const ship = (u, d0, d1, big) => add((d0 + d1) / 2, u, () => {
+      A.shipHull(e, u, d0, d1, big, p.e >= 2 ? '#3a3a40' : null);
+      const hh = big ? 7 : 5, m = (d0 + d1) / 2, top = at(m, u, hh + (big ? 34 : 22));
+      if (p.e >= 2) { const hw = big ? 0.3 : 0.22, zs = hh + (big ? 30 : 19), sh0 = big ? 18 : 12; for (const t of [-0.4, 0.35]) { const q = at(m, u + hw * 1.6 * t, zs + 0.5); A.line([q[0], q[1] + sh0 * 0.4], [q[0] + 1.5, q[1] + sh0 + 1], '#5a5a62', 0.6); } }
+      const bow = at(d0, u, hh + 3); A.lampDot(bow[0], bow[1] - 2, 1.4, '#4a8a5a', GLOW); A.rec('lights', { x: bow[0], y: bow[1] - 2, r: 14, col: 'witch' });
+      if (big) raven(top[0] + 1, top[1] + 3, 0.6);
+      return hh + (big ? 38 : 26);
+    });
+    outs.forEach(([u, out, dd0, main], i) => {
+      const len = dd0 - out;
+      if (main && band >= 2 && len > 1.4) ship(u - 0.55, out + 0.1, out + Math.min(2.3, len), true);
+      else if (band >= 3 && i === outs.length - 1 && len > 1.2) ship(u + 0.55, out + 0.1, out + Math.min(1.8, len), false);
+      else if (len > 0.9) barge(u + (i % 2 ? -0.5 : 0.5), out + 0.1, out + Math.min(main ? 1.2 : 0.95, len - 0.05), main || band >= 2 ? 1 + (band >= 1 ? 1 : 0) : 0);
+      const z0 = main && quay ? 5 : 2;
+      add(out + 0.06, u + 0.18, () => { A.witchLamp(...pt(out + 0.08, u + 0.18), z0, 12 + band); return z0 + 16; });
+      if (band >= 1) for (const dd of [out + 0.6, dd0 - 0.2]) if (dd < dd0) bollard(dd, u - 0.2, z0);
+    });
+    // ashore: a boathouse half over the water, a black watch-house, the gallows crane with a hanging cage, tombs of the drowned
+    const sh = u => depth(u) + 0.25;
+    add(sh(ctx.u0 - 0.45), ctx.u0 - 0.45, () => { A.witchLamp(...pt(sh(ctx.u0 - 0.45), ctx.u0 - 0.45), 0, 15); return 18; });
+    for (const u of [piers[0] - 0.55, piers[piers.length - 1] + 0.55]) if (u > ctx.a + 0.4 && u < ctx.b - 0.4) add(sh(u), u, () => { A.tomb(...pt(sh(u) + 0.1, u), 0.75); A.tomb(...pt(sh(u) + 0.15, u + 0.22), 0.65); return 9; });
+    if (band >= 1) {
+      const hi = piers[piers.length - 1] + 1.2, lo = piers[0] - 1.2, us0 = hi < ctx.b - 0.5 ? hi : lo, dd = depth(us0);
+      if (us0 < ctx.b - 0.5 && us0 > ctx.a + 0.5) add(dd + 0.3, us0, () => {
+        const a0 = pt(dd - 0.45, us0 - 0.28), a1 = pt(dd + 0.4, us0 + 0.28), r = [Math.min(a0[0], a1[0]), Math.min(a0[1], a1[1]), Math.abs(a0[0] - a1[0]), Math.abs(a0[1] - a1[1])];
+        for (const [gx, gy] of [[r[0], r[1] + r[3]], [r[0] + r[2], r[1] + r[3]], [r[0] + r[2], r[1]]]) A.line(A.P(gx, gy, -3), A.P(gx, gy, 2), '#1a1816', 1.5);
+        A.box(r[0], r[1], r[2], r[3], -1, 2.5, TAR);
+        return house(r[0] + 0.04, r[1] + 0.04, r[2] - 0.08, r[3] - 0.08, 10 + band * 2, band, { axis: r[2] >= r[3] ? 'x' : 'y', lean: 2 });
+      });
+    }
+    if (band >= 3) { // the gallows crane: an iron post, a jib over the water, a cage swinging from it
+      const cu = ctx.u0 - 0.55, cd = depth(cu) + 0.1;
+      add(cd, cu, () => {
+        const b0 = at(cd + 0.1, cu), t = at(cd + 0.1, cu, 40), j = at(cd - 1.3, cu, 38);
+        A.line(b0, t, '#26262c', 2.2); A.line(t, j, '#26262c', 1.8); A.line(at(cd + 0.1, cu, 28), at(cd - 0.5, cu, 38), '#26262c', 1);
+        const hk = at(cd - 1.3, cu, 22); A.line(j, hk, IRON, 0.6);
+        A.poly([[hk[0] - 3, hk[1]], [hk[0] + 3, hk[1]], [hk[0] + 3, hk[1] + 8], [hk[0] - 3, hk[1] + 8]], null, IRON, 0.8);
+        for (const dx of [-1, 1]) A.line([hk[0] + dx, hk[1]], [hk[0] + dx, hk[1] + 8], IRON, 0.6);
+        A.c.beginPath(); A.c.ellipse(hk[0], hk[1], 3, 1.2, 0, Math.PI, A.TAU); A.c.strokeStyle = A.F(IRON); A.c.lineWidth = 0.8; A.c.stroke();
+        A.lampDot(t[0], t[1] - 2, 1.6, '#4a8a5a', GLOW); A.rec('lights', { x: t[0], y: t[1] - 2, r: 18, col: 'witch' });
+        raven(t[0] + 2, t[1] + 1, 0.7);
+        return 44;
+      });
+      ravensCircle(...pt(depth(ctx.u0) * 0.5, ctx.u0), 40, 3, 30);
+    }
+    const run = sc.run();
+    fog(...pt(Math.max(0.6, depth(ctx.u0) * 0.45), ctx.u0 - 1), 0.9, 0.28);
+    if (band >= 2) fog(...pt(Math.max(0.6, depth(ctx.u0) * 0.4), ctx.u0 + 1.6), 0.7, 0.24);
+    return { top: Math.max(16, run), noDress: true, noTech: true };
+  }
+
+  // ================================================================ LIGHTHOUSE: a black spire with a witch-light lantern
+  def('lighthouse', ([x, y, w, d], L, band, p) => {
+    const cx = x + w / 2, cy = y + d / 2;
+    A.rock(cx - 0.15, cy + 0.25, 1.4, '#4e4e56'); A.rock(cx + 0.3, cy - 0.15, 1.0, '#5c5c64');
+    const s = 0.52, H = 34 + band * 7, col = p.e >= 3 ? '#3e3e48' : '#4e4e56', bx = cx - s / 2, by = cy - s / 2;
+    A.box(bx - 0.08, by - 0.08, s + 0.16, s + 0.16, 0, 5, A.shade(col, -0.15));
+    const b = A.box(bx, by, s, s, 5, H, col); A.courses(b, 4.5, A.shade(col, -0.18));
+    for (const u of [0.03, s - 0.03]) { A.box(bx + u - 0.05, by + s, 0.1, 0.12, 5, H * 0.35, A.shade(col, -0.05)); A.box(bx + s, by + u - 0.05, 0.12, 0.1, 5, H * 0.35, A.shade(col, -0.12)); }
+    for (let v = 8; v < H - 6; v += 12) { A.lancet(b, 'L', s / 2, v, 0.1, 6); A.lancet(b, 'R', s / 2, v, 0.1, 6); }
+    { const q = A.onL(b, s / 2, s / 2, H - 4, 0)[0]; A.skull(q[0], q[1], 0.8); }
+    // gallery and the open lantern cage
+    const zg = 5 + H, gal = A.box(bx - 0.1, by - 0.1, s + 0.2, s + 0.2, zg, 2.5, A.shade(col, -0.1)); void gal;
+    A.ironFence([[bx - 0.1, by + s + 0.1], [bx + s + 0.1, by + s + 0.1], [bx + s + 0.1, by - 0.1]], 5);
+    const zl = zg + 2.5, lh = 11, [lx, ly] = A.P(cx, cy, zl + lh * 0.45);
+    A.c.beginPath(); A.c.ellipse(lx, ly, 7, 6, 0, 0, A.TAU); A.c.fillStyle = X.night ? 'rgba(170,255,200,0.85)' : 'rgba(80,160,110,0.55)'; A.c.fill();
+    greenFlame(lx, ly + 3, 1.3);
+    for (const [gx, gy] of [[bx, by], [bx + s, by], [bx, by + s], [bx + s, by + s]]) A.line(A.P(gx, gy, zl), A.P(gx, gy, zl + lh), IRON, 1.2);
+    const zs = zl + lh;
+    for (const [gx, gy] of [[bx - 0.04, by + s + 0.04], [bx + s + 0.04, by + s + 0.04], [bx + s + 0.04, by - 0.04]]) pinnacle(gx, gy, zs, 6 + band, A.shade(col, -0.1));
+    const zt = A.hip({ x: bx, y: by, w: s, d: s, z: zs - 1, h: 1, col }, s * (60 + band * 8), p.roof, 0.05);
+    const [fx, fy] = A.P(cx, cy, zt); A.line([fx, fy], [fx, fy - 7], IRON, 1.1); A.line([fx - 3, fy - 4.5], [fx + 3, fy - 4.5], IRON, 0.9);
+    A.rec('beams', { x: lx, y: ly }); A.rec('lights', { x: lx, y: ly, r: 34, col: 'witch' });
+    raven(fx + 5, fy + 8, 0.7); if (band >= 2) ravensCircle(cx, cy, zt, 3, 22);
+    return zt + 10;
+  });
 })();

@@ -1304,10 +1304,18 @@ G.battle = (s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode) =>
     if (win) defLoss = Math.min(1, defLoss * (1 + R.rout * aMob) * (1 - R.rout * dMob));
     else attLoss = Math.min(1, attLoss * (1 + R.rout * dMob) * (1 - R.rout * aMob));
   }
+  // army stances (generals.js): opts.k = { att: {loss, foeLoss, cap, volley, pursuit}, def: {…} }; every field defaults to no change.
+  // loss/foeLoss scale a side's partial losses; cap lets a beaten side withdraw instead of being wiped out;
+  // volley/pursuit scale the share of the foe's casualties this side inflicts in those phases.
+  const K = (opts && opts.k) || null, kA = (K && K.att) || {}, kD = (K && K.def) || {};
+  if (K) {
+    const shape = (loss, own, foe) => Math.max(0, Math.min(own.cap ?? 1, loss >= 1 ? 1 : loss * (own.loss ?? 1) * (foe.foeLoss ?? 1)));
+    attLoss = shape(attLoss, kA, kD); defLoss = shape(defLoss, kD, kA);
+  }
   const a = casualties(att, attLoss), d = casualties(def, defLoss);
   // three phases: the opening volley (ranged, mages, engines, ships), the clash, and the pursuit (the winner's riders and flyers)
-  const [aV, aC, aP] = tacSplit(a.lost, R.volley * dVol, win ? 0 : R.pursuit * dMob);
-  const [dV, dC, dP] = tacSplit(d.lost, R.volley * aVol, win ? R.pursuit * aMob : 0);
+  const [aV, aC, aP] = tacSplit(a.lost, R.volley * dVol * (kD.volley ?? 1), win ? 0 : R.pursuit * dMob * (kD.pursuit ?? 1));
+  const [dV, dC, dP] = tacSplit(d.lost, R.volley * aVol * (kA.volley ?? 1), win ? R.pursuit * aMob * (kA.pursuit ?? 1) : 0);
   const phases = [
     { key: 'volley', name: 'Opening volley', icon: '🏹', att: tacPct(aVol), def: tacPct(dVol), attLost: aV, defLost: dV },
     { key: 'clash', name: 'The clash', icon: '⚔️', attLost: aC, defLost: dC },
@@ -1350,6 +1358,7 @@ G.battle = (s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode) =>
     roles: { att: rshares(aSh), def: rshares(dSh) }, counters: { att: tacPct(cA), def: tacPct(cD) },
     mods, phases,
   };
+  if (opts && opts.stances) tactics.stances = opts.stances;
   const r = { A: Math.round(A), D: Math.round(D), win, attLoss, defLoss, attLost: a.lost, attLeft: a.left, defLost: d.lost, defLeft: d.left, tactics };
   if (opts && opts.ambient) G._lastTac = { field: G._field, tactics };
   return r;

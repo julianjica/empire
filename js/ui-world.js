@@ -60,6 +60,10 @@ const renderTilePanel = (city, t, vis) => {
   const c = t.city && S.cities[t.city];
   const camp = t.camp && S.camps[t.camp];
   const wildOasis = t.oasis && !(t.oasis.owner && S.cities[t.oasis.owner]);
+  // roaming creatures and crisis sources (js/monsters.js) have their own panels (drawn in worldmap.js)
+  const roam = !c && !camp && !t.oasis && !t.ruin && !t.minor && G.monsterAt ? G.monsterAt(S, t.x, t.y) : null;
+  if (roam && vis && G.monsterVisible(S, roam, vis) && G.monsterPanel) return G.monsterPanel(city, t, roam);
+  if (camp && camp.kind === 'crisis' && G.crisisCampPanel) return G.crisisCampPanel(city, t, camp);
   const pic = c && c.owner !== 'p' && S.empires[c.owner] ? ptHtml(rulerSpec(S.empires[c.owner]), 64, 'pt-card', `Ruler of ${S.empires[c.owner].name}`)
     : camp ? ptHtml({ kind: 'monster', role: { wyrm: 'wyrm', undead: 'undead', star: 'elemental', rift: 'demon' }[camp.kind] || 'brigand', seed: t.camp }, 64, 'pt-card', { wyrm: 'The Elder Wyrm', undead: 'The restless dead', star: 'Star-touched beast', rift: 'Rift demon' }[camp.kind] || 'Brigand chief')
     : wildOasis ? ptHtml({ kind: 'monster', role: 'beast', seed: idx }, 56, 'pt-card', 'Oasis beasts') : '';
@@ -138,26 +142,53 @@ const sendForm = (city, t, modes) => {
       : `<p class="muted">No suitable troops in ${esc(city.name)}.${UI.mode === 'adventure' ? ' Your hero must be in this city — select the city where your hero is.' : UI.mode === 'scout' ? ' Train scouts at the Barracks.' : ''}</p>`;
   }
   const sending = gatherSend(city);
+  // generals and stances (generals.js): who leads the march and with what orders
+  const orders = sendOrders(city);
+  const ordersHtml = ordersForm(city, orders);
+  const withOrders = fn => (G.withOrders && orders ? G.withOrders(S, 'p', sending, orders, fn) : fn());
   let eta = '';
   if (UI.mode === 'trade') { const pl = G.planMarch(S, 'p', city, t, {}); eta = pl.ok ? `Travel time ${fmtTime(realSecs(pl.dur))}` : `<span class="warn">${esc(pl.reason)}</span>`; }
-  else if (G.unitsCount(sending)) { const pl = G.planMarch(S, 'p', city, t, sending); eta = pl.ok ? `${pl.naval ? '⛵ By sea · ' : ''}Travel ${fmtTime(realSecs(pl.dur))} · attack ${fmt(G.atkPower(S, 'p', sending) * G.mod(S, 'p', null, 'atk'))} · carry ${fmt(G.carryOf(S, 'p', sending))}` : `<span class="warn">${esc(pl.reason)}</span>`; }
+  else if (G.unitsCount(sending)) { const pl = G.planMarch(S, 'p', city, t, sending); const mf = G.marchFactor && orders ? G.marchFactor(S, 'p', orders) : 1; eta = pl.ok ? `${pl.naval ? '⛵ By sea · ' : ''}Travel ${fmtTime(realSecs(Math.max(15, Math.round(pl.dur / mf))))} · attack ${fmt(G.atkPower(S, 'p', sending) * G.mod(S, 'p', null, 'atk'))} · carry ${fmt(G.carryOf(S, 'p', sending))}` : `<span class="warn">${esc(pl.reason)}</span>`; }
   let preview = '';
   if (['raid', 'attack', 'conquer'].includes(UI.mode) && G.unitsCount(sending)) {
-    const pv = (G.previewField || G.previewBattle)(S, city, t, sending, UI.mode);
+    const pv = withOrders(() => (G.previewField || G.previewBattle)(S, city, t, sending, UI.mode));
     if (pv && !pv.known) preview = `<div class="preview unknown">🔍 Unknown defenders — scout this target first to see the expected outcome.</div>`;
     else if (pv) {
       const lostN = G.unitsCount(pv.attLost), sentN = G.unitsCount(sending);
       const verdict = pv.win ? (pv.attLoss < 0.15 ? 'Easy victory' : pv.attLoss < 0.45 ? 'Victory' : 'Costly victory') : (UI.mode === 'raid' ? 'Repelled' : 'Defeat');
       preview = `<div class="preview ${pv.win ? 'win' : 'loss'}"><b>${verdict}</b> expected · ⚔️ ${fmt(pv.A)} vs 🛡️ ${fmt(pv.D)}<br>
         You lose about ${lostN} of ${sentN} (${Math.round(pv.attLoss * 100)}%)${lostN ? ': ' + unitsHtml(pv.attLost) : ''}. They lose ${Math.round(pv.defLoss * 100)}%.
-        ${pv.tactics ? (() => { const tc = pv.tactics, sg = p => (p > 0 ? '+' : '−') + Math.abs(p) + '%'; const own = tc.mods.filter(m => m.side === 'att' && (m.kind === 'field' || m.kind === 'counter' || m.kind === 'cap')).map(m => `<span class="${m.pct > 0 ? 'good' : m.pct < 0 ? 'bad' : 'muted'}">${esc(m.label.replace(/^([^:]+): (?!army)/, '$1: your '))}${m.kind === 'cap' ? '' : ' ' + sg(m.pct)}</span>`); const foe = tc.mods.filter(m => m.side === 'def' && (m.kind === 'field' || m.kind === 'counter')).map(m => `<span class="${m.pct > 0 ? 'bad' : 'good'}">${esc(m.label.replace(/^([^:]+): (?!army|holding)/, '$1: their '))} ${sg(m.pct)}</span>`); return `<br>⛰️ ${tc.terrain ? esc(DATA.terrain[tc.terrain].name) : 'Open field'}${tc.crossing ? ' · 🌊 river crossing' : ''}${own.length ? ' · ' + own.join(' · ') : ''}${foe.length ? '<br><span class="muted">Defenders:</span> ' + foe.join(' · ') : ''}`; })() : ''}
+        ${pv.tactics ? (() => { const tc = pv.tactics, sg = p => (p > 0 ? '+' : '−') + Math.abs(p) + '%'; const own = tc.mods.filter(m => m.side === 'att' && (m.kind === 'field' || m.kind === 'counter' || m.kind === 'cap' || m.kind === 'stance' || m.kind === 'general')).map(m => `<span class="${m.pct > 0 ? 'good' : m.pct < 0 ? 'bad' : 'muted'}">${esc(m.label.replace(/^([^:]+): (?!army)/, '$1: your '))}${m.kind === 'cap' ? '' : ' ' + sg(m.pct)}</span>`); const foe = tc.mods.filter(m => m.side === 'def' && (m.kind === 'field' || m.kind === 'counter' || m.kind === 'stance' || m.kind === 'general')).map(m => `<span class="${m.pct > 0 ? 'bad' : 'good'}">${esc(m.label.replace(/^([^:]+): (?!army|holding)/, '$1: their '))} ${sg(m.pct)}</span>`); const stl = tc.stances ? `<br>${tc.stances.att.icon} ${esc(tc.stances.att.name)} stance${tc.stances.def && tc.stances.def.key !== 'standing' ? ` vs ${tc.stances.def.icon} ${esc(tc.stances.def.name)}` : ''}` : ''; return `<br>⛰️ ${tc.terrain ? esc(DATA.terrain[tc.terrain].name) : 'Open field'}${tc.crossing ? ' · 🌊 river crossing' : ''}${own.length ? ' · ' + own.join(' · ') : ''}${foe.length ? '<br><span class="muted">Defenders:</span> ' + foe.join(' · ') : ''}${stl}`; })() : ''}
         <span class="muted">${pv.estimated ? 'Estimate from the site\'s usual strength.' : 'Based on scouting ' + ago(S.time - pv.age) + '.'}</span></div>`;
     }
   }
   return `<div class="row" style="margin:8px 0">${modes.map(m => `<button class="${UI.mode === m ? 'primary' : ''} small" data-act="mode" data-m="${m}">${MODE_LABEL[m]}</button>`).join('')}</div>
     <p class="muted" style="font-size:12.5px">${MODE_HELP[UI.mode]}</p>
-    ${form}${preview}
+    ${form}${ordersHtml}${preview}
     <div class="row" style="margin-top:8px"><button class="primary" data-act="send">Send from ${esc(city.name)}</button><span class="muted" style="font-size:12px">${eta}</span></div>`;
+};
+
+// the general and stance picked in the send form (null when the module is absent or the mode takes no orders)
+const sendOrders = city => {
+  if (!G.generalsAt || !DATA.stances) return null;
+  const hostile = ['raid', 'attack', 'conquer'].includes(UI.mode);
+  if (!hostile && UI.mode !== 'reinforce') return null;
+  let stance = hostile && DATA.stances[UI.form.stance] ? UI.form.stance : 'balanced';
+  if (stance === 'skirmish' && UI.mode === 'conquer') stance = 'balanced';
+  const gen = UI.form.sendGeneral && G.generalsAt(S, 'p', city.id).some(g => g.id === UI.form.sendGeneral) ? UI.form.sendGeneral : null;
+  return { stance, general: gen };
+};
+const ordersForm = (city, orders) => {
+  if (!orders) return '';
+  const hostile = UI.mode !== 'reinforce';
+  const gens = G.generalsAt(S, 'p', city.id);
+  const g = orders.general && G.generalById(S, 'p', orders.general);
+  const gpic = g && typeof ptHtml === 'function' ? ptHtml(G.generalSpec(S, 'p', g), 28, 'pt-inline', g.name) : '';
+  const gsel = gens.length ? `<label class="row" style="gap:6px;font-size:13px;flex-wrap:wrap">${gpic || '🎖️'} General <select style="max-width:100%" data-k="sendGeneral"><option value="">— none —</option>${gens.map(g => `<option value="${esc(g.id)}" ${orders.general === g.id ? 'selected' : ''} ${g.hp < G.GEN.minHp ? 'disabled' : ''}>${esc(g.name)} · lvl ${g.level} · ${g.traits.map(t => DATA.generalTraits[t].name).join(', ')}${g.hp < G.GEN.minHp ? ' (wounded)' : ''}</option>`).join('')}</select></label>`
+    : `<span class="muted" style="font-size:12.5px">🎖️ No general in ${esc(city.name)}${G.generalsOf(S, 'p').length ? ' (station one here from the Military tab)' : ''}.</span>`;
+  const st = hostile ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px">${DATA.stanceOrder.filter(k => !(k === 'skirmish' && UI.mode === 'conquer')).map(k => { const d = DATA.stances[k]; return `<button class="small ${orders.stance === k ? 'primary' : ''}" data-act="stance" data-s="${k}" title="${esc(d.desc)}">${d.icon} ${d.name}</button>`; }).join('')}</div>
+    <p class="muted" style="font-size:12px;margin:4px 0 0">${esc(DATA.stances[orders.stance].desc)}</p>` : '';
+  return `<div class="orders" style="margin-top:8px">${gsel}${st}</div>`;
 };
 
 const gatherSend = city => {
@@ -176,6 +207,7 @@ Object.assign(act, {
     render(true);
   },
   allUnits: d => { UI.form['send_' + d.u] = d.n; render(true); },
+  stance: d => { UI.form.stance = d.s; render(true); },
   send: () => {
     const city = curCity(); const t = UI.sel;
     let err;
@@ -185,7 +217,9 @@ Object.assign(act, {
       err = G.sendArmy(S, city.id, t.x, t.y, 'trade', {}, cargo);
       if (!err) for (const g of visibleGoods()) delete UI.form['cargo_' + g];
     } else {
-      err = G.sendArmy(S, city.id, t.x, t.y, UI.mode, gatherSend(city));
+      const orders = sendOrders(city);
+      err = orders && G.sendArmyWith ? G.sendArmyWith(S, city.id, t.x, t.y, UI.mode, gatherSend(city), undefined, orders) : G.sendArmy(S, city.id, t.x, t.y, UI.mode, gatherSend(city));
+      if (!err) delete UI.form.sendGeneral;
       if (!err) for (const k of Object.keys(UI.form)) if (k.startsWith('send_')) delete UI.form[k];
     }
     toast(err || 'On the march!'); render(true);

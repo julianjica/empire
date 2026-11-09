@@ -58,6 +58,17 @@ ok('people layers drawn (head present) for a hero', (G.portrait({race:'delver',k
   ok('era changes clothing', G.portrait({race:'hearth',kind:'hero',seed:1,era:0},64)!==G.portrait({race:'hearth',kind:'hero',seed:1,era:3},64));
   ok('female flag respected and deterministic', G.portrait({race:'sylvan',kind:'hero',seed:1,female:true},64)!==G.portrait({race:'sylvan',kind:'hero',seed:1,female:false},64));
 }
+// ---- variety: 16 seeds of the same people + kind (same sex) must give >= 12 distinct faces (head+face+hair layer output with ids, colours and numbers stripped: the distinct-element structure must differ, not just jitter)
+{ const capt=[]; const wrap=['head','face','hair'].map(l=>{ const a=PORTRAIT.layers[l], i=a.length-1, fn=a[i]; a[i]=ctx=>{ const o=fn(ctx)||''; capt.push(o); return o; }; return [a,i,fn]; });
+  const noId=v=>v.replace(/pt[0-9a-z]+/g,'#').replace(/#[0-9a-f]{6}/g,'#').replace(/-?[0-9.]+/g,'0'); let worst=17, where='', bad=[];
+  for(const r of RACES) for(const k of ['hero','citizen','advisor','ruler','governor','spy','unit']) for(const female of [false,true]){
+    const faces=new Set();
+    for(let i=0;i<16;i++){ capt.length=0; PORTRAIT.clearCache(); G.portrait({race:r,kind:k,seed:'v'+i,female,role:k==='advisor'?OFFICES[i%5]:undefined,unit:k==='unit'?DATA.races[r].units[0]:undefined,color:DATA.races[r].color},96); faces.add(noId(capt.join(''))); }
+    if(faces.size<worst){ worst=faces.size; where=r+' '+k+(female?' f':' m'); } if(faces.size<12) bad.push(r+' '+k+(female?' f':' m')+' '+faces.size);
+  }
+  for(const [a,i,fn] of wrap) a[i]=fn; PORTRAIT.clearCache();
+  ok('variety: 16 seeds per people/kind/sex give >= 12 distinct faces (worst '+worst+' '+where+')', bad.length===0, bad.slice(0,6).join(' | '));
+}
 // ---- gear hooks: hideHair / hideEars from a frameBack layer ----
 { const fn=ctx=>{ if(ctx.spec.seed==='helm'){ ctx.hideHair=true; ctx.hideEars=true; } return ''; };
   PORTRAIT.layers.frameBack.unshift(fn); PORTRAIT.clearCache();

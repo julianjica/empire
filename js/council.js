@@ -393,6 +393,13 @@
           c.starving ? `${c.name} is starving! Grain ${rate(e.net.grain)}/min and the granary is empty — people will leave. Build farms, buy grain or send some troops away.`
             : `${c.name} eats more grain than it grows (${rate(e.net.grain)}/min); the granary runs dry in about ${Math.max(1, Math.round((c.res.grain || 0) / -e.net.grain))} minutes.`, act);
       }
+      // supply lines (js/logistics.js): this city starves or lacks an upkeep good while another of ours overflows with it
+      if (G.supplyPlan && X.cities.length > 1) {
+        const lg = (s.logistics && s.logistics.p) || {};
+        const gd = ['grain', 'timber', 'stone', 'iron', 'tools', 'weapons'].find(g => (g === 'grain' ? hungry : (c.short || {})[g]) && !(lg.on && (((lg.goods || {})[g] || {}).on || lg.relief !== false)));
+        const src = gd && X.cities.find(o => o !== c && G.lvl(o, 'market') && (o.res[gd] || 0) > X.econ[o.id].cap * 0.6 && (X.econ[o.id].net[gd] || 0) > 0);
+        if (src) add('steward', `supply:${c.id}:${gd}`, c.starving ? 84 : 66, `${c.name} ${gd === 'grain' ? 'goes hungry' : 'has run out of ' + DATA.goods[gd].name.toLowerCase()} while ${src.name} overflows with it. A supply line in the 📒 Ledger would send caravans by itself.`, tabAct('ledger', 'Set supply lines'));
+      }
       // workers and homes
       if (e.eff < 0.9) add('steward', `workers:${c.id}`, 62, `${c.name} is short of workers (${Math.round(e.eff * 100)}%): every farm and camp runs slower. More homes would help.`, canBuild(s, c, 'houses') ? buildAct(c, 'houses', G.nextLevel(c, 'houses')) : cityAct(c, null, 'houses'));
       else if (c.pop >= e.civCap * 0.95 && e.net.grain > 2 && !c.buildQueue.some(q => q.type === 'houses')) add('steward', `homes:${c.id}`, 40, `${c.name} has no room to grow (${Math.floor(c.pop)}/${e.civCap} citizens). Raise more homes.`, canBuild(s, c, 'houses') ? buildAct(c, 'houses', G.nextLevel(c, 'houses')) : cityAct(c, null, 'houses'));

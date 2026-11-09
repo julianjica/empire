@@ -43,6 +43,8 @@ node tests/culture.js             # happiness factors, tax policy, unrest and re
 node tests/endgame.js             # wonders, save slots, export/import, migrations
 node tests/naval.js               # seas, islands, harbors, ships, paths
 node tests/magic.js               # mana, ley enclaves, schools, spells, wild magic, the Great Working
+node tests/arcana.js              # the spellbook: circles, study queue, foreign schools, mastery, enchantments
+node tests/magi.js                # the circle of magi: recruiting, court and war magi, battle magic, duels
 node tests/heroes.js              # rival heroes, duels, arcana
 node tests/religion.js            # faiths, spread, priests, miracles, holy war, religious victory
 node tests/races.js               # the eight peoples: units, buildings, goods, flying/amphibious, raising the dead

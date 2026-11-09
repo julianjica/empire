@@ -999,9 +999,10 @@ G.applyDeal = (s, deal) => {
       }
       case 'tech': {
         const R = G.research(s, to);
-        if (R.active && R.active.id === it.id) G.cancelResearch(s, to);
-        R.done[it.id] = true;
+        if ((R.studies || []).some(x => x.id === it.id)) G.cancelResearch(s, to, it.id);
+        if (!R.done[it.id]) R.done[it.id] = true;
         if (R.queue) R.queue = R.queue.filter(q => q !== it.id);
+        if (G.bumpEpoch) G.bumpEpoch();
         break;
       }
       case 'map':
@@ -1078,7 +1079,7 @@ G.dealOptions = (s, ai) => {
     for (const c of G.citiesOf(s, who)) if (c !== capC) out.push({ t: 'city', id: c.id });
     if (s.minors) for (const m of Object.values(s.minors)) if (m.patron === who) out.push({ t: 'minor', id: m.id });
     if (G.techList && G.hasTech) {
-      const ts = G.techList(s, other).filter(id => G.hasTech(s, who, id) && !G.hasTech(s, other, id)).sort((a, b) => techValue(a) - techValue(b)).slice(0, 8);
+      const ts = G.techList(s, other).filter(id => !DATA.techs[id].repeat && G.hasTech(s, who, id) && !G.hasTech(s, other, id)).sort((a, b) => techValue(a) - techValue(b)).slice(0, 8);
       for (const id of ts) out.push({ t: 'tech', id });
     }
     out.push({ t: 'map' });

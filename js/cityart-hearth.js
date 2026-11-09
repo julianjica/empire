@@ -1307,40 +1307,83 @@
   });
 
   // =====================================================================
-  //  MAGE TOWER — a hedge wizard's crooked stone tower with a leaning pointed hat, round glowing
-  //  windows, drying herbs; it grows taller and stranger, a balcony and a telescope at the top
+  //  MAGE TOWER — the star-tower: thatched stone tower with a star vane → crooked tower under a
+  //  pointed hat → balcony and brass orrery → a domed observatory with a great telescope
   // =====================================================================
   reg('magetower', ([x, y, w, d], L, band) => {
-    const s = sub(L, band), cx = x + w / 2, cy = y + d / 2;
-    const segs = 2 + band, sh = 12 + Math.min(4, s), r0 = 0.36;
-    let z = 0, ox = 0, oy = 0;
+    // the hedge-wizard's star-tower: a squat thatched stone tower with a star on its vane (1-4), a crooked
+    // tower under a pointed hat (5-9), a balcony and brass orrery wheeling round the hat (10-14), and at
+    // last an observatory: a domed top with an open slit and a great telescope (15+). Thatch → slate → copper → gilt by era.
+    const M = CITYART.mage, s = sub(L, band), cx = x + w / 2, cy = y + d / 2, era = Math.max(0, Math.min(3, X.era | 0)), c = A.c;
+    const segs = [1, 2, 3, 3][band], sh = [16, 14, 14, 15][band] + Math.min(4, s), r0 = band === 0 ? 0.44 : 0.38;
+    const GOLDC = '#e2b84a', BRASS = era >= 3 ? '#e8c060' : '#c9a03a';
+    if (band >= 2) M.groundCircle(A, cx, cy, 0.68, 'rgba(70,90,170,0.45)', '#c8d8ff', 16);
     vegBed(x + 0.1, y + d - 0.35, 0.5, 0.2);
+    let z = 0, ox = 0, oy = 0;
     for (let k = 0; k < segs; k++) {
       const r = r0 - k * 0.035, col = k % 2 ? '#b8ae9c' : '#c8bea8';
       A.cyl(cx + ox, cy + oy, r, z, sh, col);
-      // a round glowing window
       const p = P(cx + ox + r * 0.7, cy + oy + r * 0.7, z + sh * 0.55); circ(p[0], p[1], 2.4, '#6a5a4a', null); A.lampDot(p[0], p[1], 1.7, '#5a6aa8', '#c8d8ff');
+      if (band >= 1) M.pulse(A, p[0], p[1], 7, '#a8c0ff', 1.6);
       if (k % 2 === 1) { const q = P(cx + ox - r * 0.3, cy + oy + r * 0.95, z + sh * 0.5); circ(q[0], q[1], 2, '#6a5a4a', null); A.lampDot(q[0], q[1], 1.4, '#5a6aa8', '#c8d8ff'); }
       z += sh; ox += (k % 2 ? -0.04 : 0.05); oy += 0.03;
     }
     const tx = cx + ox, ty = cy + oy, rt = r0 - segs * 0.035 + 0.06;
-    if (band >= 2) { A.cyl(tx, ty, rt + 0.1, z, 2, '#7a5434'); for (let k = 0; k < 7; k++) { const a = Math.PI * (k + 0.5) / 7; const [ex, ey, rx, ry] = A.ell(tx, ty, z + 2, rt + 0.1); line([ex - Math.cos(a) * rx, ey + Math.sin(a) * ry], [ex - Math.cos(a) * rx, ey + Math.sin(a) * ry - 4], '#5a3a22', 0.7); } }
-    // the hat: a cone whose tip leans and droops
-    const [bx0, by0, brx, bry] = A.ell(tx, ty, z + 2, rt + 0.04), hh = 26 + band * 5;
-    const tip = [bx0 + 7 + band * 2, by0 - hh], mid = [bx0 + 2, by0 - hh * 0.55];
-    const hc = A.SNOW ? '#e8eef2' : X.era >= 3 ? '#3a3a7a' : X.era >= 1 ? '#4a4a8a' : '#6a5a8a';
-    A.c.beginPath(); A.c.moveTo(bx0 - brx, by0); A.c.quadraticCurveTo(mid[0] - brx * 0.45, mid[1], tip[0], tip[1]); A.c.quadraticCurveTo(mid[0] + brx * 0.55, mid[1] + 3, bx0 + brx, by0); A.c.ellipse(bx0, by0, brx, bry, 0, 0, Math.PI); A.c.closePath();
-    A.gradFill(bx0 - brx, bx0 + brx, hc);
-    for (let k = 0; k < 4 + band; k++) { const t = (k * 0.37 + 0.15) % 0.8 + 0.1; const p = [bx0 + (tip[0] - bx0) * t + (k % 2 ? -2 : 2) * (1 - t), by0 + (tip[1] - by0) * t]; A.lampDot(p[0], p[1], 0.9, '#f2d870', '#fff4b0'); }
-    // a star on the tip, magic in orbit
-    A.lampDot(tip[0], tip[1] - 1, 1.8, '#f2d870', '#fff8d0');
-    A.rec('magic', { x: tip[0], y: tip[1] + 6, r: 8 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2, col: 'rgba(130,170,255,A)', seed: A.R(), bolt: band >= 3 });
-    A.rec('lights', { x: tip[0], y: tip[1], r: 20 });
-    // herbs hanging under the eave, a telescope at band 3
-    const [hx, hy] = P(tx + rt, ty + rt * 0.3, z - 2); for (let k = 0; k < 3; k++) { line([hx + k * 2, hy], [hx + k * 2, hy + 4], '#5a3a22', 0.5); circ(hx + k * 2, hy + 5, 1.2, A.SEASON === 2 ? '#a0803a' : '#5e8f3e', null); }
-    if (band >= 3 || X.tech('cartography')) { const [sx, sy] = P(tx + rt + 0.05, ty, z + 3); line([sx, sy], [sx + 8, sy - 6], '#c9a03a', 1.8); }
+    let top, orb;
+    if (band === 0) { // thatched cone and a star on the weathervane
+      const [bx, by, brx] = A.ell(tx, ty, z, rt + 0.12), hh = 18 + s;
+      A.cone(tx, ty, rt + 0.12, z, hh, '#c9a95a');
+      if (!A.GLOW && !A.SNOW) { c.beginPath(); for (let k = -3; k <= 3; k++) { c.moveTo(bx, by - hh + 2); c.lineTo(bx + k * brx / 3.2, by - 1); } c.strokeStyle = 'rgba(110,80,30,0.45)'; c.lineWidth = 0.6; c.stroke(); }
+      const [vx, vy] = P(tx, ty, z + hh); line([vx, vy], [vx, vy - 8], '#5a4a3a', 1);
+      star(vx, vy - 10, 3, GOLDC); top = z + hh + 12; orb = [vx, vy - 10];
+    } else if (band <= 2) { // the leaning pointed hat
+      if (band === 2) { // balcony ring with railings
+        A.cyl(tx, ty, rt + 0.14, z - 3, 2, '#7a5434');
+        const [ex, ey, rx, ry] = A.ell(tx, ty, z - 1, rt + 0.14);
+        for (let k = 0; k < 9; k++) { const a = Math.PI * (k + 0.5) / 9; line([ex - Math.cos(a) * rx, ey + Math.sin(a) * ry], [ex - Math.cos(a) * rx, ey + Math.sin(a) * ry - 4], '#5a3a22', 0.7); }
+        c.beginPath(); c.ellipse(ex, ey - 4, rx, ry, 0, 0, Math.PI); c.strokeStyle = A.F('#5a3a22'); c.lineWidth = 0.8; c.stroke();
+      }
+      const [bx0, by0, brx, bry] = A.ell(tx, ty, z + 2, rt + 0.04), hh = 26 + band * 6 + s;
+      const tip = [bx0 + 7 + band * 2, by0 - hh], mid = [bx0 + 2, by0 - hh * 0.55];
+      const hc = A.SNOW ? '#e8eef2' : era >= 3 ? '#3a3a7a' : era >= 1 ? '#4a4a8a' : '#8a7448';
+      c.beginPath(); c.moveTo(bx0 - brx, by0); c.quadraticCurveTo(mid[0] - brx * 0.45, mid[1], tip[0], tip[1]); c.quadraticCurveTo(mid[0] + brx * 0.55, mid[1] + 3, bx0 + brx, by0); c.ellipse(bx0, by0, brx, bry, 0, 0, Math.PI); c.closePath();
+      A.gradFill(bx0 - brx, bx0 + brx, hc);
+      if (era >= 2) { c.beginPath(); c.ellipse(bx0, by0 - 3, brx * 0.92, bry, 0, 0, Math.PI); c.strokeStyle = A.F(GOLDC); c.lineWidth = 1.4; c.stroke(); }
+      for (let k = 0; k < 4 + band * 2; k++) { const t = (k * 0.37 + 0.15) % 0.8 + 0.1; const p = [bx0 + (tip[0] - bx0) * t + (k % 2 ? -2 : 2) * (1 - t), by0 + (tip[1] - by0) * t]; A.lampDot(p[0], p[1], 0.9, '#f2d870', '#fff4b0'); }
+      star(tip[0], tip[1] - 1, 2.4, GOLDC); orb = [tip[0], tip[1] + 6]; top = z + 2 + hh * 0.8;
+      // herbs under the eave
+      const [hx, hy] = P(tx + rt, ty + rt * 0.3, z - 2); for (let k = 0; k < 3; k++) { line([hx + k * 2, hy], [hx + k * 2, hy + 4], '#5a3a22', 0.5); circ(hx + k * 2, hy + 5, 1.2, A.SEASON === 2 ? '#a0803a' : '#5e8f3e', null); }
+      if (band === 2) { // the brass orrery: rings round the hat, planets wheel on them after dark
+        const [ox2, oy2, orx, ory] = A.ell(tx, ty, z + 12, rt + 0.34);
+        for (const [k, tilt] of [[1, 0.18], [0.82, -0.25]]) { c.beginPath(); c.ellipse(ox2, oy2, orx * k, ory * k * 1.6, tilt, 0, Math.PI * 2); c.strokeStyle = A.GLOW ? '#ffe9a0' : BRASS; c.lineWidth = 0.9; c.stroke(); }
+        M.ring(A, tx, ty, z + 12, rt + 0.3, '#ffe39a', 4, 0.5);
+        const [sx, sy] = P(tx + rt + 0.05, ty, z + 3); line([sx, sy], [sx + 8, sy - 6], BRASS, 1.8);
+      }
+    } else { // the observatory: a wide drum, a dome split by a lit slit, and a great telescope
+      A.cyl(tx, ty, rt + 0.1, z, 6, '#c8bea8'); z += 6;
+      A.cyl(tx, ty, rt + 0.16, z, 1.6, '#7a5434');
+      const dc = A.SNOW ? '#e8eef2' : era >= 3 ? '#d8b04a' : era >= 2 ? '#5fa08a' : '#5a6a8a', dh = 18 + s;
+      A.dome(tx, ty, rt + 0.12, z + 1.6, dh, dc);
+      const [sx, sy] = P(tx + 0.05, ty + rt * 0.5, z + 1.6);
+      A.lamp([[sx - 2, sy - 1], [sx + 2, sy - 1], [sx + 1.2, sy - dh + 3], [sx - 1.2, sy - dh + 3]], '#1e2440', '#d8e4ff');
+      M.pulse(A, sx, sy - dh * 0.5, 10, '#c0d4ff', 1.2);
+      // the telescope out of the slit, angled to the sky; a brass armillary on the gallery
+      c.beginPath(); c.moveTo(sx - 1, sy - dh * 0.55); c.lineTo(sx + 14, sy - dh - 10); c.strokeStyle = A.F('#3a2a1a'); c.lineWidth = 4.2; c.stroke();
+      c.beginPath(); c.moveTo(sx - 1, sy - dh * 0.55); c.lineTo(sx + 14, sy - dh - 10); c.strokeStyle = A.F(BRASS); c.lineWidth = 2.8; c.stroke();
+      circ(sx + 14, sy - dh - 10, 1.8, '#3a2a1a', null); A.lampDot(sx + 14, sy - dh - 10, 1.1, '#5a6aa8', '#e8f0ff');
+      const [gx2, gy2] = P(tx - rt - 0.05, ty + 0.1, z + 6);
+      for (const tl of [0.5, -0.5, 0]) { c.beginPath(); c.ellipse(gx2, gy2, 4, tl ? 2 : 4, tl, 0, Math.PI * 2); c.strokeStyle = A.F(BRASS); c.lineWidth = 0.8; c.stroke(); }
+      A.lampDot(gx2, gy2, 1.2, '#f2d870', '#fff4b0');
+      M.ring(A, tx, ty, z + dh * 0.6, rt + 0.42, '#ffe39a', 5, 0.35);
+      const [px2, py2] = P(tx, ty, z + 1.6 + dh); star(px2, py2 - 4, 2.6, GOLDC);
+      orb = [px2, py2 - 4]; top = z + dh + 8;
+    }
+    A.rec('magic', { x: orb[0], y: orb[1], r: 8 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2, col: 'rgba(150,180,255,A)', seed: A.R(), bolt: false });
+    A.rec('lights', { x: orb[0], y: orb[1], r: 20 + band * 6 });
     A.door({ x: cx - r0, y: cy - r0, w: r0 * 2, d: r0 * 2, z: 0 }, 'L', r0 * 0.9, 0.16, 7, '#3a3a6a');
-    return z + 2 + hh * 0.75;
+    if (band >= 1) { const [bx, by] = P(x + w - 0.25, y + d - 0.15); line([bx, by], [bx, by - 7], '#5a4a3a', 1); A.lampDot(bx, by - 8, 1.3, '#e8b85a', '#ffd46e'); A.rec('lights', { x: bx, y: by - 8, r: 9 }); }
+    return top;
+    function star(sx0, sy0, r, col) { const pts = []; for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r; pts.push([sx0 + Math.cos(a) * rr, sy0 + Math.sin(a) * rr]); } A.lamp(pts, col, '#fff6c0'); if (!A.GLOW) A.poly(pts, null, '#7a5a1a', 0.5); M.pulse(A, sx0, sy0, 6 + r, '#ffe39a', 2.2); }
   });
 
   // =====================================================================

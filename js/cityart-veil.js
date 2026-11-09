@@ -954,30 +954,58 @@
     return 20 + band * 2;
   };
 
-  // ----- glamourweaver's spire (mage tower) -----
+  // ----- the glass of dreams (mage tower): a mirrored prism, floating shards, drifting lights -----
   ART.magetower = ([x, y, w, d], L, band) => {
-    const cx = x + w / 2, cy = y + d / 2, k = L - lo(band);
-    A.cyl(cx, cy, 0.5, 0, 3, E.stone, A.shade(E.stone, 0.06));
-    // stacked drums, each floating free of the one beneath
-    const segs = 2 + Math.min(3, band + (k >= 3 ? 1 : 0));
-    let z = 3, r = 0.3;
-    for (let s = 0; s < segs; s++) {
-      const gap = 3 + s, hh = 13 - s * 1.2 + band;
-      hover(cx, cy, r * 0.9, z, gap, 3);
-      z += gap; A.cyl(cx, cy, r, z, hh, s % 2 ? E.wood : (stoneWalls() ? E.stone : E.wood), A.shade(E.wood, 0.05));
-      A.twistLines(cx, cy, z, z + hh, r, A.shade(E.roof2, -0.1), 1.2, 0.05, s);
-      const [wx, wy] = P(cx + r * 0.6, cy + r * 0.6, z + hh * 0.35); A.lamp([[wx - 1.3, wy], [wx + 1.3, wy], [wx + 1.3, wy - 4], [wx, wy - 5.5], [wx - 1.3, wy - 4]], E.glass, E.ng);
-      A.cyl(cx, cy, r * 1.2, z + hh, 1.2, era >= 3 ? GOLD : E.metal);
-      z += hh + 1.2; r *= 0.86;
+    // the glass of dreams: a mirror-stone on a moonstone ring with lanterns drifting over it (1-4) → a hexagonal
+    // prism of mirrored glass, silver-ribbed, its point catching the moon (5-9) → a second prism floating free
+    // above the first, mirror shards circling the gap (10-14) → a soaring double prism crowned with a ring of
+    // light, beams of split colour falling from its point and lights drifting away into the night (15+).
+    // Lilac → periwinkle → teal → silver by era (the people's ERA palette). No mushrooms.
+    const M = CITYART.mage, cx = x + w / 2, cy = y + d / 2, k = L - lo(band);
+    const glass = (i, side, tip) => { // mirrored faces: sky above fading to the people's glass, bright at night
+      if (A.GLOW) return [E.ng, side > 0 ? E.ng : A.mix(E.ng, '#ffffff', 0.4)];
+      const fl = side > 0 ? 0.18 : -0.08;
+      return [tip ? A.shade(E.accent, fl + 0.1) : A.mix(A.shade(E.glass, fl), E.accent, 0.35 + (i % 2) * 0.2), E.ng];
+    };
+    const ribs = (r, z0, z1, rTop) => { for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + 0.26; if (Math.cos(a) + Math.sin(a) < -0.05) continue; A.line(P(cx + Math.cos(a) * r, cy + Math.sin(a) * r, z0), P(cx + Math.cos(a) * rTop, cy + Math.sin(a) * rTop, z1), era >= 3 ? GOLD : E.metal, 1.1); } };
+    const sheen = (r, z0, z1) => { if (A.GLOW) return; const a = P(cx - r * 0.2, cy + r * 0.8, z0 + 3), b = P(cx - r * 0.1, cy + r * 0.7, z1 - 2); A.line(a, b, 'rgba(255,255,255,0.75)', 1); A.line([a[0] + 2.4, a[1] - 3], [b[0] + 2, b[1] + 2], 'rgba(255,255,255,0.4)', 0.7); };
+    // moonstone ring and plinth
+    A.cyl(cx, cy, 0.52, 0, 2.5, E.stone, A.shade(E.stone, 0.06));
+    if (band >= 2) M.groundCircle(A, cx, cy, 0.66, 'rgba(150,120,220,0.5)', E.ng, 12);
+    let top, crown;
+    if (band === 0) {
+      const hz = M.prism(A, cx, cy, 0.2, 2.5, 15 + k * 1.5, 6, glass, 9, 0.17, 0.26);   // a mirror shard on the moonstone ring
+      ribs(0.2, 2.5, hz - 9, 0.17); sheen(0.2, 2.5, hz - 9);
+      mothPost(x + 0.3, y + d - 0.35, 13); mothPost(x + w - 0.3, y + 0.35, 11);
+      crown = P(cx, cy, hz + 6); top = hz + 8;
+      A.floatLantern(cx + 0.25, cy + 0.2, 26);
+    } else {
+      const r = [0, 0.3, 0.32, 0.34][band], h1 = [0, 40, 36, 44][band] + Math.min(8, k * 1.6);
+      A.cyl(cx, cy, r + 0.08, 2.5, 2, era >= 3 ? GOLD : E.metal);
+      let z = M.prism(A, cx, cy, r, 4.5, h1, 6, glass, band === 1 ? 14 : 0, band === 1 ? r : r * 0.92, 0.26);
+      ribs(r, 4.5, 4.5 + h1, band === 1 ? r : r * 0.92); sheen(r, 4.5, 4.5 + h1);
+      // windows of light up the faces, breathing after dark
+      for (let v = 10; v < h1 - 4; v += 10) { const p = P(cx + r * 0.62, cy + r * 0.62, 4.5 + v); A.lampDot(p[0], p[1], 1.2, E.accent, '#ffffff'); M.pulse(A, p[0], p[1], 7, E.ng, 1.3 + v * 0.02); }
+      if (band >= 2) { // a second prism floating free above the first
+        const gap = 7 + band * 2, r2 = r * 0.72, h2 = 18 + band * 6 + k;
+        hover(cx, cy, r2, z, gap, 4);
+        z = M.prism(A, cx, cy, r2, z + gap, h2, 6, glass, band >= 3 ? 20 : 14, r2 * 0.85, 0.26 + 0.52);
+        ribs(r2, z - h2 - (band >= 3 ? 20 : 14), z - (band >= 3 ? 20 : 14), r2 * 0.85);
+        const [gx, gy] = P(cx, cy, z - h2 - gap * 0.5 - (band >= 3 ? 20 : 14));
+        M.shards(A, gx, gy, { r: 16 + band * 4, h: 5, n: 3 + band, col: E.ng, sp: 0.35 });
+      }
+      crown = P(cx, cy, z + 4); top = z + 10;
+      if (band >= 3) { // a ring of light round the point and beams of split colour
+        M.ring(A, cx, cy, z - 8, 0.36, '#f4ecff', 6, 0.5);
+        if (!A.GLOW) for (const [dx, col] of [[-26, 'rgba(255,120,160,0.22)'], [-14, 'rgba(255,220,120,0.22)'], [16, 'rgba(120,220,255,0.24)'], [30, 'rgba(170,140,255,0.24)']]) { c.beginPath(); c.moveTo(crown[0], crown[1] + 2); c.lineTo(crown[0] + dx - 3, crown[1] + 70); c.lineTo(crown[0] + dx + 3, crown[1] + 70); c.closePath(); c.fillStyle = col; c.fill(); }
+        A.rec('sparks', { x: crown[0], y: crown[1] + 30, kind: 'motes', r: 34, n: 10, h: 90 });
+      }
+      for (const [gx, gy, zz] of [[x + 0.2, y + d - 0.3, 22 + band * 4], [x + w - 0.2, y + 0.3, 30 + band * 5]].slice(0, band)) A.floatLantern(gx, gy, zz);
     }
-    // crystal crown and the orbiting magic
-    const zc = z + 2;
-    A.crystal(cx - 0.12, cy + 0.05, zc - 2, 10 + band * 2, 0.06, '#a888f0'); A.crystal(cx + 0.1, cy - 0.12, zc - 2, 9, 0.06, '#88c8f0');
-    const top = A.crystal(cx, cy, zc - 2, 18 + band * 4, 0.1, '#c8b0ff');
-    const orb = P(cx, cy, top + 8); crescent(orb[0], orb[1], 3.2, '#f0e8ff', '#ffffff');
-    A.rec('magic', { x: orb[0], y: orb[1], r: 10 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2 + Math.floor(L / 5), col: 'rgba(214,170,255,A)', seed: A.R(), bolt: false });
-    light(orb[0], orb[1], 30 + band * 8);
-    return top + 12;
+    crescent(crown[0], crown[1], 2.6 + band * 0.4, '#f0e8ff', '#ffffff');
+    A.rec('magic', { x: crown[0], y: crown[1], r: 10 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2 + Math.floor(L / 5), col: 'rgba(214,170,255,A)', seed: A.R(), bolt: false });
+    light(crown[0], crown[1], 30 + band * 8);
+    return { top: top + 6, noDress: ['stock'], hit: [[x + 0.2, y + 0.2, w - 0.4, d - 0.4, top]] };
   };
 
   // ----- the Dreamspire: an impossible twisting tower wrapped in dreamsilk -----

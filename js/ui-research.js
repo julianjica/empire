@@ -182,7 +182,16 @@
       const qt = el('text', { y: 4, 'text-anchor': 'middle' }, qb);
       const lock = el('text', { class: 'tt-lock', x: NODE_R - 3, y: NODE_R - 1, 'text-anchor': 'middle' }, g); lock.textContent = '🔒';
       const star = el('text', { class: 'tt-recstar', x: -NODE_R + 3, y: NODE_R - 1, 'text-anchor': 'middle' }, g); star.textContent = '✦';
-      nodes[id] = { g, ring, qt, cls: '', q: '', pct: -1 };
+      let lvt = null;
+      if (t.repeat) {
+        // mastery techs: a dashed outer ring with a ↻ mark, and a level plate on top
+        el('circle', { r: NODE_R + 12.5, class: 'tt-repring' }, g);
+        const rp = el('text', { class: 'tt-repico', x: -NODE_R + 1, y: -NODE_R + 7, 'text-anchor': 'middle' }, g); rp.textContent = '↻';
+        const lb = el('g', { class: 'tt-lvbadge', transform: `translate(0 ${-NODE_R - 9})` }, g);
+        el('rect', { x: -23, y: -9, width: 46, height: 15, rx: 7 }, lb);
+        lvt = el('text', { y: 2.5, 'text-anchor': 'middle' }, lb); lvt.textContent = 'Lv 0';
+      }
+      nodes[id] = { g, ring, qt, lvt, lv: '', cls: '', q: '', pct: -1 };
     }
     // sticky lane labels (move with vertical pan only) and era headers (horizontal only)
     const laneG = el('g', { class: 'tt-lanelabels' }, svg);
@@ -402,19 +411,20 @@
   const tipHtml = id => {
     const t = T(id), st = status(id);
     const cost = Object.entries(st.cost || {}).map(([g, v]) => `${g === 'gold' ? '🪙' : DATA.goods[g].icon}${fmt(v)}`).join(' ');
-    return `<b>${t.icon} ${esc(t.name)}</b><div class="tt-tipsub">${DATA.techEras[t.era].name} · ${DATA.techBranches[t.branch].name}${t.race ? ' · ' + DATA.races[t.race].name + ' only' : ''}</div>
-      <div>${esc(G.techFxText(id))}</div>
-      ${st.done ? '<div class="good">Researched</div>' : `<div class="tt-tipcost">${cost} · ⏱ ${fmtTime(realSecs(st.time || 0))}</div>${st.reason ? `<div class="${st.poor ? 'muted' : 'warn'}">${esc(st.reason)}</div>` : ''}`}`;
+    return `<b>${t.icon} ${esc(t.name)}</b><div class="tt-tipsub">${DATA.techEras[t.era].name} · ${DATA.techBranches[t.branch].name}${t.race ? ' · ' + DATA.races[t.race].name + ' only' : ''}${t.repeat ? ` · ↻ mastery, level ${st.level || 0}` : ''}</div>
+      <div>${esc(G.techFxText(id))}${t.repeat ? ' (per level)' : ''}</div>
+      ${st.done && !t.repeat || st.maxed ? '<div class="good">Researched</div>' : `<div class="tt-tipcost">${cost} · ⏱ ${fmtTime(realSecs(st.time || 0))}</div>${st.reason ? `<div class="${st.poor ? 'muted' : 'warn'}">${esc(st.reason)}</div>` : ''}`}`;
   };
 
   // -------------------------------------------------------------------
   // state overlay
   // -------------------------------------------------------------------
+  // the city that would study a topic: the open one if its Academy is big enough and free, else the best free one
   const resCity = id => {
     const t = T(id);
     const cur = curCity();
-    if (cur && G.lvl(cur, 'academy') >= t.ac) return cur;
-    return G.bestAcademy(S, 'p') || cur;
+    if (cur && cur.owner === 'p' && G.lvl(cur, 'academy') >= t.ac && G.researchHostFree(S, cur) > 0) return cur;
+    return G.researchCityFor(S, 'p', id, cur) || (cur && G.lvl(cur, 'academy') >= t.ac ? cur : null) || G.bestAcademy(S, 'p') || cur;
   };
   const status = id => {
     const c = resCity(id);
@@ -434,19 +444,28 @@
     const rec = new Set(G.techRecommend(S, 'p', 3));
     const q = R.queue || [];
     const filtering = !!(tt.branch || (tt.search || '').trim());
+    const studying = {};
+    for (const x of R.studies) studying[x.id] = x;
     for (const id of L.ids) {
       const n = view.nodes[id], t = T(id);
+      const lv = t.repeat ? G.techLevel(S, 'p', id) : 0;
       let s;
-      if (R.done[id]) s = 'done';
-      else if (R.active && R.active.id === id) s = 'active';
+      if (studying[id]) s = 'active';
+      else if (R.done[id] && (!t.repeat || lv >= G.TECH_REPEAT_MAX)) s = 'done';
       else if (t.reqs.every(r => R.done[r])) s = ac >= t.ac ? 'avail' : 'gated';
       else s = 'locked';
       const qi = q.indexOf(id);
-      const cls = `tt-node ${ERA_CLS[t.era]} ${s}${rec.has(id) && s === 'avail' ? ' rec' : ''}${qi >= 0 ? ' queued' : ''}${tt.sel === id ? ' sel' : ''}${filtering && !matches(id) ? ' dim' : ''}${filtering && matches(id) ? ' hit' : ''}`;
+      const cls = `tt-node ${ERA_CLS[t.era]} ${s}${t.repeat ? ' repeat' : ''}${lv ? ' haslv' : ''}${rec.has(id) && s === 'avail' ? ' rec' : ''}${qi >= 0 ? ' queued' : ''}${tt.sel === id ? ' sel' : ''}${filtering && !matches(id) ? ' dim' : ''}${filtering && matches(id) ? ' hit' : ''}`;
       if (cls !== n.cls) { n.g.setAttribute('class', cls); n.cls = cls; }
-      const qs = qi >= 0 ? String(qi + 1) : '';
+      const qn = qi >= 0 ? q.filter(k => k === id).length : 0;
+      const qs = qi >= 0 ? String(qi + 1) + (qn > 1 ? '+' : '') : '';
       if (qs !== n.q) { n.qt.textContent = qs; n.q = qs; }
-      const pctv = s === 'active' ? Math.round(pct(S.time - R.active.start, R.active.end - R.active.start) * 2) / 2 : -1;
+      if (n.lvt) {
+        const lvs = studying[id] ? `Lv ${lv}→${lv + 1}` : `Lv ${lv}`;
+        if (lvs !== n.lv) { n.lvt.textContent = lvs; n.lv = lvs; }
+      }
+      const st = studying[id];
+      const pctv = st ? Math.round(pct(S.time - st.start, st.end - st.start) * 2) / 2 : -1;
       if (pctv !== n.pct) {
         const C = 2 * Math.PI * (NODE_R + 4.5);
         n.ring.setAttribute('stroke-dasharray', pctv >= 0 ? `${C * pctv / 100} ${C}` : `0 ${C}`);
@@ -454,7 +473,7 @@
       }
     }
     for (const l of view.links) {
-      const a = R.done[l.from], b = R.done[l.to] || (R.active && R.active.id === l.to);
+      const a = R.done[l.from], b = R.done[l.to] || studying[l.to];
       const cls = `tt-link ${ERA_CLS[T(l.to).era]} ${a && b ? 'done' : a ? 'ready' : ''}${tt.sel && (l.to === tt.sel || l.from === tt.sel) ? ' selpath' : ''}${filtering && !(matches(l.from) && matches(l.to)) ? ' dim' : ''}`;
       if (cls !== l.cls) { l.p.setAttribute('class', cls); l.cls = cls; }
     }
@@ -473,45 +492,90 @@
     if (!ids.length) return '';
     return `<div class="tt-rec"><span class="muted">✦ Recommended next:</span>${ids.map(id => { const st = status(id); return `<span class="tt-recitem"><button class="link" data-act="ttSel" data-t="${id}">${T(id).icon} ${esc(T(id).name)}</button><button class="small ${st.ok ? 'primary' : ''}" data-act="research" data-t="${id}" ${st.ok ? '' : 'disabled'} title="${esc(st.reason || G.techFxText(id))}">Research</button></span>`; }).join('')}</div>`;
   };
-  const activeHtml = R => {
-    if (!R.active) return '';
-    const t = T(R.active.id);
-    if (!t) return '';
-    return `<div class="tt-active"><span class="tt-activeico">${t.icon}</span><div class="tt-activebody"><div><b>Studying ${esc(t.name)}</b> <span class="muted">at ${esc((S.cities[R.active.city] || {}).name || '?')} · done in ${fmtTime(realSecs(R.active.end - S.time))}</span></div><div class="bar"><i style="width:${pct(S.time - R.active.start, R.active.end - R.active.start)}%"></i></div></div><button class="small" data-act="ttSel" data-t="${R.active.id}">Show</button><button class="small" data-act="cancelResearch" title="Refund 50%">Cancel</button></div>`;
+  // all running studies (one row per slot), free slots, and how to get more
+  const studiesHtml = R => {
+    const sl = G.researchSlots(S, 'p');
+    if (!sl.total && !R.studies.length) return '';
+    const rows = R.studies.map(x => {
+      const t = T(x.id);
+      if (!t) return '';
+      const p = pct(S.time - x.start, x.end - x.start);
+      return `<div class="tt-active"><span class="tt-activeico">${t.icon}</span><div class="tt-activebody"><div><b>${esc(t.name)}${t.repeat ? ` <span class="tt-lvtag">→ Lv ${x.level || G.techLevel(S, 'p', x.id) + 1}</span>` : ''}</b> <span class="muted">at ${esc((S.cities[x.city] || {}).name || '?')} · ${Math.round(p)}% · done in ${fmtTime(realSecs(x.end - S.time))}</span></div><div class="bar"><i style="width:${p}%"></i></div></div><span class="tt-actbtns"><button class="small" data-act="ttSel" data-t="${x.id}">Show</button><button class="small" data-act="cancelResearch" data-t="${x.id}" title="Stop this study: 50% of its goods come back" aria-label="Cancel ${esc(t.name)} (refunds 50%)">Cancel</button></span></div>`;
+    }).join('');
+    const free = Math.max(0, sl.total - R.studies.length);
+    const empty = free ? `<div class="tt-active tt-freeslot muted"><span class="tt-activeico">📖</span><div class="tt-activebody">${free} free study slot${free > 1 ? 's' : ''}: start a topic, or queue some and they begin by themselves.</div></div>` : '';
+    return `<div class="tt-studies"><div class="row tt-slothead"><b>Studies</b><span class="pill tt-slotpill" title="Parallel study slots: 1, plus one for every city with an Academy ${G.RESEARCH_SLOT_ACADEMY}+ (two for an Academy ${G.RESEARCH_DOUBLE_ACADEMY}+), up to ${G.RESEARCH_SLOT_MAX}">${R.studies.length} / ${sl.total} slot${sl.total === 1 ? '' : 's'}</span>${sl.hint ? `<span class="muted tt-slothint">➕ ${esc(sl.hint)}</span>` : ''}</div>${rows}${empty}</div>`;
   };
   const queueHtml = R => {
     const q = R.queue || [];
     if (!q.length) return '';
     const note = G.researchQueueNote(S, 'p');
-    return `<div class="tt-queue"><span class="muted">Queue (${q.length}):</span>${q.map((id, i) => `<span class="tt-qchip"><b>${i + 1}</b> <button class="link" data-act="ttSel" data-t="${id}">${T(id) ? T(id).icon + ' ' + esc(T(id).name) : esc(id)}</button>${i ? `<button class="small" data-act="ttMove" data-t="${id}" data-d="-1" aria-label="Move up" title="Move up">▲</button>` : ''}${i < q.length - 1 ? `<button class="small" data-act="ttMove" data-t="${id}" data-d="1" aria-label="Move down" title="Move down">▼</button>` : ''}<button class="small" data-act="ttUnqueue" data-t="${id}" aria-label="Remove ${esc(T(id) ? T(id).name : id)} from the queue" title="Remove (and anything queued that needs it)">✕</button></span>`).join('')}${note ? `<span class="warn tt-qnote">⏳ ${esc(note)}</span>` : ''}<span class="muted tt-qhint">Goods are paid when a topic starts. Shift-click a node to plan its whole path.</span></div>`;
+    const plan = G.researchQueuePlan(S, 'p');
+    const nNext = plan.filter(p => p.next).length;
+    const chipOf = (id, i) => {
+      const p = plan[i] || {}, t = T(id);
+      const tag = p.next ? `<span class="tt-qnext" title="Starts as soon as a study slot and goods allow, alongside the other ▶ topics">▶ next</span>`
+        : p.after ? `<span class="tt-qafter muted" title="Waits for ${esc(T(p.after) ? T(p.after).name : p.after)}">after ${esc(T(p.after) ? T(p.after).name : p.after)}</span>` : '';
+      return `<span class="tt-qchip ${p.next ? 'next' : ''}"><b>${i + 1}</b> <button class="link" data-act="ttSel" data-t="${id}">${t ? t.icon + ' ' + esc(t.name) : esc(id)}${t && t.repeat ? ` <span class="tt-lvtag">Lv ${p.level}</span>` : ''}</button>${tag}${i ? `<button class="small" data-act="ttMove" data-t="${id}" data-i="${i}" data-d="-1" aria-label="Move up" title="Move up">▲</button>` : ''}${i < q.length - 1 ? `<button class="small" data-act="ttMove" data-t="${id}" data-i="${i}" data-d="1" aria-label="Move down" title="Move down">▼</button>` : ''}<button class="small" data-act="ttUnqueue" data-t="${id}" data-i="${i}" aria-label="Remove ${esc(t ? t.name : id)} from the queue" title="Remove (and anything queued that needs it)">✕</button></span>`;
+    };
+    const sl = G.researchSlots(S, 'p');
+    return `<div class="tt-queue"><span class="muted">Queue (${q.length})${nNext ? ` · ▶ ${nNext} ${sl.free > 0 ? 'start' : 'take over'} next${nNext > 1 ? ', in parallel' : ''}` : ''}:</span>${q.map(chipOf).join('')}${note ? `<span class="warn tt-qnote">⏳ ${esc(note)}</span>` : ''}<span class="muted tt-qhint">Every free slot takes the first queued topic whose prerequisites are known. Goods are paid when a topic starts. Shift-click a node to plan its whole path.</span></div>`;
   };
   const chip = id => { const t = T(id); const R = G.research(S, 'p'); return `<button class="small tt-chip ${R.done[id] ? 'done' : ''}" data-act="ttSel" data-t="${id}">${t.icon} ${esc(t.name)}${R.done[id] ? ' ✓' : ''}</button>`; };
+  // the actions for one tech: start, queue (another level), plan path, unqueue, progress — the same in
+  // the detail card and in every row of the list view
+  const actionsHtml = (id, compact) => {
+    const t = T(id), st = status(id), R = G.research(S, 'p'), q = R.queue || [];
+    const c = resCity(id);
+    const pos = []; q.forEach((k, i) => { if (k === id) pos.push(i); });
+    const out = [];
+    if (st.done && !t.repeat) return '<span class="good">✅ Researched</span>';
+    if (st.maxed) return `<span class="good">✅ Mastered (Lv ${st.level})</span>`;
+    if (t.repeat) out.push(`<span class="tt-lvtag" title="Mastery level: each level adds the effect again">Lv ${st.level || 0} → ${(st.level || 0) + 1}</span>`);
+    if (st.active) {
+      const x = st.study, p = pct(S.time - x.start, x.end - x.start);
+      out.push(`<span class="tt-lprog"><span class="good">📖 ${Math.round(p)}%</span><span class="bar"><i style="width:${p}%"></i></span><span class="muted">${fmtTime(realSecs(x.end - S.time))} left${compact ? '' : ' at ' + esc((S.cities[x.city] || {}).name || '?')}</span></span>`);
+      out.push(`<button class="small" data-act="cancelResearch" data-t="${id}" title="Stop this study: 50% of its goods come back">Cancel</button>`);
+    } else if (!(compact && st.locked)) {
+      out.push(`<button class="small ${st.ok ? 'primary' : ''}" data-act="research" data-t="${id}" ${st.ok ? '' : 'disabled'} title="${esc(st.ok ? `Start now${c ? ' at ' + c.name : ''}` : st.reason || '')}">${compact ? 'Start' : 'Research now'}</button>`);
+    }
+    const planN = G.techPath(S, 'p', id).filter(k => k !== id && !q.includes(k)).length;
+    if (t.repeat) {
+      const planned = (st.level || 0) + (st.active ? 1 : 0) + pos.length;
+      if (planned < G.TECH_REPEAT_MAX) out.push(planN > 0
+        ? `<button class="small" data-act="ttPlan" data-t="${id}" title="Queue the ${planN} missing prerequisite${planN > 1 ? 's' : ''} and level ${planned + 1}">🗺️ Plan path (+${planN})</button>`
+        : `<button class="small" data-act="ttQueue" data-t="${id}" title="Add level ${planned + 1} to the queue (queue as many levels as you like)">＋ Queue Lv ${planned + 1}</button>`);
+      if (pos.length) out.push(`<span class="tt-qpos" title="Queued levels">#${pos.map(i => i + 1).join(', #')}</span><button class="small" data-act="ttUnqueue" data-t="${id}" data-i="${pos[pos.length - 1]}" title="Remove the last queued level">− Lv</button>`);
+    } else if (pos.length) {
+      out.push(`<span class="tt-qpos">Queued #${pos[0] + 1}</span><button class="small" data-act="ttUnqueue" data-t="${id}" data-i="${pos[0]}" title="Remove from the queue (and anything queued that needs it)">Unqueue</button>`);
+    } else if (!st.active) {
+      out.push(planN > 0
+        ? `<button class="small" data-act="ttPlan" data-t="${id}" title="Queue the ${planN} missing prerequisite${planN > 1 ? 's' : ''} and this, in order (shift-click on the tree)">🗺️ Plan path (+${planN})</button>`
+        : `<button class="small" data-act="ttQueue" data-t="${id}" title="Starts when a study slot is free and goods allow">＋ Queue</button>`);
+    }
+    if (!compact) {
+      out.push(`<span class="muted" style="font-size:12px">⏱ ${fmtTime(realSecs(st.time || 0))}${c ? ' at ' + esc(c.name) : ''}</span>`);
+      if (st.reason && !st.active) out.push(`<span class="${st.poor || st.busy ? 'muted' : 'warn'}" style="font-size:12px">${esc(st.reason)}</span>`);
+    } else if (st.locked && !st.active) out.push(`<span class="muted tt-lwhy" title="${esc(st.reason || '')}">🔒</span>`);
+    return out.join('');
+  };
   const detailHtml = city => {
     const id = tt.sel;
-    if (!id || !T(id) || !G.techForOwner(S, 'p', id)) return `<div class="tt-detail tt-detail-empty muted">Select a technology to see what it does, what it needs and what it opens. ${DATA.techEras.map((e, i) => `<span class="tt-legend ${ERA_CLS[i]}">${e.icon} ${e.name}: ${ERA_MAT[i].toLowerCase()}</span>`).join(' ')}</div>`;
-    const t = T(id), st = status(id), R = G.research(S, 'p');
+    if (!id || !T(id) || !G.techForOwner(S, 'p', id)) return `<div class="tt-detail tt-detail-empty muted">Select a technology to see what it does, what it needs and what it opens. ${DATA.techEras.map((e, i) => `<span class="tt-legend ${ERA_CLS[i]}">${e.icon} ${e.name}: ${ERA_MAT[i].toLowerCase()}</span>`).join(' ')} <span class="tt-legend tt-legrep">↻ Mastery: study again and again</span></div>`;
+    const t = T(id), st = status(id);
     const c = resCity(id);
     const unlocks = G.techUnlocks(id).filter(k => G.techForOwner(S, 'p', k));
-    const path = G.techPath(S, 'p', id);
-    const inQ = (R.queue || []).includes(id);
-    const planN = path.filter(k => k !== id && !(R.queue || []).includes(k)).length;
-    let action;
-    if (st.done) action = '<span class="good">✅ Researched</span>';
-    else if (st.active) action = `<span class="good">📖 Being studied: ${fmtTime(realSecs(R.active.end - S.time))} left</span>`;
-    else action = `<button class="${st.ok ? 'primary' : ''}" data-act="research" data-t="${id}" ${st.ok ? '' : 'disabled'}>Research</button>
-      ${inQ ? `<button class="small" data-act="ttUnqueue" data-t="${id}">Remove from queue</button>` : `<button class="small" data-act="ttQueue" data-t="${id}" title="Starts when the scholars are free and goods allow (prerequisites must be known or queued)">Queue</button>${planN > 0 ? `<button class="small" data-act="ttPlan" data-t="${id}" title="Queue the ${planN} missing prerequisite${planN > 1 ? 's' : ''} and this, in order (shift-click on the tree)">🗺️ Plan path (+${planN})</button>` : ''}`}
-      <span class="muted" style="font-size:12px">⏱ ${fmtTime(realSecs(st.time || 0))}${c ? ' at ' + esc(c.name) : ''}</span>
-      ${st.reason ? `<span class="${st.poor || st.busy ? 'muted' : 'warn'}" style="font-size:12px">${esc(st.reason)}</span>` : ''}`;
-    return `<div class="tt-detail ${ERA_CLS[t.era]}">
-      <div class="row"><span class="tt-dico ${ERA_CLS[t.era]}">${t.icon}</span><div><h3 style="margin:0">${esc(t.name)}</h3>
+    const lv = t.repeat ? G.techLevel(S, 'p', id) : 0;
+    return `<div class="tt-detail ${ERA_CLS[t.era]}${t.repeat ? ' repeat' : ''}">
+      <div class="row"><span class="tt-dico ${ERA_CLS[t.era]}">${t.icon}</span><div><h3 style="margin:0">${esc(t.name)}${t.repeat ? ` <span class="tt-lvtag">↻ Lv ${lv}</span>` : ''}</h3>
         <div class="muted" style="font-size:12px">${DATA.techEras[t.era].icon} ${DATA.techEras[t.era].name} era, tier ${t.tier + 1} · ${DATA.techBranches[t.branch].icon} ${DATA.techBranches[t.branch].name} · Academy ${t.ac}${t.race ? ` · <b style="color:${DATA.races[t.race].color}">★ ${DATA.races[t.race].name} heritage</b>` : ''}</div></div>
         <span class="spacer"></span><button class="small" data-act="ttFocus" title="Centre the tree on this technology">🎯</button><button class="small" data-act="ttSel" data-t="" aria-label="Close details">✕</button></div>
       <p class="tt-flavor">${esc(t.flavor || '')}</p>
-      <p class="tt-fx"><b>Effect:</b> ${esc(G.techFxText(id))}</p>
+      <p class="tt-fx"><b>Effect${t.repeat ? ' per level' : ''}:</b> ${esc(G.techFxText(id))}${t.repeat ? ` <span class="muted">Mastery tech: study it again and again (up to level ${G.TECH_REPEAT_MAX}); each level costs ×${G.TECH_REPEAT_COST} more and takes a little longer.${lv > 1 ? ` Now: level ${lv}.` : ''}</span>` : ''}</p>
       <div class="tt-rel"><span class="muted">Needs:</span> ${t.reqs.length ? t.reqs.map(chip).join(' ') : '<span class="muted">nothing: a first step</span>'}</div>
-      <div class="tt-rel"><span class="muted">Opens:</span> ${unlocks.length ? unlocks.map(chip).join(' ') : '<span class="muted">nothing further: a pinnacle</span>'}</div>
-      ${st.done ? '' : `<div class="tt-costrow">${costHtml(st.cost || {}, c || city)}</div>`}
-      <div class="row tt-actions">${action}</div></div>`;
+      <div class="tt-rel"><span class="muted">Opens:</span> ${unlocks.length ? unlocks.map(chip).join(' ') : `<span class="muted">${t.repeat ? 'more of the same, level after level' : 'nothing further: a pinnacle'}</span>`}</div>
+      ${st.done && !t.repeat ? '' : `<div class="tt-costrow">${t.repeat ? `<span class="muted">Level ${(st.level || 0) + 1}:</span> ` : ''}${costHtml(st.cost || {}, c || city)}</div>`}
+      <div class="row tt-actions">${actionsHtml(id, false)}</div></div>`;
   };
   const toolbar = () => `<div class="tt-toolbar">
       <div class="tt-eras">${eraPills()}</div>
@@ -534,10 +598,11 @@
           if (!l.length) return '';
           return `<div class="group-title">${DATA.techBranches[b].icon} ${DATA.techBranches[b].name}</div>${l.map(id => {
             const t = T(id), st = status(id);
-            const s = R.done[id] ? 'done' : st.active ? 'active' : st.locked ? 'locked' : 'avail';
-            return `<div class="tt-lrow ${s} ${tt.sel === id ? 'sel' : ''}"><button class="tt-lname link" data-act="ttSel" data-t="${id}"><span class="tt-lico">${t.icon}</span> ${esc(t.name)}${t.race ? ' <span style="color:' + DATA.races[t.race].color + '">★</span>' : ''}</button>
-              <span class="tt-lfx muted">${esc(G.techFxText(id))}</span>
-              <span class="tt-lst">${s === 'done' ? '✅' : s === 'active' ? '📖 ' + Math.round(pct(S.time - R.active.start, R.active.end - R.active.start)) + '%' : s === 'locked' ? `<span class="muted" title="${esc(st.reason || '')}">🔒</span>` : `<button class="small ${st.ok ? 'primary' : ''}" data-act="research" data-t="${id}" ${st.ok ? '' : 'disabled'} title="${esc(st.reason || '')}">Research</button>`}</span></div>`;
+            const s = st.active ? 'active' : (st.done && !t.repeat) || st.maxed ? 'done' : st.locked ? 'locked' : 'avail';
+            const queued = (R.queue || []).includes(id);
+            return `<div class="tt-lrow ${s}${t.repeat ? ' repeat' : ''}${queued ? ' queued' : ''} ${tt.sel === id ? 'sel' : ''}"><button class="tt-lname link" data-act="ttSel" data-t="${id}"><span class="tt-lico">${t.icon}</span> ${esc(t.name)}${t.race ? ' <span style="color:' + DATA.races[t.race].color + '">★</span>' : ''}${t.repeat ? ' <span class="tt-repmark" title="Mastery tech: can be studied again and again">↻</span>' : ''}</button>
+              <span class="tt-lfx muted">${esc(G.techFxText(id))}${t.repeat ? ' (per level)' : ''}</span>
+              <span class="tt-lst">${actionsHtml(id, true)}</span></div>`;
           }).join('')}`;
         }).join('')}</div>`;
     }).join('');
@@ -547,13 +612,14 @@
     const R = G.research(S, 'p');
     const best = G.bestAcademy(S, 'p');
     const n = G.techList(S, 'p'), done = n.filter(id => R.done[id]).length;
+    const sl = G.researchSlots(S, 'p'), nb = n.filter(id => !T(id).repeat).length, kb = n.filter(id => !T(id).repeat && R.done[id]).length;
     const intro = best
-      ? `<p class="tt-intro">Research is shared by your whole realm; one study at a time, paid from the city that studies it. The best Academy is in <b>${esc(best.name)}</b> (level ${G.lvl(best, 'academy')}); deeper tiers need a bigger Academy. Known: <b>${done}</b> of ${n.length} techniques.</p>`
+      ? `<p class="tt-intro">Research is shared by your whole realm. You can run <b>${sl.total} stud${sl.total === 1 ? 'y' : 'ies'} at once</b>, each in a different Academy and paid by the city that studies it; every city with an Academy ${G.RESEARCH_SLOT_ACADEMY}+ adds a slot (an Academy ${G.RESEARCH_DOUBLE_ACADEMY}+ runs two), up to ${G.RESEARCH_SLOT_MAX}. The best Academy is in <b>${esc(best.name)}</b> (level ${G.lvl(best, 'academy')}); deeper tiers need a bigger Academy. Known: <b>${kb}</b> of ${nb} techniques, plus ↻ mastery techs you can study again and again.</p>`
       : `<p class="tt-intro"><span class="warn">You have no Academy yet.</span> Build one (Town Hall 3) to begin research. Known: ${done} of ${n.length}.</p>`;
     if (tt.list === null) tt.list = false;
     return `<div class="card tt-card">
         <div class="row tt-title"><h2 style="margin:0">📚 Research</h2><span class="pill tt-erapill ${ERA_CLS[G.techEra(S, 'p')]}">${DATA.techEras[G.techEra(S, 'p')].icon} ${DATA.techEras[G.techEra(S, 'p')].name} era</span></div>
-        ${intro}${activeHtml(R)}${queueHtml(R)}${recList()}
+        ${intro}${studiesHtml(R)}${queueHtml(R)}${recList()}
         ${toolbar()}
       </div>
       ${listMode() ? `<div class="card tt-list">${listHtml(city)}</div>` : '<div id="ttHost" class="tt-host"><div class="tt-loading muted">Unrolling the scrolls…</div></div>'}
@@ -596,19 +662,23 @@
       const t = T(d.t);
       if (!t) return;
       const cur = curCity();
-      let c = cur && G.lvl(cur, 'academy') >= t.ac && G.canAfford(S, cur, G.techCost(d.t)) ? cur : null;
-      if (!c) c = G.citiesOf(S, 'p').filter(x => G.lvl(x, 'academy') >= t.ac && G.canAfford(S, x, G.techCost(d.t))).sort((a, b) => G.lvl(b, 'academy') - G.lvl(a, 'academy'))[0];
-      if (!c) c = resCity(d.t) || cur;
+      const c = G.researchCityFor(S, 'p', d.t, cur) || resCity(d.t) || cur;
+      if (!c) return;
       const err = G.startResearch(S, c.id, d.t);
       toast(err || `Scholars in ${c.name} begin studying ${t.name}`);
       render(true);
     },
     ttSel: d => { tt.sel = d.t || null; render(true); },
     ttFocus: () => { if (view && tt.sel && L.pos[tt.sel]) flyTo(L.pos[tt.sel].x, L.pos[tt.sel].y, Math.max(tt.z, 0.9)); },
-    ttQueue: d => { toast(G.queueResearch(S, 'p', UI.city, d.t) || `${T(d.t).name} added to the research queue`); render(true); },
+    ttQueue: d => {
+      const err = G.queueResearch(S, 'p', UI.city, d.t), R = G.research(S, 'p');
+      const lv = T(d.t).repeat ? G.techLevel(S, 'p', d.t) + (R.studies.some(x => x.id === d.t) ? 1 : 0) + (R.queue || []).filter(k => k === d.t).length : 0;
+      toast(err || `${T(d.t).name}${lv ? ' level ' + lv : ''} added to the research queue`); render(true);
+    },
     ttPlan: d => planTo(d.t),
-    ttUnqueue: d => { G.unqueueResearch(S, 'p', d.t); render(true); },
-    ttMove: d => { const e = G.moveQueuedResearch(S, 'p', d.t, +d.d); if (e) toast(e); render(true); },
+    ttUnqueue: d => { G.unqueueResearch(S, 'p', d.t, d.i !== undefined && d.i !== '' ? +d.i : undefined); render(true); },
+    ttMove: d => { const e = G.moveQueuedResearch(S, 'p', d.t, +d.d, d.i !== undefined && d.i !== '' ? +d.i : undefined); if (e) toast(e); render(true); },
+    cancelResearch: d => { G.cancelResearch(S, 'p', d && d.t ? d.t : undefined); render(true); },
     ttEra: d => {
       if (listMode()) { const e = document.querySelector(`.tt-listera.${ERA_CLS[+d.e]}`); if (e) e.scrollIntoView({ behavior: 'smooth' }); return; }
       if (!view) return;

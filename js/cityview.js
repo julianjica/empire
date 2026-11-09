@@ -2387,20 +2387,66 @@
     return top;
   }
 
-  // ---- ley enclave: a luminous rune circle round the plaza and light streams across the plot ----
+  // ---- ley: the real ley lines near the city cross the plot as glowing seams in the ground (their world bearing);
+  //      a tapped enclave adds a luminous rune circle round the plaza. Pulses run along the seams after dark. ----
   const leyStrength = p => 0.3 + 0.7 * (p / (p + 1));
-  const LEY_LINES = [[[0.4, 7.2], [23.6, 16.8]], [[8.0, 0.4], [16.0, 23.6]]];
-  function leyPts(a, b) { const out = []; for (let i = 0; i <= 24; i++) { const t = i / 24, w = Math.sin(t * Math.PI * 3) * 0.35; out.push(P(a[0] + (b[0] - a[0]) * t + w * 0.4, a[1] + (b[1] - a[1]) * t - w * 0.4)); } return out; }
+  const LEY_FALLBACK = [[[0.4, 7.2], [23.6, 16.8]], [[8.0, 0.4], [16.0, 23.6]]];
+  let LEYGEO = null;   // { lines: [[a, b]…] in grid tiles, ring: bool, cols: [hex…] } — set in rebuild
+  function leyGeom(city) {
+    const out = { lines: [], ring: false, cols: [] };
+    try {
+      const ley = S.ley; if (!ley || !ley.nodes) return null;
+      const reach = (typeof G.cityReach === 'function' ? G.cityReach(S, city) : 2) + 1.5;
+      const segs = [];
+      for (const [i, j] of ley.lines || []) {
+        const A0 = ley.nodes[i], B0 = ley.nodes[j]; if (!A0 || !B0) continue;
+        const vx = B0.x - A0.x, vy = B0.y - A0.y, L2 = vx * vx + vy * vy || 1, t = clampv(((city.x - A0.x) * vx + (city.y - A0.y) * vy) / L2, 0, 1);
+        const dd = Math.hypot(A0.x + vx * t - city.x, A0.y + vy * t - city.y);
+        if (dd <= reach) segs.push({ dd, ang: Math.atan2(vy, vx), off: ((city.x - A0.x) * vy - (city.y - A0.y) * vx) / Math.sqrt(L2), n: [A0, B0] });
+      }
+      segs.sort((a, b) => a.dd - b.dd);
+      for (const sg of segs.slice(0, 2)) {   // world x → gx, world y → gy: the seam keeps the line's bearing, shifted by how far it runs from the city
+        const ca = Math.cos(sg.ang), sa = Math.sin(sg.ang), o = clampv(-sg.off * 2.2, -6, 6), mx = 12 - sa * o, my = 12 + ca * o;
+        out.lines.push([[mx - ca * 17, my - sa * 17], [mx + ca * 17, my + sa * 17]]);
+        const sc = sg.n.map(nd => nd.school || (typeof G.leySchool === 'function' ? G.leySchool(nd) : null)).find(k => k && DATA.schools && DATA.schools[k]);
+        out.cols.push(sc ? DATA.schools[sc].color : null);
+      }
+      out.ring = ley.nodes.some(nd => Math.hypot(nd.x - city.x, nd.y - city.y) <= reach && (typeof G.nodeTapper !== 'function' || G.nodeTapper(S, nd) === city));
+    } catch (e) { return null; }
+    return out;
+  }
+  // clip a straight grid line to the plot and wobble it like a crack in the earth
+  function leyPts(a, b) {
+    const out = [];
+    for (let i = 0; i <= 32; i++) {
+      const t = i / 32, gx = a[0] + (b[0] - a[0]) * t, gy = a[1] + (b[1] - a[1]) * t, w = Math.sin(t * Math.PI * 5) * 0.18 + Math.sin(t * 37.7) * 0.06;
+      if (gx < 0.2 || gy < 0.2 || gx > N - 0.2 || gy > N - 0.2) continue;
+      out.push(P(gx + w * 0.7, gy - w * 0.7));
+    }
+    return out.length > 1 ? out : null;
+  }
+  const hexRgb = h => { const v = parseInt(String(h || '#78e6ff').slice(1, 7), 16) || 0; return `${v >> 16 & 255},${v >> 8 & 255},${v & 255}`; };
   function drawLey(p) {
-    const s = leyStrength(p);
+    const s = leyStrength(p), geo = LEYGEO || { lines: LEY_FALLBACK, ring: true, cols: [] };
     const stroke = (pts, col, lw) => { c.beginPath(); c.moveTo(...pts[0]); for (const q of pts) c.lineTo(...q); c.strokeStyle = col; c.lineWidth = lw; c.stroke(); };
-    const lines = LEY_LINES.map(([a, b]) => leyPts(a, b));
-    for (const pts of lines) { stroke(pts, GLOW ? `rgba(120,230,255,${0.5 + 0.5 * s})` : `rgba(90,200,230,${0.12 + 0.2 * s})`, 2 + 4 * s); stroke(pts, GLOW ? '#d8fbff' : `rgba(200,250,255,${0.3 + 0.4 * s})`, 0.8 + 0.6 * s); }
-    const [ex, ey, rx, ry] = ell(12, 12, 0, 2.02);
-    const ringCol = GLOW ? '#b8f6ff' : `rgba(70,190,225,${0.45 + 0.4 * s})`;
-    for (const k of [1, 0.9]) { c.beginPath(); c.ellipse(ex, ey, rx * k, ry * k, 0, 0, TAU); c.strokeStyle = ringCol; c.lineWidth = k === 1 ? 1.6 : 0.9; c.stroke(); }
-    for (let k = 0; k < 16; k++) { const a = k / 16 * TAU, x1 = ex + Math.cos(a) * rx * 0.95, y1 = ey + Math.sin(a) * ry * 0.95; c.beginPath(); c.moveTo(x1 - 1.6, y1); c.lineTo(x1, y1 - 1.2); c.lineTo(x1 + 1.6, y1); c.lineTo(x1, y1 + 1.2); c.closePath(); c.fillStyle = ringCol; c.fill(); }
-    rec('ley', { lines, s, ring: [ex, ey, rx, ry] });
+    const lines = [], cols = [];
+    geo.lines.forEach(([a, b], i) => { const pts = leyPts(a, b); if (pts) { lines.push(pts); cols.push(geo.cols[i] ? hexRgb(mix(geo.cols[i], '#e8fbff', 0.35)) : '120,230,255'); } });
+    lines.forEach((pts, i) => {
+      const rgb = cols[i];
+      // a seam: a dark scar in the turf with a glowing core (bright in the night-lights pass)
+      if (!GLOW) { stroke(pts, `rgba(${rgb},${0.16 + 0.14 * s})`, 7 + 5 * s); stroke(pts, `rgba(40,46,64,${0.3 + 0.15 * s})`, 2.6 + 1.4 * s); }
+      stroke(pts, GLOW ? `rgba(${rgb},${0.55 + 0.45 * s})` : `rgba(${rgb},${0.5 + 0.3 * s})`, 1.4 + 1.8 * s);
+      stroke(pts, GLOW ? '#e8fdff' : `rgba(240,253,255,${0.55 + 0.35 * s})`, 0.6 + 0.5 * s);
+    });
+    let ring = null;
+    if (geo.ring || !lines.length) {
+      const [ex, ey, rx, ry] = ell(12, 12, 0, 2.02);
+      const ringCol = GLOW ? '#b8f6ff' : `rgba(70,190,225,${0.45 + 0.4 * s})`;
+      for (const k of [1, 0.9]) { c.beginPath(); c.ellipse(ex, ey, rx * k, ry * k, 0, 0, TAU); c.strokeStyle = ringCol; c.lineWidth = k === 1 ? 1.6 : 0.9; c.stroke(); }
+      for (let k = 0; k < 16; k++) { const a = k / 16 * TAU, x1 = ex + Math.cos(a) * rx * 0.95, y1 = ey + Math.sin(a) * ry * 0.95; c.beginPath(); c.moveTo(x1 - 1.6, y1); c.lineTo(x1, y1 - 1.2); c.lineTo(x1 + 1.6, y1); c.lineTo(x1, y1 + 1.2); c.closePath(); c.fillStyle = ringCol; c.fill(); }
+      ring = [ex, ey, rx, ry];
+    }
+    rec('ley', { lines, cols: cols.map(r => `rgba(${r},A)`), s, ring });
   }
 
   // ------------------------------------------------------------------
@@ -3590,7 +3636,7 @@
     REG = computeRegion(city);
     applyLayout(computeLayout(city, REG));
     GROUND = groundColor(city.terrain);
-    LEY = leyOf(city);
+    LEY = leyOf(city); LEYGEO = LEY > 0 ? leyGeom(city) : null;
     const t0 = performance.now();
     const dc = dayC.getContext('2d'); dc.setTransform(1, 0, 0, 1, 0, 0); dc.clearRect(0, 0, dayC.width, dayC.height);
     recd = drawScene(dc, false, K, OFFX, OFFY);
@@ -3647,6 +3693,8 @@
     ctx.setTransform(K, 0, 0, K, OFFX, OFFY);
     drawLights(city, t, la);
     ctx.globalCompositeOperation = 'source-over';
+    drawMagicFx(city, t, la);
+    ctx.globalCompositeOperation = 'source-over';
     drawWeather(t, night);
     drawHover(t);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
@@ -3656,6 +3704,7 @@
 
   const PRODUCER = { farm: 1, lumber: 1, quarry: 1, mine: 1, smelter: 1, smithy: 1, armory: 1, bakery: 1, runeforge: 1, heartgrove: 1, pearlbeds: 1, workshop: 1, warehouse: 1, market: 1 };
   function refinerOn(city, type) { return G.lvl(city, type) > 0 && !(city.refineOff && city.refineOff[type]) && ((city.refineEff && city.refineEff[type]) || 0) > 0.05; }
+  const FIRE_COLS = ['#e8582a', '#ffb03a', '#fff0a0'];
   function drawDynamic(city, t, night) {
     const X = ctx;
     // smoke
@@ -3708,7 +3757,8 @@
     for (const f of recd.fires) {
       if (f.glowOnly || dormant(f.bt)) continue;
       const fl = 0.75 + 0.25 * Math.sin(t * 13 + f.x) * Math.sin(t * 7.3 + f.y);
-      flame(f.x, f.y, 5 * f.s * fl, '#e8582a'); flame(f.x + 1, f.y, 3.4 * f.s * fl, '#ffb03a'); flame(f.x + 0.5, f.y, 1.8 * f.s, '#fff0a0');
+      const fc = f.cols || FIRE_COLS;   // rec('fires', {…, cols: [outer, mid, core]}) recolours a fire (the Ashborn blood-brazier)
+      flame(f.x, f.y, 5 * f.s * fl, fc[0]); flame(f.x + 1, f.y, 3.4 * f.s * fl, fc[1]); flame(f.x + 0.5, f.y, 1.8 * f.s, fc[2]);
     }
     // flags
     for (const f of recd.flags) {
@@ -3853,11 +3903,26 @@
         glowDot(x, y, 10, 'rgba(210,180,255,A)', 0.25 + la * 0.55); X.fillStyle = la > 0.3 ? '#f4ecff' : '#cdb8f0'; X.fillRect(x - 1.2, y - 1.6, 2.4, 3.2);
       }
       else if (s.kind === 'motes') { for (let k = 0; k < s.n; k++) { const ph = (t * 0.07 + k / s.n) % 1, a = k * 2.39 + t * 0.4; const x = s.x + Math.cos(a) * s.r * (0.3 + ph), y = s.y + s.h * 0.35 - ph * s.h * 0.9; glowDot(x, y, 3.2, k % 3 ? 'rgba(220,200,255,A)' : 'rgba(170,240,255,A)', (0.4 + la * 0.5) * Math.sin(ph * Math.PI)); } }
+      // CITYART.mage records (js/cityart.js): breathing glows, turning glyph rings, rising motes, bobbing shards
+      else if (s.kind === 'pulse') glowDot(s.x, s.y, s.r, s.col, (0.28 + la * 0.5) * (0.55 + 0.45 * Math.sin(t * s.sp + s.ph)));
+      else if (s.kind === 'ring') { for (let k = 0; k < s.n; k++) { const a = t * s.sp + s.ph + k * TAU / s.n, front = Math.sin(a) > 0; glowDot(s.x + Math.cos(a) * s.rx, s.y + Math.sin(a) * s.ry, front ? 4 : 2.8, s.col, (front ? 0.75 : 0.35) * (0.55 + la * 0.45)); if (front) { X.fillStyle = s.col.replace('A', 0.9); X.fillRect(s.x + Math.cos(a) * s.rx - 0.8, s.y + Math.sin(a) * s.ry - 0.8, 1.6, 1.6); } } }
+      else if (s.kind === 'rise') { for (let k = 0; k < s.n; k++) { const ph = (t * s.sp + k / s.n + s.ph) % 1, a = k * 2.39 + s.ph * 9; glowDot(s.x + Math.sin(a + t * 0.9 + ph * 4) * s.r * (0.3 + ph * 0.7), s.y - ph * s.h, s.sz * (1.2 - ph * 0.5), s.col, (0.45 + la * 0.45) * Math.sin(ph * Math.PI)); } }
+      else if (s.kind === 'shards') {
+        for (let k = 0; k < s.n; k++) {
+          const a = t * s.sp + s.ph + k * TAU / s.n, x = s.x + Math.cos(a) * s.r, y = s.y + Math.sin(a) * s.r * 0.35 + Math.sin(t * 1.4 + k * 2) * 2, h = s.h * (0.8 + 0.2 * (k % 2)), w = h * 0.38;
+          glowDot(x, y, h * 1.4, s.col, 0.25 + la * 0.4);
+          X.fillStyle = s.col.replace('A', Math.sin(a) > 0 ? 0.95 : 0.6); X.beginPath(); X.moveTo(x, y - h); X.lineTo(x + w, y); X.lineTo(x, y + h * 0.55); X.lineTo(x - w, y); X.closePath(); X.fill();
+          X.fillStyle = 'rgba(255,255,255,0.7)'; X.beginPath(); X.moveTo(x, y - h); X.lineTo(x - w, y); X.lineTo(x - w * 0.2, y - h * 0.1); X.closePath(); X.fill();
+        }
+      }
       else if (s.kind === 'water') { for (let k = 0; k < 3; k++) { const ph = (t * 0.6 + k / 3) % 1; const x = s.x + Math.cos(k * 2.1 + Math.floor(t * 0.6 + k / 3)) * s.rx * 0.6, y = s.y + Math.sin(k * 1.7 + Math.floor(t * 0.6 + k / 3)) * s.ry * 0.5; X.fillStyle = `rgba(255,255,255,${0.8 * Math.sin(ph * Math.PI)})`; X.fillRect(x - 1.5, y - 0.4, 3, 0.8); X.fillRect(x - 0.4, y - 1.5, 0.8, 3); } }
     }
-    for (const f of recd.fires) { if (dormant(f.bt)) continue; const fl = 0.8 + 0.2 * Math.sin(t * 11 + f.x); glowDot(f.x, f.y - 3 * f.s, 18 * f.s + 6, 'rgba(255,150,60,A)', (0.18 + la * 0.5) * fl); }
+    for (const f of recd.fires) { if (dormant(f.bt)) continue; const fl = 0.8 + 0.2 * Math.sin(t * 11 + f.x); glowDot(f.x, f.y - 3 * f.s, 18 * f.s + 6, f.glowCol || 'rgba(255,150,60,A)', (0.18 + la * 0.5) * fl); }
     // mage towers: a pulsing focus, motes in orbit, and now and then a crackle of lightning
-    for (const m of recd.magic) {
+    // the tower's school (arcana.js city.towerSchool) tints its orbiting motes
+    const tsk = city.towerSchool && DATA.schools && DATA.schools[city.towerSchool], tcol = tsk ? `rgba(${hexRgb(mix(tsk.color, '#ffffff', 0.35))},A)` : null;
+    for (const m0 of recd.magic) {
+      const m = tcol && m0.bt === 'magetower' ? Object.assign({}, m0, { col: tcol }) : m0;
       const pulse = 0.75 + 0.25 * Math.sin(t * 2.2 + m.seed * 7);
       glowDot(m.x, m.y, m.r * 2.2, m.col, (0.25 + la * 0.45) * pulse);
       for (let k = 0; k < m.n; k++) {
@@ -3869,7 +3934,8 @@
     }
     // ley enclave: pulses running along the streams, glyphs lighting in turn round the plaza
     for (const l of recd.ley) {
-      for (const pts of l.lines) { const n = 3 + Math.round(l.s * 4); for (let k = 0; k < n; k++) { const ph = (t * 0.06 + k / n) % 1, f = ph * (pts.length - 1), i = Math.floor(f), q = f - i, a = pts[i], b = pts[Math.min(pts.length - 1, i + 1)]; glowDot(a[0] + (b[0] - a[0]) * q, a[1] + (b[1] - a[1]) * q, 6 + l.s * 4, 'rgba(150,240,255,A)', (0.3 + la * 0.5) * l.s * Math.sin(ph * Math.PI)); } }
+      l.lines.forEach((pts, li) => { const col = (l.cols && l.cols[li]) || 'rgba(150,240,255,A)', n = 3 + Math.round(l.s * 4); for (let k = 0; k < n; k++) { const ph = (t * 0.06 + k / n + li * 0.37) % 1, f = ph * (pts.length - 1), i = Math.floor(f), q = f - i, a = pts[i], b = pts[Math.min(pts.length - 1, i + 1)]; glowDot(a[0] + (b[0] - a[0]) * q, a[1] + (b[1] - a[1]) * q, 6 + l.s * 4, col, (0.3 + la * 0.5) * l.s * Math.sin(ph * Math.PI)); } });
+      if (!l.ring) continue;
       const [ex, ey, rx, ry] = l.ring;
       for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI, x = ex + Math.cos(a) * rx * 0.95, y = ey + Math.sin(a) * ry * 0.95, p = 0.5 + 0.5 * Math.sin(t * 2 - k * 0.8); glowDot(x, y, 6, 'rgba(160,240,255,A)', (0.2 + la * 0.5) * l.s * p); }
     }
@@ -3887,6 +3953,88 @@
       for (let i = 0; i < vis; i++) { const v = villagers[i]; if (i % 2 || RACE === 'grave') continue; const gx = v.a.p[0] + (v.b.p[0] - v.a.p[0]) * v.t, gy = v.a.p[1] + (v.b.p[1] - v.a.p[1]) * v.t; const [x, y] = P(gx, gy); glowDot(x + 3, y - 6, 9, 'rgba(255,200,110,A)', la * 0.6); X.fillStyle = `rgba(255,220,140,${la})`; X.fillRect(x + 2.4, y - 6.5, 1.4, 1.6); }
       if (SEASON === 1) for (let k = 0; k < 14; k++) { const x = (k * 137.5 + Math.sin(t * 0.5 + k) * 30) % LW, y = 300 + ((k * 83) % 260) + Math.cos(t * 0.7 + k) * 10; glowDot(x, y, 4, 'rgba(230,255,120,A)', la * Math.max(0, Math.sin(t * 2 + k * 1.3))); }
     }
+  }
+  // ---- live magic over the town (read from the state about once a second, drawn every frame; nothing baked):
+  //  enchantment domes tinted by their schools (G.enchantmentsOf, arcana.js), the classic Ward of Weaving,
+  //  wild-magic motes and crackles while the weave is strained (> 60), and a demon rift torn open nearby ----
+  let MFX = { id: null, at: -1e9, ench: [], ward: false, strain: 0, rift: null };
+  function magicNow(city) {
+    const now = performance.now();
+    if (MFX.id === city.id && now - MFX.at < 1000) return MFX;
+    const m = { id: city.id, at: now, ench: [], ward: false, strain: 0, rift: null };
+    try {
+      const list = typeof G.enchantmentsOf === 'function' ? G.enchantmentsOf(S, city) : [];
+      if (Array.isArray(list)) m.ench = list.slice(0, 4).map(e => { const col = (e && e.color) || (e && e.school && DATA.schools && DATA.schools[e.school] && DATA.schools[e.school].color) || '#b48cff'; return { rgb: hexRgb(col), id: e && e.id }; });
+    } catch (e) { m.ench = []; }
+    m.ward = +city.ward > S.time;
+    m.strain = +((S.magic && S.magic.strain && S.magic.strain[city.id]) || 0);
+    for (const cp of Object.values(S.camps || {})) {
+      if (!cp || cp.kind !== 'rift' || !(cp.units && cp.units.demon > 0)) continue;
+      const dd = Math.hypot(cp.x - city.x, cp.y - city.y);
+      if (cp.near === city.id || dd <= 4.5) { const a = Math.atan2(cp.y - city.y, cp.x - city.x); m.rift = { gx: clampv(12 + Math.cos(a) * 10.4, 1.4, 22.6), gy: clampv(12 + Math.sin(a) * 10.4, 1.4, 22.6) }; break; }
+    }
+    return (MFX = m);
+  }
+  function drawMagicFx(city, t, la) {
+    const m = magicNow(city), X = ctx;
+    if (!m.ench.length && !m.ward && m.strain <= 60 && !m.rift) return;
+    const [ex, ey] = P(12, 12), rx = (WALL_B - WALL_A + 2.4) / 2 * SQ2 * HW, ry = rx * HH / HW, dh = rx * 0.62;
+    const dome = (k, lift = 0) => { X.beginPath(); X.ellipse(ex, ey - lift, rx * k, ry * k, 0, 0, Math.PI); X.ellipse(ex, ey - lift, rx * k, dh * k, 0, Math.PI, TAU); X.closePath(); };
+    X.save();
+    // enchantments: one shimmering shell per enchantment, nested, each in its school's colour
+    m.ench.forEach((e, i) => {
+      const k = 1.04 - i * 0.07, sh = 0.5 + 0.5 * Math.sin(t * 0.9 + i * 1.7), a = 0.07 + 0.04 * la + 0.03 * sh;
+      const g = X.createLinearGradient(0, ey - dh * k, 0, ey + ry * k);   // glassy: tinted over the roofs, clear where it meets the ground
+      g.addColorStop(0, `rgba(${e.rgb},${a * 1.3})`); g.addColorStop(0.55, `rgba(${e.rgb},${a * 0.6})`); g.addColorStop(1, `rgba(${e.rgb},0)`);
+      dome(k); X.fillStyle = g; X.fill();
+      X.lineWidth = 1.6; X.strokeStyle = `rgba(${e.rgb},${0.42 + 0.22 * sh + 0.2 * la})`;
+      X.beginPath(); X.ellipse(ex, ey, rx * k, dh * k, 0, Math.PI, TAU); X.stroke();
+      // a band of light sliding up the shell
+      const ph = (t * 0.08 + i * 0.31) % 1, bh = Math.sin(ph * Math.PI / 2);
+      X.beginPath(); X.ellipse(ex, ey - dh * k * bh, rx * k * Math.cos(ph * Math.PI / 2), ry * k * Math.cos(ph * Math.PI / 2), 0, 0, TAU);
+      X.strokeStyle = `rgba(${e.rgb},${(0.34 + 0.12 * la) * Math.sin(ph * Math.PI)})`; X.lineWidth = 1.2; X.stroke();
+      // glyph motes drifting down the shell
+      for (let q = 0; q < 6; q++) { const a2 = q / 6 * TAU + t * 0.12 + i, u = Math.cos(a2), h = Math.abs(Math.sin(t * 0.21 + q * 1.3 + i)), x = ex + u * rx * k * Math.sqrt(1 - h * h), y = ey - h * dh * k + Math.sin(a2) * ry * k * Math.sqrt(1 - h * h); glowDot(x, y, 5, `rgba(${e.rgb},A)`, (0.35 + la * 0.4) * (Math.sin(a2) > -0.2 ? 1 : 0.4)); }
+    });
+    // the Ward of Weaving: a pale gold lattice dome with a sparkling rim
+    if (m.ward) {
+      const sh = 0.6 + 0.4 * Math.sin(t * 1.6), k = 1.1;
+      { const g = X.createLinearGradient(0, ey - dh * k, 0, ey + ry * k); g.addColorStop(0, `rgba(255,236,170,${0.1 + 0.04 * la})`); g.addColorStop(0.6, `rgba(255,236,170,${0.04})`); g.addColorStop(1, 'rgba(255,236,170,0)'); dome(k); X.fillStyle = g; X.fill(); }
+      X.strokeStyle = `rgba(255,226,140,${0.5 + 0.3 * sh})`; X.lineWidth = 1.8; X.beginPath(); X.ellipse(ex, ey, rx * k, dh * k, 0, Math.PI, TAU); X.stroke();
+      X.lineWidth = 0.8; X.strokeStyle = `rgba(255,236,170,${0.24 + 0.1 * la})`;
+      for (const f of [0.35, 0.7]) { X.beginPath(); X.ellipse(ex, ey, rx * k * f, dh * k, 0, Math.PI, TAU); X.stroke(); }
+      for (const f of [0.4, 0.75]) { X.beginPath(); X.ellipse(ex, ey - dh * k * f, rx * k * Math.sqrt(1 - f * f), ry * k * Math.sqrt(1 - f * f), 0, Math.PI, TAU); X.stroke(); }
+      for (let q = 0; q < 10; q++) { const a = q / 10 * Math.PI + t * 0.25; if (Math.sin(a) < 0) continue; glowDot(ex - Math.cos(a) * rx * k, ey + Math.sin(a) * ry * k * 0.1 - 1, 6, 'rgba(255,236,170,A)', 0.4 + 0.4 * Math.sin(t * 3 + q)); }
+    }
+    X.globalCompositeOperation = 'lighter';
+    // wild magic: stray motes and crackles of raw weave, more of them the higher the strain
+    if (m.strain > 60) {
+      const w = clampv((m.strain - 60) / 40, 0, 1), n = 8 + Math.round(w * 16);
+      for (let q = 0; q < n; q++) {
+        const sd = q * 12.9898, ph = (t * (0.15 + (q % 5) * 0.04) + (sd % 1)) % 1;
+        const gx = 6 + ((q * 7.31) % 12), gy = 6 + ((q * 3.77 + 5) % 12), [x, y] = P(gx + Math.sin(t * 0.7 + q) * 0.6, gy + Math.cos(t * 0.5 + q) * 0.6, 8 + ph * 60);
+        glowDot(x, y, 5 + 4 * w, q % 3 ? 'rgba(220,90,255,A)' : 'rgba(110,230,255,A)', (0.35 + 0.4 * w) * Math.sin(ph * Math.PI));
+      }
+      const ph = (t * 0.7) % 1;
+      if (ph < 0.12 + 0.2 * w) { // a crackle of raw magic arcing between two points of the town
+        const q = Math.floor(t * 0.7) * 7, [x0, y0] = P(6 + q % 12, 6 + (q * 3) % 12, 30), [x1, y1] = P(6 + (q * 5 + 4) % 12, 6 + (q * 7 + 2) % 12, 40);
+        X.strokeStyle = `rgba(230,170,255,${0.9 - ph * 3})`; X.lineWidth = 1.3; X.beginPath(); X.moveTo(x0, y0);
+        for (let k = 1; k < 6; k++) X.lineTo(x0 + (x1 - x0) * k / 6 + Math.sin(k * 9.1 + q) * 6, y0 + (y1 - y0) * k / 6 + Math.cos(k * 7.3 + q) * 6);
+        X.lineTo(x1, y1); X.stroke(); glowDot(x1, y1, 16, 'rgba(220,140,255,A)', 0.5);
+      }
+    }
+    // a demon rift: a jagged tear in the air at the edge of the plot, violet light bleeding out of it
+    if (m.rift) {
+      const [rx0, ry0] = P(m.rift.gx, m.rift.gy, 0), hgt = 46, pl = 0.75 + 0.25 * Math.sin(t * 3.1);
+      glowDot(rx0, ry0 - hgt * 0.5, 50, 'rgba(170,60,255,A)', 0.35 + 0.25 * pl);
+      X.globalCompositeOperation = 'source-over';
+      const tear = (wd, col) => { X.beginPath(); X.moveTo(rx0, ry0 - hgt); for (let k = 1; k <= 6; k++) { const v = k / 6; X.lineTo(rx0 + Math.sin(v * Math.PI) * wd * (k % 2 ? 1 : 0.6) + Math.sin(t * 4 + k) * 0.6, ry0 - hgt + v * hgt); } for (let k = 5; k >= 1; k--) { const v = k / 6; X.lineTo(rx0 - Math.sin(v * Math.PI) * wd * (k % 2 ? 0.7 : 1) + Math.cos(t * 3.6 + k) * 0.6, ry0 - hgt + v * hgt); } X.closePath(); X.fillStyle = col; X.fill(); };
+      tear(9 * pl + 2, `rgba(190,90,255,${0.55 + 0.3 * pl})`); tear(6 * pl + 1, '#14061e');
+      X.globalCompositeOperation = 'lighter';
+      for (let q = 0; q < 8; q++) { const ph = (t * 0.25 + q / 8) % 1, a = q * 2.4 + t * 0.6; glowDot(rx0 + Math.cos(a) * (20 * (1 - ph)), ry0 - hgt * 0.5 + Math.sin(a) * (24 * (1 - ph)), 3.5, 'rgba(210,120,255,A)', 0.7 * Math.sin(ph * Math.PI)); }
+      X.fillStyle = '#e8c8ff'; X.fillRect(rx0 - 0.6, ry0 - hgt * 0.75, 1.2, hgt * 0.45);
+    }
+    X.restore();
   }
   function drawWeather(t, night) {
     const X = ctx;

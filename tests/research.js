@@ -1,16 +1,19 @@
 // The technology tree: structure, effects, eras, saves, AI progress, people techs, espionage. Run from the repo root: node tests/research.js
 const fs = require('fs');
 global.localStorage = { _: {}, getItem(k) { return this._[k] ?? null; }, setItem(k, v) { this._[k] = String(v); }, removeItem(k) { delete this._[k]; } };
-eval(['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/dynasty.js'].filter(f=>fs.existsSync(f)).map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
+eval(['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js'].filter(f=>fs.existsSync(f)).map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
 let fails = 0;
 const ok = (n, c, x) => { if (!c) fails++; console.log((c ? 'PASS ' : 'FAIL ') + n + (x !== undefined ? ' ' + x : '')); };
 if (typeof initRaces2 === 'function') initRaces2();
 ok('wrappers installed (happiness, culture, faith, routes, influence, forge)', G.researchHooksReady());
 const T = DATA.techs, ids = Object.keys(T);
 const common = ids.filter(id => !T[id].race);
+const reps = ids.filter(id => T[id].repeat), base = ids.filter(id => !T[id].repeat);
 
 // ---- size and shape ----
-ok('120-160 technologies', ids.length >= 120 && ids.length <= 160, ids.length);
+ok('120-160 technologies (plus the repeatable mastery techs)', base.length >= 120 && base.length <= 160, base.length + ' + ' + reps.length);
+ok('8-12 repeatable techs, at most two per branch, open in the Legend era', reps.length >= 8 && reps.length <= 12 && DATA.techBranchOrder.every(b => reps.filter(id => T[id].branch === b).length <= 2) && reps.every(id => T[id].era === 3 && !T[id].race), reps.join(','));
+ok('repeatable techs give small steps (≤ 4% a level)', reps.every(id => Object.entries(T[id].fx).every(([k, v]) => Math.abs(v - 1) <= 0.0401)));
 const perEra = [0, 1, 2, 3].map(e => common.filter(id => T[id].era === e).length);
 ok('every era has at least 20 common techs', perEra.every(n => n >= 20), perEra.join('/'));
 const perBranch = DATA.techBranchOrder.map(b => common.filter(id => T[id].branch === b).length);
@@ -82,15 +85,19 @@ const fresh = (race = 'hearth') => {
 };
 {
   const { s, c } = fresh();
+  c.buildings.academy = 11;
   ok('start research', G.startResearch(s, c.id, 'croprotation') === null && G.research(s, 'p').active.id === 'croprotation');
-  ok('one study at a time', G.startResearch(s, c.id, 'sawpits') === 'Scholars are busy');
+  ok('one city with an Academy below 12: one study at a time', G.researchSlots(s, 'p').total === 1 && G.startResearch(s, c.id, 'sawpits') === 'Scholars are busy');
+  c.buildings.academy = 20;
+  ok('an Academy 12+ runs two studies', G.researchSlots(s, 'p').total === 2 && G.startResearch(s, c.id, 'sawpits') === null && G.research(s, 'p').studies.length === 2);
+  ok('but never three in one city', /busy/.test(G.startResearch(s, c.id, 'taxation') || ''));
   const g0 = G.mod(s, 'p', c, 'grain');
-  G.advance(s, G.research(s, 'p').active.end - s.time + 2, 50);
+  G.advance(s, Math.max(...G.research(s, 'p').studies.map(x => x.end)) - s.time + 2, 50);
   ok('research completes and applies', G.hasTech(s, 'p', 'croprotation') && Math.abs(G.mod(s, 'p', c, 'grain') / g0 - 1.08) < 0.03, (G.mod(s, 'p', c, 'grain') / g0).toFixed(3));
   ok('locked by prerequisites', /Needs/.test(G.startResearch(s, c.id, 'irrigation')));
-  c.buildings.academy = 1;
-  ok('locked by Academy level', G.techStatus(s, c.id, 'ploughs').ok === false || G.techStatus(s, c.id, 'masonry').academy);
-  ok('Academy gate names the level', G.techStatus(s, c.id, 'masonry').reason === 'Needs Academy 2 here' || G.techStatus(s, c.id, 'masonry').locked);
+  c.buildings.academy = 1; G.research(s, 'p').done.husbandry = true;
+  ok('locked by Academy level', G.techStatus(s, c.id, 'herblore').ok === false && G.techStatus(s, c.id, 'herblore').academy);
+  ok('Academy gate names the level', G.techStatus(s, c.id, 'herblore').reason === 'Needs Academy 2 here');
   c.buildings.academy = 20;
 }
 
@@ -106,8 +113,10 @@ const fresh = (race = 'hearth') => {
   const m = G.techMult(s2, 'p', 'atk');
   ok('old techs still apply (attack from blades, steel, art of war)', Math.abs(m - 1.05 * 1.06 * 1.05) < 0.01, m.toFixed(3));
   ok('unknown ids are ignored', G.mod(s2, 'p', c2, 'grain') > 0 && isFinite(G.mod(s2, 'p', c2, 'refine')));
+  ok('old R.active migrates into the study list', G.research(s2, 'p').studies.length === 1 && G.research(s2, 'p').active.id === 'masonry' && !Object.keys(G.research(s2, 'p')).includes('active'));
+  ok('the R.active accessor is never saved', !/"active"/.test(JSON.stringify(G.research(s2, 'p'))));
   G.advance(s2, 40, 20);
-  ok('old in-flight study finishes', G.hasTech(s2, 'p', 'masonry') && !G.research(s2, 'p').active);
+  ok('old in-flight study finishes', G.hasTech(s2, 'p', 'masonry') && !G.research(s2, 'p').active && !G.research(s2, 'p').studies.length);
   ok('their era is computed', G.techEra(s2, 'p') >= 0);
 }
 
@@ -156,8 +165,8 @@ for (const race of DATA.raceOrder) {
   ok('old saves have no queue and load fine', R.queue === undefined && G.researchQueueNote(s, 'p') === '');
   ok('a topic with missing prerequisites cannot be queued alone', /first/.test(G.queueResearch(s, 'p', c.id, 'metallurgy') || ''));
   ok('plan path queues the whole chain', G.planResearch(s, 'p', c.id, 'metallurgy') === null);
-  ok('queue started the first topic', !!R.active && R.queue.length >= 3, R.active && R.active.id + ' + ' + R.queue.join(','));
-  ok('chain stays in prerequisite order', R.queue.every((k, i) => T[k].reqs.every(r => R.done[r] || (R.active && R.active.id === r) || R.queue.indexOf(r) < i)));
+  ok('queue started the first topics', R.studies.length === 2 && R.queue.length >= 3, R.studies.map(x => x.id).join('+') + ' then ' + R.queue.join(','));
+  ok('chain stays in prerequisite order', R.queue.every((k, i) => T[k].reqs.every(r => R.done[r] || R.studies.some(x => x.id === r) || R.queue.indexOf(r) < i)));
   ok('a topic whose prerequisite is queued may be queued alone', G.queueResearch(s, 'p', c.id, 'tempered') === 'Needs Forged Blades first (plan the path to queue them too)' && G.queueResearch(s, 'p', c.id, 'forgedblades') === null && G.queueResearch(s, 'p', c.id, 'tempered') === null);
   ok('no duplicates', G.queueResearch(s, 'p', c.id, 'tempered') === 'Already queued');
   // unlimited: plan a long way into the Legend era
@@ -172,7 +181,14 @@ for (const race of DATA.raceOrder) {
   G.unqueueResearch(s, 'p', 'arches');
   ok('dropping a topic drops what depends on it', !R.queue.includes('arches') && !R.queue.includes('architecture') && !R.queue.includes('livingstone'));
   let guard = 0;
-  while ((R.active || R.queue.length) && guard++ < 60 && !G.hasTech(s, 'p', 'tempered')) G.advance(s, (R.active ? R.active.end - s.time : 10) + 11, 40);
+  let together = false, prereqClash = false;
+  while ((R.studies.length || R.queue.length) && guard++ < 80 && !(G.hasTech(s, 'p', 'tempered') && G.hasTech(s, 'p', 'metallurgy'))) {
+    G.advance(s, (R.active ? Math.min(...R.studies.map(x => x.end)) - s.time : 10) + 11, 40);
+    if (R.studies.length > 1) together = true;
+    if (R.studies.some(a => R.studies.some(b => T[a.id].reqs.includes(b.id)))) prereqClash = true;
+  }
+  ok('the queue keeps both slots busy', together);
+  ok('a topic never runs alongside its own prerequisite', !prereqClash);
   ok('queue works through to the goal', G.hasTech(s, 'p', 'metallurgy') && G.hasTech(s, 'p', 'tempered') && ['bellows', 'masonry', 'deepshafts', 'charcoal', 'framing'].every(k => G.hasTech(s, 'p', k)));
 }
 {
@@ -180,9 +196,9 @@ for (const race of DATA.raceOrder) {
   const { s, c } = fresh();
   const R = G.research(s, 'p');
   G.planResearch(s, 'p', c.id, 'ploughs');
-  G.advance(s, R.active.end - s.time + 2, 40);
+  ok('both first steps of the path run in parallel', R.studies.length === 2 && R.queue[0] === 'ploughs');
   for (const g of Object.keys(DATA.goods)) c.res[g] = 0; s.empires.p.gold = 0;
-  G.advance(s, (R.active ? R.active.end - s.time : 0) + 12, 40);
+  G.advance(s, Math.max(...R.studies.map(x => x.end)) - s.time + 12, 40);
   ok('unaffordable topic waits with a note', !R.active && R.queue.length && /goods/.test(G.researchQueueNote(s, 'p')), G.researchQueueNote(s, 'p'));
   for (const g of Object.keys(DATA.goods)) c.res[g] = 50000; s.empires.p.gold = 1e6;
   G.advance(s, 15, 10);
@@ -285,7 +301,10 @@ for (const race of DATA.raceOrder) {
 {
   // a real game: AI realms research over several game-hours
   const s = G.newGame({ name: 'T', race: 'wind', rivals: 3 });
+  let par = 0;
+  G.stepHooks.push(x => { if (x !== s) return; for (const e of Object.values(x.empires)) if (e.id !== 'p' && e.research && e.research.studies) par = Math.max(par, e.research.studies.length); });
   G.advance(s, 4 * 3600, 16000);
+  console.log('info: most AI studies at once in four game-hours: ' + par + ' (extra slots usually come with a second Academy 3, often after hour 4)');
   const counts = Object.values(s.empires).filter(e => e.id !== 'p').map(e => Object.keys(G.research(s, e.id).done).length);
   ok('AI realms research over four game-hours', counts.every(n => n >= 3) && counts.some(n => n >= 10), counts.join('/'));
   ok('AI realms never learn other peoples\\' techs', Object.values(s.empires).every(e => Object.keys(G.research(s, e.id).done).every(id => !T[id] || !T[id].race || T[id].race === e.race)));
@@ -293,6 +312,96 @@ for (const race of DATA.raceOrder) {
 {
   const { s } = fresh();
   ok('recommendations are open techs', G.techRecommend(s, 'p', 3).length === 3 && G.techRecommend(s, 'p', 3).every(id => G.techStatus(s, G.capital(s, 'p').id, id).ok));
+}
+
+// ---- parallel studies: slots, academies, cancelling ----
+const near = (s, c, lo, hi) => G.freeTile(s, x => G.dist(x, c) >= lo && G.dist(x, c) <= hi && G.landReachable(s, c, x));
+const stock = c => { for (const g of Object.keys(DATA.goods)) c.res[g] = 50000; c.buildings.warehouse = 25; c.buildings.townhall = 20; };
+{
+  const { s, c } = fresh();
+  c.buildings.academy = 0;
+  ok('no Academy: no study slot', G.researchSlots(s, 'p').total === 0);
+  c.buildings.academy = 5;
+  ok('one city with an Academy: one slot, and a hint to found another city', G.researchSlots(s, 'p').total === 1 && /another city/.test(G.researchSlots(s, 'p').hint), G.researchSlots(s, 'p').hint);
+  const t2 = near(s, c, 3, 8), c2 = G.foundCity(s, 'p', t2.x, t2.y, 'Second'); stock(c2);
+  c2.buildings.academy = 2;
+  ok('a second city with a small Academy adds no slot', G.researchSlots(s, 'p').total === 1 && /Second/.test(G.researchSlots(s, 'p').hint), G.researchSlots(s, 'p').hint);
+  c2.buildings.academy = 3;
+  ok('a second city with Academy 3: two slots', G.researchSlots(s, 'p').total === 2);
+  const cs = [c2];
+  for (let i = 0; i < 3; i++) { const t = near(s, c, 4 + i, 12); if (!t) break; const x = G.foundCity(s, 'p', t.x, t.y, 'Extra' + i); x.buildings.academy = 3; stock(x); cs.push(x); }
+  ok('slots are capped', G.researchSlots(s, 'p').total === Math.min(G.RESEARCH_SLOT_MAX, 1 + cs.length) && G.researchSlots(s, 'p').total <= G.RESEARCH_SLOT_MAX, G.researchSlots(s, 'p').total + ' slots, ' + (1 + cs.length) + ' cities');
+  for (const x of cs.slice(1)) x.buildings.academy = 0;
+  ok('two topics run at once in two academies', G.startResearch(s, c.id, 'croprotation') === null && G.startResearch(s, c2.id, 'sawpits') === null
+    && G.research(s, 'p').studies.length === 2 && G.research(s, 'p').studies[0].city !== G.research(s, 'p').studies[1].city);
+  ok('a third waits for a slot', G.startResearch(s, c.id, 'taxation') === 'All 2 study slots are busy');
+  ok('techStatus reports each running study', G.techStatus(s, c.id, 'croprotation').active && G.techStatus(s, c.id, 'sawpits').active);
+  // cancelling one refunds half its goods and leaves the other
+  const R = G.research(s, 'p'), st = G.researchStudy(s, 'p', 'sawpits'), g = Object.keys(st.cost)[0];
+  const before = c2.res[g];
+  ok('cancel one study by id', G.cancelResearch(s, 'p', 'sawpits') === true);
+  ok('cancelling refunds 50% and leaves the other study running', Math.abs(c2.res[g] - before - st.cost[g] * 0.5) <= 1 && R.studies.length === 1 && R.studies[0].id === 'croprotation', g + ' +' + (c2.res[g] - before));
+  ok('the old one-argument cancel still stops the (first) study', G.cancelResearch(s, 'p') === true && !R.active && !R.studies.length);
+  // the queue never runs a topic alongside its own prerequisite
+  R.done.sawpits = true;
+  R.queue = ['croprotation', 'ploughs'];
+  G.processResearchQueue(s, 'p');
+  ok('a topic waits while its prerequisite is studied, even with a free slot', R.studies.length === 1 && R.studies[0].id === 'croprotation' && R.queue[0] === 'ploughs');
+  const plan = G.researchQueuePlan(s, 'p');
+  ok('queue plan says what it waits for', plan[0].after === 'croprotation' && !plan[0].next);
+  R.queue.push('taxation', 'drill');
+  G.processResearchQueue(s, 'p');
+  ok('the queue fills every free slot', R.studies.length === 2 && R.studies[1].id === 'taxation', R.studies.map(x => x.id).join(','));
+  ok('studies are pinned to different academies', new Set(R.studies.map(x => x.city)).size === 2);
+  const s2 = G.deserialize(G.serialize(s));
+  ok('parallel studies survive save/load', G.research(s2, 'p').studies.length === 2 && G.research(s2, 'p').active.id === R.studies[0].id);
+}
+
+// ---- repeatable techs ----
+{
+  const { s, c } = fresh();
+  const R = G.research(s, 'p'), id = 'improvedharvests';
+  ok('a repeatable tech is locked until its branch reaches the Legend era', !!G.techStatus(s, c.id, id).locked);
+  for (const k of G.techPath(s, 'p', id)) if (k !== id) R.done[k] = true;
+  const g0 = G.techMult(s, 'p', 'grain');
+  const st1 = G.techStatus(s, c.id, id);
+  ok('then open, at level 0 → 1', st1.ok && st1.repeat && st1.level === 0 && st1.next === 1);
+  G.startResearch(s, c.id, id);
+  G.advance(s, R.studies[0].end - s.time + 2, 30);
+  const g1 = G.techMult(s, 'p', 'grain');
+  ok('level 1 learnt and applied', G.techLevel(s, 'p', id) === 1 && G.hasTech(s, 'p', id) && Math.abs(g1 / g0 - 1.02) < 1e-6, (g1 / g0).toFixed(4));
+  const st2 = G.techStatus(s, c.id, id);
+  ok('it can be studied again', st2.ok && st2.level === 1 && st2.next === 2);
+  ok('the next level costs ×1.25 and takes longer', Math.abs(value(st2.cost) / value(st1.cost) - G.TECH_REPEAT_COST) < 0.05 && Math.abs(G.techBaseTime(id, 2) / G.techBaseTime(id, 1) - G.TECH_REPEAT_TIME) < 1e-9 && G.techTime(s, 'p', id, c, 2) > G.techTime(s, 'p', id, c, 1), (value(st2.cost) / value(st1.cost)).toFixed(3));
+  ok('queue several levels', G.queueResearch(s, 'p', c.id, id) === null && G.queueResearch(s, 'p', c.id, id) === null && G.queueResearch(s, 'p', c.id, id) === null);
+  ok('only one level is studied at a time, the rest wait in the queue', R.studies.filter(x => x.id === id).length === 1 && R.queue.filter(k => k === id).length === 2 && R.studies.find(x => x.id === id).level === 2);
+  ok('the queue plan numbers the levels', G.researchQueuePlan(s, 'p').map(p => p.level).join(',') === '3,4');
+  G.unqueueResearch(s, 'p', id);
+  ok('unqueueing drops one level only', R.queue.filter(k => k === id).length === 1);
+  let guard = 0;
+  while ((R.studies.length || R.queue.length) && guard++ < 10) G.advance(s, Math.min(...R.studies.map(x => x.end)) - s.time + 12, 30);
+  const g3 = G.techMult(s, 'p', 'grain');
+  ok('levels stack: fx multiplies per level (cache follows the level)', G.techLevel(s, 'p', id) === 3 && Math.abs(g3 / g0 - Math.pow(1.02, 3)) < 1e-6, G.techLevel(s, 'p', id) + ': ' + (g3 / g0).toFixed(4));
+  ok('a level-up with no new tech key still refreshes effects', (() => { R.done[id] = 4; if (G.bumpEpoch) G.bumpEpoch(); return Math.abs(G.techMult(s, 'p', 'grain') / g0 - Math.pow(1.02, 4)) < 1e-6; })());
+  ok('levels do not count toward the eras', (() => { const e = G.techEra(s, 'p'); R.done[id] = 9; return G.techEra(s, 'p') === e; })());
+  const s2 = G.deserialize(G.serialize(s));
+  ok('levels survive save/load', G.techLevel(s2, 'p', id) === 9);
+  R.done[id] = G.TECH_REPEAT_MAX;
+  ok('mastery has a ceiling', G.techStatus(s, c.id, id).maxed && !!G.queueResearch(s, 'p', c.id, id));
+}
+
+// ---- AI uses parallel slots ----
+{
+  const { s } = fresh();
+  const emp = s.empires.a1, ac = G.capital(s, 'a1');
+  stock(ac); ac.buildings.academy = 20; emp.gold = 1e6; emp.saving = false;
+  const hook = G.aiHooks.find(h => /aiResearchPick/.test(String(h)));
+  const rnd = Math.random; Math.random = () => 0.1;
+  for (let i = 0; i < 6; i++) hook(s, emp);
+  Math.random = rnd;
+  const R = G.research(s, 'a1');
+  ok('an AI fills both slots of an Academy 12+', R.studies.length === 2 && R.studies[0].id !== R.studies[1].id, R.studies.map(x => x.id).join(','));
+  ok('and its picks never run alongside their prerequisites', !R.studies.some(a => R.studies.some(b => T[a.id].reqs.includes(b.id))));
 }
 
 console.log(fails ? fails + ' FAILED' : 'all research tests passed');

@@ -1,7 +1,7 @@
 // Magic: mana, ley enclaves, schools, spells, wild magic, the Great Working. Run from the repo root: node tests/magic.js
 const fs = require('fs');
 global.localStorage = { _: {}, getItem(k) { return this._[k] ?? null; }, setItem(k, v) { this._[k] = String(v); }, removeItem(k) { delete this._[k]; } };
-eval(['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/dynasty.js'].filter(f=>fs.existsSync(f)).map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
+eval(['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js'].filter(f=>fs.existsSync(f)).map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
 let fails = 0;
 const ok = (n, c, x) => { if (!c) fails++; console.log((c ? 'PASS ' : 'FAIL ') + n + (x ? ' ' + x : '')); };
 const s = G.newGame({ name: 'T', race: 'hearth' }); s.settings.hostility = 0;
@@ -22,7 +22,7 @@ const g0 = G.mod(s, 'p', c, 'grain');
 ok('cast a city spell', G.castSpell(s, 'p', c.id, 'bountifulrain', c.id) === null);
 ok('city spell boosts grain', G.mod(s, 'p', c, 'grain') > g0 * 1.4);
 ok('cooldown applies', !!G.castSpell(s, 'p', c.id, 'bountifulrain', c.id));
-ok('realm spell', G.castSpell(s, 'p', c.id, 'summersun') === null && G.mod(s, 'p', null, 'travel') > 1.1);
+ok('realm spell (learned in the Grimoire)', G.learnArcanum(s, 'p', G.spellNode('summersun'), { free: true, path: true }) === null && G.castSpell(s, 'p', c.id, 'summersun') === null && G.mod(s, 'p', null, 'travel') > 1.1);
 // a tile spell: raise land next to a shore within reach
 const water = s.tiles.find(t => G.isWater(t) && Math.hypot(t.x - c.x, t.y - c.y) <= G.cityReach(s, c) + 3 && [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => { const n = G.tileAt(s, t.x+dx, t.y+dy); return n && !G.isWater(n); }));
 if (water) { const r = G.castSpell(s, 'p', c.id, 'raiseland', { x: water.x, y: water.y }); ok('Raise the Land turns water to land', r === null && !G.isWater(water), r); ok('reshaping bumps the terrain revision', s.terrainRev >= 1); }

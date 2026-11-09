@@ -1089,16 +1089,23 @@
   });
 
   // =================================================================
-  //  MAGE TOWER — the storm-singer's conch: a great auger-shell spire wound
-  //  with a sea-glass spiral, a storm cloud and its lightning above
+  //  MAGE TOWER — the tide-shell spire: an auger-shell spire cradling a water-orb,
+  //  coral buttresses, a storm over it and at last a waterspout winding up the shell
   // =================================================================
   B.magetower = wrap(([x, y, w, d], L, band) => {
-    const cx = x + w / 2, cy = y + d / 2, H = 40 + band * 10 + Math.min(20, L);
-    roundPool(cx, cy + 0.05, 0.55);
-    coral(cx - 0.45, cy + 0.2, 0, 0.9);
-    // the conch: one tall auger shell, its suture spiralling up, knobbed along the whorls
-    const turns = 3 + band, r0 = 0.44, z0 = 2;
-    const shellC = era >= 3 ? '#efe6f2' : era >= 2 ? '#f2e2d0' : '#ead6bc';
+    // the tide-shell spire: a low conch grotto with a water-orb in a shell bowl (1-4) → a tall auger shell,
+    // its suture spiralling up, the orb cradled at its tip (5-9) → coral buttresses, a bigger orb trailing
+    // bubbles, a storm brewing over it (10-14) → a living waterspout winding up the shell, droplets wheeling
+    // round a great sea-glass orb (15+). Sand → pearl → rose nacre by era.
+    const M = CITYART.mage, cx = x + w / 2, cy = y + d / 2, k = Math.max(0, L - [1, 5, 10, 15][band]);
+    const H = [20, 46, 58, 70][band] + Math.min(10, k * 2);
+    const WATER = era >= 3 ? '#4ac8e8' : '#3aa0d0';
+    roundPool(cx, cy + 0.05, 0.42 + band * 0.05);
+    if (band >= 2) M.groundCircle(A, cx, cy + 0.05, 0.66, 'rgba(40,130,170,0.5)', '#9cf0ff', 14);
+    coral(cx - 0.45, cy + 0.2, 0, 0.7 + band * 0.12);
+    if (band >= 2) coral(cx + 0.2, cy - 0.46, 0, 0.6 + band * 0.1);
+    const turns = 2 + band, r0 = [0.3, 0.42, 0.46, 0.5][band], z0 = 2;
+    const shellC = era >= 3 ? '#efe6f2' : era >= 2 ? '#f2e2d0' : era >= 1 ? '#ead6bc' : '#dcc8a8';
     const tip = A.cone(cx, cy, r0, z0, H, shellC);
     A.twistLines(cx, cy, z0, tip, r0, A.shade(shellC, -0.35), turns, 0.97);
     A.twistLines(cx, cy, z0 + 3, tip, r0 * 0.9, '#c0704a', turns, 0.97, 0.5);
@@ -1106,19 +1113,29 @@
       const t = i / (turns * 6), ang = t * TAU * turns, rr = r0 * (1 - t * 0.97);
       if (Math.cos(ang) + Math.sin(ang) <= 0.2) continue;
       const [kx, ky] = P(cx + Math.cos(ang) * rr * 1.05, cy + Math.sin(ang) * rr * 1.05, z0 + (tip - z0) * t);
-      if (i % 3 === 0) A.lampDot(kx, ky + 3, 1.1, '#2a6a8a', '#bff4ff'); else A.circ(kx, ky, 1.3 - t * 0.6, A.shade(shellC, 0.1), A.OUT);
+      if (i % 3 === 0) { A.lampDot(kx, ky + 3, 1.1, '#2a6a8a', '#bff4ff'); if (i % 6 === 0) M.pulse(A, kx, ky + 3, 6, '#8ff0ff', 1.8); } else A.circ(kx, ky, 1.3 - t * 0.6, A.shade(shellC, 0.1), A.OUT);
     }
     // the flared pink aperture at its foot, a door in its lip
-    { const [ax, ay, arx, ary] = A.ell(cx + 0.2, cy + 0.2, z0, r0 * 0.75); c.beginPath(); c.ellipse(ax, ay - 4, arx * 0.7, 7, -0.4, 0, TAU); fill(era >= 3 ? '#f4c8d8' : '#e8a090'); stroke(A.OUT, 0.7); c.beginPath(); c.ellipse(ax, ay - 4, arx * 0.4, 4.5, -0.4, 0, TAU); c.fillStyle = A.GLOW ? '#6ad8ff' : '#7a3a3a'; c.fill(); void ary; }
+    { const [ax, ay, arx] = A.ell(cx + 0.2, cy + 0.2, z0, r0 * 0.75); c.beginPath(); c.ellipse(ax, ay - 4, arx * 0.7, 7, -0.4, 0, TAU); fill(era >= 3 ? '#f4c8d8' : '#e8a090'); stroke(A.OUT, 0.7); c.beginPath(); c.ellipse(ax, ay - 4, arx * 0.4, 4.5, -0.4, 0, TAU); c.fillStyle = A.GLOW ? '#6ad8ff' : '#7a3a3a'; c.fill(); }
     if (era >= 3 && !A.GLOW && !A.SNOW) { const [x0, y0, rx] = A.ell(cx, cy, z0, r0); nacreSheen([[x0 - rx, y0], [x0, y0 - H], [x0 + rx, y0]]); }
-    const orb = P(cx, cy, tip + 8);
-    A.lampDot(orb[0], orb[1], 2.4 + band * 0.4, '#d8f4ff', '#ffffff');
-    // storm cloud
-    if (band >= 1) { const [cx2, cy2] = P(cx, cy, tip + 22); for (const [dx, dy, r2] of [[-7, 0, 6], [0, -3, 7.5], [8, 0, 5.5], [3, 2, 5]]) { c.beginPath(); c.arc(cx2 + dx, cy2 + dy, r2 + band * 0.4, 0, TAU); c.fillStyle = A.GLOW ? '#000' : 'rgba(90,100,120,0.6)'; c.fill(); } }
-    const n = 3 + band * 2 + Math.floor(L / 5);
-    A.rec('magic', { x: orb[0], y: orb[1], r: 9 + band * 3 + Math.min(6, L / 3), n, col: 'rgba(120,230,255,A)', seed: A.R(), bolt: band >= 1 });
-    A.rec('lights', { x: orb[0], y: orb[1], r: 30 + band * 8, col: 'fey' });
-    return tip + 14;
+    if (band >= 3) { // the waterspout: two glowing streams winding up round the shell
+      for (const ph of [0, Math.PI]) M.spiral(A, cx, cy, z0 + 2, tip + 6, r0 * 1.3, 'rgba(70,170,220,0.85)', '#9cf0ff', turns * 0.6, 0.7, ph, 2);
+      M.ring(A, cx, cy, tip - 4, 0.42, '#9cf0ff', 6, 0.9);
+    }
+    // the water-orb: in a shell bowl on the tip, rising as the tower grows
+    const oz = tip + 6 + band * 2, orR = [3.2, 4.2, 5.4, 6.6][band];
+    const [ox, oy] = P(cx, cy, oz);
+    { const [bx, by] = P(cx, cy, tip - 1); c.beginPath(); c.moveTo(bx - orR - 2, by - 2); c.quadraticCurveTo(bx, by + 5, bx + orR + 2, by - 2); c.quadraticCurveTo(bx, by + 1, bx - orR - 2, by - 2); fill(era >= 2 ? '#f4c8d8' : SHELL); stroke(A.OUT, 0.7); }
+    M.orb(A, ox, oy, orR, WATER);
+    if (!A.GLOW) { c.beginPath(); c.moveTo(ox - orR * 0.7, oy + orR * 0.15); c.quadraticCurveTo(ox - orR * 0.2, oy - orR * 0.15, ox, oy + orR * 0.15); c.quadraticCurveTo(ox + orR * 0.3, oy + orR * 0.4, ox + orR * 0.7, oy + orR * 0.1); c.strokeStyle = 'rgba(255,255,255,0.75)'; c.lineWidth = 0.7; c.stroke(); }
+    M.pulse(A, ox, oy, orR * 2.6, '#8ff0ff', 1.3);
+    if (band >= 1) M.rise(A, ox, oy - orR, { r: orR * 0.6, h: 18 + band * 6, n: 3 + band, col: '#c8f8ff', sp: 0.3, sz: 1.4 });
+    // the storm it calls
+    if (band >= 2) M.cloud(A, P(cx, cy, oz + 18)[0], P(cx, cy, oz + 18)[1], 0.8 + band * 0.12, 'rgba(90,100,120,0.6)');
+    A.rec('magic', { x: ox, y: oy, r: 9 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2 + Math.floor(L / 5), col: 'rgba(120,230,255,A)', seed: A.R(), bolt: band >= 2 });
+    A.rec('lights', { x: ox, y: oy, r: 30 + band * 8, col: 'sea' });
+    const top = oz + orR + (band >= 2 ? 22 : 4);
+    return { top, noDress: ['stock'], hit: [[x + 0.15, y + 0.15, w - 0.3, d - 0.3, oz + orR]] };
   });
 
   // =================================================================

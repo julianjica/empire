@@ -10,7 +10,7 @@
 //
 //  spec = {
 //    race:   'hearth' | 'delver' | 'sylvan' | 'ash' | 'tide' | 'veil' | 'grave' | 'wind'
-//    kind:   'unit' | 'hero' | 'advisor' | 'governor' | 'spy' | 'ruler' | 'citizen' | 'monster'
+//    kind:   'unit' | 'hero' | 'advisor' | 'governor' | 'spy' | 'ruler' | 'citizen' | 'monster' | 'magus'
 //    unit:   unit key (kind 'unit'), e.g. 'pikeman' — role via G.roleOf(unit), name via DATA.units
 //    role:   override role: infantry | cavalry | ranged | siege | flyer | ship | mage | support
 //            (advisors: steward | marshal | spymaster | priest | archmage)
@@ -23,6 +23,10 @@
 //    era:    0..3 technology level from research (0 early … 3 masterwork; missing = 0). Gear draws most era
 //            differences (armour, weapons, helmets); people layers enrich clothing: rough homespun with patches
 //            at era 0 → dyed cloth, embroidered trim (era 2) and jewelled brooches (era 3). ctx.era is clamped.
+//    school: (kind 'magus', optional elsewhere) a DATA.schools key — robes, sigils, focus, aura and eye-glow take
+//            its colour; missing/unknown = the people's own school. kind 'magus' reads rank as 1..5 (apprentice →
+//            archmagus: headgear grows, aura from 2, floating school motes from 3, glowing eyes from 4, a rune
+//            halo at 5); the frame trim maps it onto 0..10. Mage units (role 'mage') wear their people's school.
 //  }
 //
 //  Layer pipeline (back to front). Each layer is fn(ctx) -> svg fragment string:
@@ -35,7 +39,9 @@
 //          layer runs so ctx.rnd use by gear never changes the face), female, skin, hairCol,
 //          skipPeople (true for kind 'monster' and roles 'ship'/'siege': people layers draw nothing then,
 //          the background still does), grain ('filter="url(#id-g)"' paper-grain attribute, '' when size < 48),
-//          hideHair / hideEars (false; gear may set them true from a 'frameBack' fn — see ANATOMY) }
+//          hideHair / hideEars (false; gear may set them true from a 'frameBack' fn — see ANATOMY),
+//          school / schoolCol (the school key + its colour, resolved for every portrait: spec.school, else the
+//          people's native school) }
 //  G.portrait itself emits <defs> with the grain filter, lays a grain overlay just before the 'frame' layer,
 //  and wraps everything in a desaturating group when spec.dead. The root <svg> sets stroke-linejoin/linecap round.
 //  Drawing helpers for any layer: PORTRAIT.draw (see js/portrait-people.js): n, path, mix, grad …
@@ -98,7 +104,17 @@ PORTRAIT.palette = {
 (() => {
   const hash = str => { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
   const prng = seed => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-  const roleOf = spec => spec.role || (spec.unit && typeof G !== 'undefined' && G.roleOf ? G.roleOf(spec.unit) : 'infantry');
+  const roleOf = spec => spec.kind === 'magus' ? 'mage' : spec.role || (spec.unit && typeof G !== 'undefined' && G.roleOf ? G.roleOf(spec.unit) : 'infantry');
+  // schools of magic (DATA.schools from magic.js; a fallback so portraits work without it)
+  const SCHOOL_FB = { hearth: ['hearthweather', '#d9a23a'], delver: ['runecraft', '#4a7ab8'], sylvan: ['songroot', '#3f8f4a'], ash: ['bloodember', '#b3261e'], tide: ['tidestorm', '#2f7fa8'], veil: ['glamour', '#9b6ad3'], grave: ['necromancy', '#4d7a5a'], wind: ['skywind', '#5fa3c8'] };
+  const schoolOf = (race, spec) => {
+    const S0 = typeof DATA !== 'undefined' && DATA.schools ? DATA.schools : null;
+    const fb = SCHOOL_FB[race] || SCHOOL_FB.hearth;
+    let k = spec.school;
+    if (!(S0 ? S0[k] : Object.values(SCHOOL_FB).some(v => v[0] === k))) k = S0 ? (Object.keys(S0).find(x => S0[x].race === race) || fb[0]) : fb[0];
+    const col = S0 && S0[k] && /^#[0-9a-f]{6}$/i.test(S0[k].color || '') ? S0[k].color : ((Object.values(SCHOOL_FB).find(v => v[0] === k) || fb)[1]);
+    return [k, col];
+  };
   const cache = new Map();
   const pick = (r, a) => a[Math.floor(r() * a.length) % a.length];
 
@@ -118,7 +134,7 @@ PORTRAIT.palette = {
   const COL2 = { hearth: ['#d6a83e', '#b0402a'], delver: ['#d6a83e', '#c9ccd0', '#c87a3e', '#3a6ab0'], sylvan: ['#5f9a45', '#8a6a3c', '#a8c060'], ash: ['#e0632a', '#f2c040', '#c23a1f'],
     tide: ['#3f8f94', '#c8705a', '#6a5aa0', '#d8b04a'], veil: ['#fbf3ff', '#d6ecff', '#ffd6f0', '#e4ffe6'], grave: ['#d6a83e', '#7a8086'], wind: ['#c9461f', '#f2f0e6', '#2b2f3a', '#d9a630', '#4f8fdc'] };
   const FRECK = { hearth: 0.45, delver: 0.2, sylvan: 0.18, wind: 0.1 };
-  const AGE = { unit: [0.4, 0.9], hero: [0.3, 0.85], advisor: [0.12, 0.5], governor: [0.12, 0.5], ruler: [0.15, 0.55], citizen: [0.3, 0.78], spy: [0.3, 0.9] };
+  const AGE = { unit: [0.4, 0.9], hero: [0.3, 0.85], advisor: [0.12, 0.5], governor: [0.12, 0.5], ruler: [0.15, 0.55], citizen: [0.3, 0.78], spy: [0.3, 0.9], magus: [0.12, 0.45] };
   const hx = c => [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16));
   const mixC = (a, b, t) => '#' + hx(a).map((v, i) => Math.round(v + (hx(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
   const rollLook = (race, spec, r) => {
@@ -154,7 +170,8 @@ PORTRAIT.palette = {
     const rnd = prng(hash(seedStr));
     const look = rollLook(race, spec, prng(hash(seedStr + '#look')));
     const id = 'pt' + hash(key).toString(36);
-    const ctx = { spec, size, race, kind, role, rnd, pal: PORTRAIT.palette[race], id, V: 100,
+    const [school, schoolCol] = schoolOf(race, spec);
+    const ctx = { spec, size, race, kind, role, rnd, pal: PORTRAIT.palette[race], id, V: 100, school, schoolCol,
       anat: PORTRAIT.anatomy[race], hideHair: false, hideEars: false,
       look, era: Math.max(0, Math.min(3, spec.era | 0)), female: look.female, skin: look.skin, hairCol: look.hair,
       skipPeople: kind === 'monster' || role === 'ship' || role === 'siege',
@@ -168,11 +185,11 @@ PORTRAIT.palette = {
     // paper grain: sepia speckle, alpha from noise, clipped to the drawn rect by feComposite
     let defs = ctx.grain ? `<filter id="${id}-g" x="0" y="0" width="1" height="1"><feTurbulence type="fractalNoise" baseFrequency="2.2" numOctaves="1" seed="${hash(seedStr) % 97}"/><feColorMatrix values="0 0 0 0 .35 0 0 0 0 .24 0 0 0 0 .12 0 0 0 -3 1.45"/><feComposite in2="SourceGraphic" operator="in"/></filter>` : '';
     if (spec.dead) { defs += `<filter id="${id}-dead"><feColorMatrix type="saturate" values=".12"/></filter>`; body = `<g filter="url(#${id}-dead)" opacity=".85">${body}</g>`; }
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" stroke-linejoin="round" stroke-linecap="round" role="img" aria-label="${(spec.unit && DATA.units[spec.unit] ? DATA.units[spec.unit].name : kind).replace(/"/g, '')}">${defs ? '<defs>' + defs + '</defs>' : ''}${body}</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" stroke-linejoin="round" stroke-linecap="round" role="img" aria-label="${(spec.unit && DATA.units[spec.unit] ? DATA.units[spec.unit].name : kind === 'magus' ? 'Magus' : kind).replace(/"/g, '')}">${defs ? '<defs>' + defs + '</defs>' : ''}${body}</svg>`;
     if (cache.size > 600) cache.clear();
     cache.set(key, svg);
     return svg;
   };
   G.portraitHtml = (spec, size = 64, cls = '') => `<span class="pt pt-${(spec && spec.kind) || 'unit'} ${cls}" style="width:${size}px;height:${size}px">${G.portrait(spec, size)}</span>`;
-  PORTRAIT.hash = hash; PORTRAIT.prng = prng; PORTRAIT.clearCache = () => cache.clear();
+  PORTRAIT.hash = hash; PORTRAIT.prng = prng; PORTRAIT.clearCache = () => cache.clear(); PORTRAIT.schoolOf = schoolOf;
 })();

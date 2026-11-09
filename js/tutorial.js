@@ -191,7 +191,7 @@
       goals: [
         { key: 'th3', text: 'Raise the Town Hall to level 3', done: () => lvAny('townhall') >= 3, go: c => buildGo(c, 'townhall', 3, '🏛️ Town Hall') },
         { key: 'academy', text: 'Build an Academy', done: () => builtAny('academy'), go: c => buildGo(c, 'academy', 1, '📚 Academy') },
-        { key: 'study', text: 'Start (or queue) a research topic', done: () => { const R = G.research(S, 'p'); return !!R.active || Object.keys(R.done).length > 0 || (R.queue || []).length > 0; },
+        { key: 'study', text: 'Start (or queue) a research topic', done: () => { const R = G.research(S, 'p'); return !!(R.studies && R.studies.length) || !!R.active || Object.keys(R.done).length > 0 || (R.queue || []).length > 0; },
           go: () => onTab('research', ['button[data-act="research"]:not([disabled])', '[data-act="ttQueue"]', '[data-act="ttSel"]'], '<p>Pick a topic (★ marks the recommended ones) and press <b>Research</b>.</p>') },
       ],
     },
@@ -563,9 +563,10 @@
       }
     }
     const R = G.research(S, 'p');
-    if (R.active && R.active.end > S.time) {
-      const tech = DATA.techs[R.active.id];
-      at(R.active.end - S.time, () => notify(`📚 Research complete: ${tech ? tech.name : 'a new technique'}`, 'Your scholars are ready for a new topic.', 'research', R.active.city, `ec-r-${R.active.id}`));
+    for (const x of R.studies || []) {
+      if (!(x.end > S.time)) continue;
+      const tech = DATA.techs[x.id];
+      at(x.end - S.time, () => notify(`📚 Research complete: ${tech ? tech.name : 'a new technique'}`, 'Your scholars are ready for a new topic.', 'research', x.city, `ec-r-${x.id}`));
     }
     for (const m of (typeof incoming === 'function' ? incoming() : [])) {
       at(Math.max(0, m.arrive - S.time - 60), () => notify(`⚔️ ${S.empires[m.owner].name} is about to strike`, `Their army reaches ${placeName(m.x, m.y)} within about a minute.`, 'moves', null, `ec-i-${m.id}`));

@@ -48,3 +48,91 @@
 'use strict';
 const CITYART = {};
 for (const r of ['hearth', 'delver', 'sylvan', 'ash', 'tide', 'veil', 'grave', 'wind']) CITYART[r] = {};
+
+// ---------------------------------------------------------------------
+//  CITYART.mage — shared bits for the mage towers (and anything else arcane) of every people.
+//  All take the api first. Animated records are 'sparks' kinds drawn by cityview's light pass:
+//    pulse  {x, y, r, col, sp}            a glow that breathes (runes, cracks, windows)
+//    ring   {x, y, rx, ry, col, n, sp}    glyph-motes turning round an ellipse (orreries, rune rings, coils)
+//    rise   {x, y, r, h, n, col, sp}      motes drifting up and fading (embers, bubbles, wisps, petals of light)
+//    shards {x, y, r, h, n, col, sp}      little crystal shards bobbing and turning round a point
+//  col is a hex colour; the helpers turn it into the 'rgba(r,g,b,A)' template cityview's glowDot wants.
+// ---------------------------------------------------------------------
+CITYART.mage = (() => {
+  const rgba = hex => {
+    const h = String(hex || '#b48cff').replace('#', ''), f = h.length === 3 ? h.replace(/./g, c => c + c) : h.slice(0, 6), v = parseInt(f, 16) || 0;
+    return `rgba(${v >> 16 & 255},${v >> 8 & 255},${v & 255},A)`;
+  };
+  const rec = (A, o) => A.rec('sparks', o);
+  return {
+    rgba,
+    pulse: (A, x, y, r, col, sp = 2) => rec(A, { kind: 'pulse', x, y, r, col: rgba(col), sp, ph: A.R() * 6 }),
+    ring: (A, cx, cy, z, r, col, n = 6, sp = 0.6) => { const [x, y, rx, ry] = A.ell(cx, cy, z, r); rec(A, { kind: 'ring', x, y, rx, ry, col: rgba(col), n, sp, ph: A.R() * 6 }); },
+    rise: (A, x, y, o = {}) => rec(A, { kind: 'rise', x, y, r: o.r || 8, h: o.h || 40, n: o.n || 6, col: rgba(o.col), sp: o.sp || 0.12, sz: o.sz || 2.6, ph: A.R() }),
+    shards: (A, x, y, o = {}) => rec(A, { kind: 'shards', x, y, r: o.r || 10, h: o.h || 6, n: o.n || 4, col: rgba(o.col), sp: o.sp || 0.5, ph: A.R() * 6 }),
+    // a polyline that is drawn in its day colour and burns bright in the night-lights pass
+    glowLine: (A, pts, day, night, lw = 1) => {
+      const c = A.c; c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+      c.strokeStyle = A.GLOW ? night : day; c.lineWidth = lw; c.stroke();
+    },
+    // a spiral band round an upright (front half only), lit in the night pass (twistLines goes dark at night)
+    spiral: (A, cx, cy, z0, z1, r, day, night, turns = 1.25, taper = 0.9, ph = 0, lw = 1.4) => {
+      const c = A.c; c.beginPath(); let pen = false;
+      for (let i = 0; i <= 40; i++) {
+        const t = i / 40, a = t * Math.PI * 2 * turns + ph, rr = r * (1 - t * taper), [px, py] = A.P(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, z0 + (z1 - z0) * t);
+        if (Math.cos(a) + Math.sin(a) > 0) { if (pen) c.lineTo(px, py); else c.moveTo(px, py); pen = true; } else pen = false;
+      }
+      c.strokeStyle = A.GLOW ? night : day; c.lineWidth = lw; c.stroke();
+    },
+    // a rune circle laid on the ground round (cx, cy): two rings and tick-runes, lit at night
+    groundCircle: (A, cx, cy, r, day, night, n = 12, z = 0.3) => {
+      const c = A.c, [x, y, rx, ry] = A.ell(cx, cy, z, r);
+      c.strokeStyle = A.GLOW ? night : day;
+      for (const k of [1, 0.84]) { c.beginPath(); c.ellipse(x, y, rx * k, ry * k, 0, 0, Math.PI * 2); c.lineWidth = k === 1 ? 1.2 : 0.7; c.stroke(); }
+      c.beginPath();
+      for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2, px = x + Math.cos(a) * rx * 0.92, py = y + Math.sin(a) * ry * 0.92; if (i % 2) { c.moveTo(px - 1.4, py); c.lineTo(px + 1.4, py); } else { c.moveTo(px, py - 1.1); c.lineTo(px + 1.2, py); c.lineTo(px, py + 1.1); } }
+      c.lineWidth = 0.8; c.stroke();
+    },
+    // a square block tapering from half-width s0 to s1 (an obelisk shaft, a spire tier); the two faces we see get
+    // colL / colR, the top a cap; o.glow = [day, night] makes the faces lit windows-style in the night pass
+    taper: (A, cx, cy, s0, s1, z0, h, colL, colR, o = {}) => {
+      const P = A.P, z1 = z0 + h;
+      const fl = [P(cx - s0, cy + s0, z0), P(cx + s0, cy + s0, z0), P(cx + s1, cy + s1, z1), P(cx - s1, cy + s1, z1)];
+      const fr = [P(cx + s0, cy + s0, z0), P(cx + s0, cy - s0, z0), P(cx + s1, cy - s1, z1), P(cx + s1, cy + s1, z1)];
+      if (o.glow) { A.lamp(fl, colL, o.glow[1]); A.lamp(fr, colR, o.glow[1]); A.poly(fl, null, A.OUT, 0.8); A.poly(fr, null, A.OUT, 0.8); }
+      else { A.poly(fl, colL); A.poly(fr, colR); }
+      if (s1 > 0.01) A.poly([P(cx - s1, cy - s1, z1), P(cx + s1, cy - s1, z1), P(cx + s1, cy + s1, z1), P(cx - s1, cy + s1, z1)], o.cap || A.shade(colL, 0.12));
+      return { fl, fr, z1 };
+    },
+    // an n-sided upright prism (glass, crystal, a shell ring): only the faces turned to us are drawn.
+    // col(i, lit) -> fill for face i; tip > 0 adds a pyramid point of that height; returns the top z
+    prism: (A, cx, cy, r, z, h, n, col, tip = 0, rTop = r, rot = 0) => {
+      const P = A.P, pts = (rr, zz) => Array.from({ length: n }, (_, i) => { const a = rot + i / n * Math.PI * 2; return [cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, zz]; });
+      const lo = pts(r, z), hi = pts(rTop, z + h);
+      const faces = [];
+      for (let i = 0; i < n; i++) { const j = (i + 1) % n, mx = (lo[i][0] + lo[j][0]) / 2 - cx, my = (lo[i][1] + lo[j][1]) / 2 - cy; if (mx + my > 0.001) faces.push([i, j, mx - my]); }
+      faces.sort((a, b) => Math.abs(b[2]) - Math.abs(a[2]));
+      for (const [i, j, side] of faces) { const q = [P(...lo[i]), P(...lo[j]), P(...hi[j]), P(...hi[i])]; const f = col(i, side); if (Array.isArray(f)) { A.lamp(q, f[0], f[1]); A.poly(q, null, A.OUT, 0.7); } else A.poly(q, f, A.OUT, 0.7); }
+      if (tip > 0) {
+        const top = [cx, cy, z + h + tip];
+        for (const [i, j, side] of faces) { const q = [P(...hi[i]), P(...hi[j]), P(...top)]; const f = col(i, side, true); if (Array.isArray(f)) { A.lamp(q, f[0], f[1]); A.poly(q, null, A.OUT, 0.7); } else A.poly(q, f, A.OUT, 0.7); }
+        return z + h + tip;
+      }
+      A.poly(hi.map(p => P(...p)), (() => { const f = col(-1, 0, true); return Array.isArray(f) ? f[0] : f; })(), A.OUT, 0.7);
+      return z + h;
+    },
+    // a soft cloud of puffs (storm clouds over a stormcatcher)
+    cloud: (A, x, y, s, col) => {
+      const c = A.c; c.fillStyle = A.GLOW ? '#000' : col;
+      for (const [dx, dy, r] of [[-7, 1, 5], [-1, -3, 6.5], [6, 0, 5], [1, 2, 5.5]]) { c.beginPath(); c.arc(x + dx * s, y + dy * s, r * s, 0, Math.PI * 2); c.fill(); }
+    },
+    // a glass/water orb: shaded sphere by day, a bright pearl in the night pass
+    orb: (A, x, y, r, col, rim = '#ffffff') => {
+      const c = A.c; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
+      if (A.GLOW) c.fillStyle = A.mix(col, '#ffffff', 0.55);
+      else { const g = c.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r); g.addColorStop(0, A.mix(col, '#ffffff', 0.75)); g.addColorStop(0.55, col); g.addColorStop(1, A.shade(col, -0.35)); c.fillStyle = g; }
+      c.fill(); c.strokeStyle = A.F(A.OUT); c.lineWidth = 0.8; c.stroke();
+      if (!A.GLOW) { c.beginPath(); c.arc(x - r * 0.3, y - r * 0.35, r * 0.28, 0, Math.PI * 2); c.fillStyle = rim; c.globalAlpha = 0.7; c.fill(); c.globalAlpha = 1; }
+    },
+  };
+})();

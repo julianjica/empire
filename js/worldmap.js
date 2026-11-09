@@ -225,19 +225,97 @@
     for (const c of Object.values(S.cities)) (by[c.owner] = by[c.owner] || []).push(c);
     return by;
   }
+  // the road network worn by traffic (js/roads.js S.roads): tracks dotted, roads solid brown, paved roads
+  // grey with dark edging. Each tile draws half-links to its road neighbours (a smooth curve through the
+  // tile when it simply passes through), one Path2D per level. Baked: rebakes only when S.roads.rev moves.
   function paintRoads(g, X) {
-    g.save(); g.lineCap = 'round';
-    for (const cs of Object.values(citiesByOwner())) {
-      for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
-        const a = cs[i], b = cs[j], d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (d > 8) continue;
-        const r = rng(hash(a.id + '~' + b.id));
-        const ax = X(a.x + 0.5), ay = X(a.y + 0.5), bx = X(b.x + 0.5), by = X(b.y + 0.5), len = Math.hypot(bx - ax, by - ay);
-        const off = (r() - 0.5) * 0.4 * len, cx = (ax + bx) / 2 - (by - ay) / len * off, cy = (ay + by) / 2 + (bx - ax) / len * off;
-        const curve = () => { g.beginPath(); g.moveTo(ax, ay); g.quadraticCurveTo(cx, cy, bx, by); g.stroke(); };
-        g.setLineDash([]); g.strokeStyle = 'rgba(150,110,60,0.22)'; g.lineWidth = P * 0.13; curve();
-        g.setLineDash([P * 0.13, P * 0.09]); g.strokeStyle = 'rgba(85,55,28,0.85)'; g.lineWidth = P * 0.04; curve();
+    const R = S.roads, N = S.map;
+    if (R && R.lvl) {
+      const lv = i => R.lvl[i] || 0;
+      const ctr = i => { const r = rng(i * 7349 + 5), x = i % N, y = (i - x) / N; return [X(x + 0.5 + (r() - 0.5) * 0.18), X(y + 0.5 + (r() - 0.5) * 0.18)]; };
+      const paths = [null, new Path2D(), new Path2D(), new Path2D()];
+      let any = false;
+      for (const k in R.lvl) {
+        const i = +k, L = R.lvl[k];
+        if (!L || !S.explored[i]) continue;
+        const x = i % N, y = (i - x) / N, c = ctr(i), links = [];
+        for (const [dx, dy] of DIRS8) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+          const j = ny * N + nx, Lj = lv(j);
+          if (!Lj || !S.explored[j]) continue;
+          if (dx && dy && (lv(y * N + nx) || lv(ny * N + x))) continue;   // a diagonal beside an orthogonal link would draw a triangle
+          const cj = ctr(j); links.push({ m: [(c[0] + cj[0]) / 2, (c[1] + cj[1]) / 2], L: Math.min(L, Lj) });
+        }
+        any = true;
+        if (links.length === 2 && links[0].L === links[1].L) { const p = paths[links[0].L]; p.moveTo(links[0].m[0], links[0].m[1]); p.quadraticCurveTo(c[0], c[1], links[1].m[0], links[1].m[1]); }
+        else if (!links.length) { const p = paths[L]; p.moveTo(c[0] - P * 0.1, c[1] + P * 0.03); p.lineTo(c[0] + P * 0.1, c[1] - P * 0.03); }
+        else for (const l of links) { const p = paths[l.L]; p.moveTo(c[0], c[1]); p.lineTo(l.m[0], l.m[1]); }
       }
+      if (any) {
+        g.save(); g.lineCap = 'round'; g.lineJoin = 'round';
+        g.setLineDash([P * 0.04, P * 0.1]); g.strokeStyle = 'rgba(95,62,30,0.75)'; g.lineWidth = P * 0.045; g.stroke(paths[1]);
+        g.setLineDash([]);
+        g.strokeStyle = 'rgba(150,110,60,0.25)'; g.lineWidth = P * 0.17; g.stroke(paths[2]);
+        g.strokeStyle = '#7a5230'; g.lineWidth = P * 0.06; g.stroke(paths[2]);
+        g.strokeStyle = 'rgba(55,45,35,0.85)'; g.lineWidth = P * 0.14; g.stroke(paths[3]);
+        g.strokeStyle = '#b9b2a6'; g.lineWidth = P * 0.095; g.stroke(paths[3]);
+        g.setLineDash([P * 0.05, P * 0.07]); g.strokeStyle = 'rgba(250,246,236,0.65)'; g.lineWidth = P * 0.014; g.stroke(paths[3]);
+        g.restore();
+      }
+    }
+    paintBridges(g, X);
+  }
+  // bridges as small arched glyphs across the river (wood brown with planks, stone grey); scaffolding while building
+  function paintBridges(g, X) {
+    const br = S.roads && S.roads.br, N = S.map;
+    if (!br) return;
+    g.save(); g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const k in br) {
+      const i = +k, b = br[k];
+      if (!S.explored[i]) continue;
+      // sit on the river's drawn curve (paintRivers: jittered tile centres as control points, curves through the midpoints)
+      const rp = j => { const t = S.tiles[j], r = rng(j * 313 + 11), jx = t.terrain === 'lake' ? 0 : (r() - 0.5) * 0.34, jy = t.terrain === 'lake' ? 0 : (r() - 0.5) * 0.34; return [t.x + 0.5 + jx, t.y + 0.5 + jy]; };
+      const nb = (G.riverNeighbours && G.riverNeighbours(S, i)) || [i, i], c = rp(i), a = rp(nb[0]), z = rp(nb[1]);
+      const px = 0.75 * c[0] + 0.125 * (a[0] + z[0]), py = 0.75 * c[1] + 0.125 * (a[1] + z[1]);
+      const dx = z[0] - a[0], dy = z[1] - a[1];
+      g.save(); g.translate(X(px), X(py)); g.rotate((dx || dy ? Math.atan2(dy, dx) : 0) + Math.PI / 2);
+      const L = P * 0.36, W = P * 0.085, f = P * 0.07, bow = P * 0.025, stone = b.k === 'stone' && !b.up, built = !!b.d;
+      // deck seen from above: gently arched parapets with flared wing walls at the banks; `len` is how far it reaches yet
+      const deck = len => {
+        const e = -L + 2 * len, p = new Path2D();
+        p.moveTo(-L - f, -W - f); p.lineTo(-L, -W); p.quadraticCurveTo((e - L) / 2, -W - bow, e, -W);
+        if (len >= L) { p.lineTo(e + f, -W - f); p.lineTo(e + f, W + f); p.lineTo(e, W); } else p.lineTo(e, W);
+        p.quadraticCurveTo((e - L) / 2, W + bow, -L, W); p.lineTo(-L - f, W + f); p.closePath();
+        return p;
+      };
+      const frac = built ? 1 : Math.max(0.25, Math.min(1, (S.time - (b.t0 || 0)) / Math.max(1, (b.at || 1) - (b.t0 || 0))));
+      const full = deck(L), part = built ? full : deck(L * frac);
+      g.fillStyle = 'rgba(59,42,26,.25)'; g.save(); g.translate(P * 0.02, P * 0.025); g.fill(part); g.restore();   // a soft shadow on the water
+      g.fillStyle = stone ? '#cfc8bb' : '#a0703f'; g.fill(part);
+      g.strokeStyle = stone ? 'rgba(70,60,50,.6)' : 'rgba(60,35,15,.7)'; g.lineWidth = P * 0.011; g.beginPath();
+      if (stone) { g.moveTo(-L, 0); g.lineTo(L, 0); for (let u = -L + P * 0.08; u < L; u += P * 0.08) { g.moveTo(u, -W); g.lineTo(u, 0); g.moveTo(u + P * 0.04, 0); g.lineTo(u + P * 0.04, W); } }
+      else for (let u = -L + P * 0.05; u < L; u += P * 0.05) { g.moveTo(u, -W); g.lineTo(u, W); }
+      g.save(); g.clip(part); g.stroke(); g.restore();
+      g.strokeStyle = INK; g.lineWidth = P * (stone ? 0.032 : 0.024); g.stroke(part);
+      if (stone) {   // the arch under the deck, showing at both parapets
+        g.lineWidth = P * 0.016; g.beginPath();
+        for (const sy of [-1, 1]) { g.moveTo(-L * 0.55, sy * (W + P * 0.012)); g.quadraticCurveTo(0, sy * (W + P * 0.075), L * 0.55, sy * (W + P * 0.012)); }
+        g.stroke();
+      }
+      if (!built || b.up) {   // scaffolding: poles, rails and cross-braces in pale timber on both sides
+        const o = W + P * 0.1;
+        g.strokeStyle = '#8a5a26'; g.lineWidth = P * 0.02; g.setLineDash([]);
+        g.beginPath();
+        for (const sy of [-1, 1]) {
+          for (const u of [-L, -L / 3, L / 3, L]) { g.moveTo(u, sy * o); g.lineTo(u, sy * (W - P * 0.01)); }
+          g.moveTo(-L - P * 0.03, sy * o); g.lineTo(L + P * 0.03, sy * o);
+          g.moveTo(-L, sy * (W + P * 0.02)); g.lineTo(-L / 3, sy * o); g.moveTo(-L / 3, sy * (W + P * 0.02)); g.lineTo(L / 3, sy * o); g.moveTo(L / 3, sy * (W + P * 0.02)); g.lineTo(L, sy * o);
+        }
+        g.stroke();
+        if (!built) { g.setLineDash([P * 0.035, P * 0.03]); g.strokeStyle = 'rgba(59,42,26,.7)'; g.lineWidth = P * 0.014; g.stroke(full); g.setLineDash([]); }
+      }
+      g.restore();
     }
     g.restore();
   }
@@ -249,6 +327,8 @@
     const h = hex.length === 4 ? hex.slice(1).split('').map(ch => ch + ch).join('') : hex.slice(1, 7);
     return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
   };
+  // a node's school (magic.js G.leySchool fills node.school lazily; arcana may set it) → its colour, else neutral violet
+  const nodeCol = n => { try { const k = n.school || (typeof G.leySchool === 'function' ? G.leySchool(n) : null); return (k && DATA.schools && DATA.schools[k] && DATA.schools[k].color) || ARCANE; } catch (e) { return ARCANE; } };
   function paintLey(g, X) {
     const ley = S.ley;
     if (!ley || !ley.nodes || !ley.nodes.length) return;
@@ -261,8 +341,8 @@
     for (const n of ley.nodes) {
       if (!S.explored[n.y * S.map + n.x]) continue;   // never hint at undiscovered enclaves
       const cx = X(n.x + 0.5), cy = X(n.y + 0.5), R = P * (0.55 + 0.22 * n.power);
-      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, R);
-      gr.addColorStop(0, 'rgba(150,100,235,.3)'); gr.addColorStop(0.6, 'rgba(150,100,235,.1)'); gr.addColorStop(1, 'rgba(150,100,235,0)');
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, R), nc = nodeCol(n);
+      gr.addColorStop(0, hexA(nc, 0.34)); gr.addColorStop(0.6, hexA(nc, 0.12)); gr.addColorStop(1, hexA(nc, 0));
       g.fillStyle = gr; g.fillRect(cx - R, cy - R, R * 2, R * 2);
     }
     g.restore();
@@ -1849,6 +1929,42 @@
   }
 
   // per-frame layer over a city glyph: banners, glows, siege fire and smoke, warnings, night windows
+  // an enchanted city: thin rings in its enchantments' colours turning round the glyph; a warded one a pale gold dome-line
+  function drawCityMagic(c, cm, e, t, seed, lp) {
+    const rx = Math.max(26, e.hw * 0.95), ry = rx * 0.42, y0 = -4;
+    c.save();
+    cm.cols.forEach((col, i) => {
+      const k = 1 + i * 0.12, p = 0.5 + 0.5 * Math.sin(t * 1.6 + seed + i * 2);
+      const g = c.createRadialGradient(0, y0, rx * k * 0.6, 0, y0, rx * k * 1.15);
+      g.addColorStop(0, hexA(col, 0)); g.addColorStop(0.7, hexA(col, 0.18 + 0.12 * p)); g.addColorStop(1, hexA(col, 0));
+      c.fillStyle = g; c.beginPath(); c.ellipse(0, y0, rx * k * 1.15, ry * k * 1.15, 0, 0, TAU); c.fill();
+      c.lineWidth = 1.6; c.strokeStyle = hexA(col, 0.55 + 0.3 * p); c.setLineDash([7, 5]); c.lineDashOffset = -t * (8 + i * 3) * (i % 2 ? -1 : 1);
+      c.beginPath(); c.ellipse(0, y0, rx * k, ry * k, 0, 0, TAU); c.stroke(); c.setLineDash([]);
+      const a = t * 0.9 + i * 2.1 + seed; lp.push([Math.cos(a) * rx * k, y0 + Math.sin(a) * ry * k, 0.9, 'v']);
+    });
+    if (cm.ward) { const p = 0.5 + 0.5 * Math.sin(t * 2.2 + seed); c.lineWidth = 2; c.strokeStyle = `rgba(255,226,140,${0.5 + 0.35 * p})`; c.beginPath(); c.ellipse(0, y0, rx * 1.05, rx * 0.95, 0, Math.PI * 1.02, Math.PI * 1.98); c.stroke(); c.beginPath(); c.ellipse(0, y0, rx * 1.05, ry * 1.05, 0, 0, TAU); c.stroke(); }
+    c.restore();
+  }
+  // the Great Working: a pillar of light over the city, one ring of runes per completed stage, pulsing while a stage is under way
+  function drawWorkings(c, t, tp, SX, SY, x0, x1, y0, y1, lights) {
+    for (const wk of workings) {
+      const { city } = wk;
+      if (city.x < x0 - 2 || city.x > x1 + 2 || city.y < y0 - 2 || city.y > y1 + 2 || !S.explored[city.y * S.map + city.x]) continue;
+      const cx = SX(city.x + 0.5), cy = SY(city.y + 0.5), col = colorOf(wk.owner), p = 0.5 + 0.5 * Math.sin(t * (wk.active ? 3.2 : 1.2)), hgt = tp * (3 + wk.stage * 0.6), w = tp * (0.16 + 0.03 * wk.stage);
+      c.save(); c.globalCompositeOperation = 'lighter';
+      const g = c.createLinearGradient(0, cy - hgt, 0, cy);
+      g.addColorStop(0, 'rgba(200,170,255,0)'); g.addColorStop(0.6, `rgba(190,150,255,${0.22 + 0.18 * p})`); g.addColorStop(1, `rgba(240,225,255,${0.5 + 0.3 * p})`);
+      c.fillStyle = g; c.beginPath(); c.moveTo(cx - w, cy); c.lineTo(cx - w * 0.35, cy - hgt); c.lineTo(cx + w * 0.35, cy - hgt); c.lineTo(cx + w, cy); c.closePath(); c.fill();
+      for (let k = 0; k < Math.min(5, wk.stage + (wk.active ? 1 : 0)); k++) {
+        const yy = cy - tp * (0.6 + k * 0.55), r = tp * (0.55 - k * 0.05), spin = t * (0.6 + k * 0.2) * (k % 2 ? -1 : 1), done = k < wk.stage;
+        c.strokeStyle = done ? hexA(col, 0.85) : `rgba(240,225,255,${0.4 + 0.5 * p})`; c.lineWidth = Math.max(1.2, tp * 0.03); c.setLineDash([tp * 0.12, tp * 0.08]); c.lineDashOffset = spin * tp;
+        c.beginPath(); c.ellipse(cx, yy, r, r * 0.35, 0, 0, TAU); c.stroke(); c.setLineDash([]);
+      }
+      if (wk.done) { c.fillStyle = `rgba(255,240,200,${0.6 + 0.3 * p})`; c.beginPath(); c.arc(cx, cy - hgt * 0.9, tp * 0.12, 0, TAU); c.fill(); }
+      c.restore();
+      lights.push([cx, cy - tp * 0.8, 2.2 + 0.4 * wk.stage, 'v']);
+    }
+  }
   function drawCityFx(c, d, e, lw, t, lp, seed, tp) {
     const col = colorOf(d.owner);
     // far out, one banner and a few lights say enough (and keep the frame cheap)
@@ -2080,13 +2196,16 @@
       c.setLineDash([]);
     }
     // enclaves
-    for (const { n, tap } of leyInfo) {
+    for (const { n, tap, sc } of leyInfo) {
       if (n.x < x0 || n.x > x1 || n.y < y0 || n.y > y1 || !S.explored[n.y * N + n.x]) continue;
-      const col = tap ? colorOf(tap.owner) : ARCANE, cx = SX(n.x + 0.5), cy = SY(n.y + 0.5);
+      const col = tap ? colorOf(tap.owner) : (sc || ARCANE), cx = SX(n.x + 0.5), cy = SY(n.y + 0.5), scol = sc || ARCANE;
       const R = tp * (0.22 + 0.08 * n.power), ph = hash('ley' + n.id) % 100 / 16, pl = 0.5 + 0.5 * Math.sin(t * 2 + ph);
       const halo = c.createRadialGradient(cx, cy, R * 0.3, cx, cy, R * (2.3 + 0.25 * pl));
-      halo.addColorStop(0, hexA(col, 0.42)); halo.addColorStop(0.45, 'rgba(160,110,240,.16)'); halo.addColorStop(1, 'rgba(160,110,240,0)');
+      halo.addColorStop(0, hexA(scol, 0.5)); halo.addColorStop(0.45, hexA(scol, 0.18)); halo.addColorStop(1, hexA(scol, 0));
       c.fillStyle = halo; c.beginPath(); c.arc(cx, cy, R * (2.3 + 0.25 * pl), 0, TAU); c.fill();
+      // a ripple of the school's colour spreading from the node every few seconds
+      const rp = (t * 0.35 + ph) % 1;
+      c.strokeStyle = hexA(scol, 0.55 * (1 - rp)); c.lineWidth = Math.max(1, tp * 0.025); c.beginPath(); c.arc(cx, cy, R * (1 + rp * 2.2), 0, TAU); c.stroke();
       lights.push([cx, cy, 1.4 + 0.4 * n.power]);
       c.fillStyle = 'rgba(36,16,60,.18)'; c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.fill();
       c.lineWidth = Math.max(1.2, tp * 0.03); c.strokeStyle = hexA(col, 0.95);
@@ -2104,7 +2223,7 @@
       c.stroke();
       // the heart: a glowing gem, one facet per point of power
       const g = R * 0.36;
-      c.fillStyle = hexA(col, 0.95); c.strokeStyle = 'rgba(30,14,50,.8)'; c.lineWidth = Math.max(0.8, tp * 0.012);
+      c.fillStyle = hexA(scol, 0.95); c.strokeStyle = 'rgba(30,14,50,.8)'; c.lineWidth = Math.max(0.8, tp * 0.012);
       c.beginPath(); c.moveTo(cx, cy - g); c.lineTo(cx + g * 0.7, cy); c.lineTo(cx, cy + g); c.lineTo(cx - g * 0.7, cy); c.closePath(); c.fill(); c.stroke();
       c.fillStyle = `rgba(255,255,255,${0.45 + 0.35 * pl})`; c.beginPath(); c.moveTo(cx, cy - g); c.lineTo(cx + g * 0.25, cy - g * 0.2); c.lineTo(cx - g * 0.35, cy - g * 0.1); c.closePath(); c.fill();
     }
@@ -2197,6 +2316,8 @@
         const e = glyphFor(d, k);
         c.drawImage(e.cv, -e.hw, -e.top, e.w, e.h);
         drawCityFx(c, d, e, lw, t, lp, hash(city.id) % 7, tp);
+        const cm = cityMagic.get(city.id);
+        if (cm && (city.owner === 'p' || vis[i])) drawCityMagic(c, cm, e, t, hash(city.id) % 7, lp);   // rivals' wards and enchantments only while in sight
         const mine = city.owner === 'p';
         if (mine || cam.z >= 0.8 || tp >= 22) labels.push({ x: cx, y: cy + Math.max(tp * 0.5, (e.bottom - 8) * k), text: city.name, mine, cur: city.id === UI.city, sub: mine ? G.tier(city).name : (S.empires[d.owner] || {}).name });
         if (vis[i]) smokes.push([cx, cy, hash(city.id) % 100 / 100]);
@@ -2213,6 +2334,7 @@
       for (const l of lp) lights.push([cx + l[0] * k, cy + l[1] * k, l[2] || 1, l[3]]);
     }
 
+    drawWorkings(c, t, tp, SX, SY, x0, x1, y0, y1, lights);
     // calamities: tinted, dashed regions with an emblem
     for (const q of (S.calamities || [])) {
       const def = DATA.calamities && DATA.calamities[q.kind];
@@ -2264,6 +2386,8 @@
     // armies
     const inc = new Set(incoming());
     const ak = clamp(tp * 1.25, 28, 72) / 100;
+    // marching columns: side rings, the selected column's road, interception courses (js/ui-intercept.js)
+    if (typeof wmDrawColumns === 'function') { try { wmDrawColumns(c, t, tp, SX, SY, vis, inc, ak); } catch (e) { /* never break the frame */ } }
     for (const m of S.moves) {
       const mine = m.owner === 'p', hostile = inc.has(m);
       const p = G.movePos(S, m);
@@ -2421,7 +2545,7 @@
     // a bake costs 15-40 ms on a 47x47 world: land, cities and seasons rebake within a second, but
     // newly explored tiles alone (scouts and armies uncover a few every few seconds at high speed)
     // wait up to 3 s so the map doesn't hitch every second
-    const sKey = S.map + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0) + '|' + (S.minors ? Object.keys(S.minors).join(',') : '') + '|' + (window.ecPaletteKey || '');
+    const sKey = S.map + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0) + '|' + (S.minors ? Object.keys(S.minors).join(',') : '') + '|' + (window.ecPaletteKey || '') + '|r' + (G.roadsRev ? G.roadsRev(S) : 0);
     const key = sKey + '|' + ex;
     if (key !== layerKey && (!layer || force || now - lastBake > (layerKey.startsWith(sKey + '|') ? 3000 : 1000))) { bake(); layerKey = key; lastBake = now; }
     refreshMagic(now);
@@ -2429,8 +2553,21 @@
   // ley tappers (slow to change) and land reshaped by world-shaping spells
   let leyInfo = [], terrSnap = null, terrSnapS = null, terrSnapRev = -1;
   const shimmers = [];
-  function refreshMagic() {
-    leyInfo = S.ley && S.ley.nodes ? S.ley.nodes.map(n => ({ n, tap: G.nodeTapper ? G.nodeTapper(S, n) : null })) : [];
+  // enchanted / warded cities (a glow ring round the glyph) and Great Working sites (a beacon), re-read once a second
+  let cityMagic = new Map(), workings = [], magicAt = -1e9;
+  function refreshMagic(now = performance.now()) {
+    leyInfo = S.ley && S.ley.nodes ? S.ley.nodes.map(n => ({ n, tap: G.nodeTapper ? G.nodeTapper(S, n) : null, sc: nodeCol(n) })) : [];
+    if (now - magicAt > 1000) {
+      magicAt = now; cityMagic = new Map(); workings = [];
+      for (const city of Object.values(S.cities)) {
+        let cols = [];
+        try { const l = typeof G.enchantmentsOf === 'function' ? G.enchantmentsOf(S, city) : []; if (Array.isArray(l)) cols = l.map(e => (e && e.color) || (e && e.school && DATA.schools[e.school] && DATA.schools[e.school].color) || ARCANE); } catch (e) { cols = []; }
+        const ward = +city.ward > S.time;
+        if (cols.length || ward) cityMagic.set(city.id, { cols: cols.slice(0, 3), ward });
+      }
+      const W = S.magic && S.magic.working;
+      if (W) for (const [owner, w] of Object.entries(W)) { const city = w && S.cities[w.city]; if (city && (w.end || w.stage > 0)) workings.push({ city, owner, stage: w.stage | 0, active: !!(w.end && w.end > S.time), done: (w.stage | 0) >= (G.WORKING_STAGES || 5) }); }
+    }
     const rev = S.terrainRev || 0;
     if (terrSnapS !== S || !terrSnap || terrSnap.length !== S.tiles.length) { terrSnap = S.tiles.map(t => t.terrain); terrSnapS = S; terrSnapRev = rev; return; }
     if (rev === terrSnapRev) return;
@@ -2562,7 +2699,11 @@
         if (!cancel && d && !d.moved) {
           const tt = tileAtClient(e);
           if (tt && UI.spellTarget) castAt(tt);
-          else if (tt) { UI.sel = tt; lastSelKey = tt.x + ',' + tt.y; UI.holding = false; render(true); if (e.pointerType !== 'mouse') revealPanel(); }
+          else if (tt) {
+            // a marching column under the pointer (generous on touch) is selected before the tile (js/ui-intercept.js)
+            const lp = local(e), wp = toWorld(lp.x, lp.y), hit = typeof wmPickColumn === 'function' ? wmPickColumn(wp.x, wp.y, (e.pointerType === 'mouse' ? 18 : 34) / tilePx(), vis) : null;
+            UI.sel = hit ? { x: tt.x, y: tt.y, move: hit } : tt; lastSelKey = tt.x + ',' + tt.y; UI.holding = false; render(true); if (e.pointerType !== 'mouse') revealPanel();
+          }
         }
       } else if (pts.size === 1) {
         const [p] = [...pts.values()], r = canvas.getBoundingClientRect();

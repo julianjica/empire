@@ -219,7 +219,7 @@ G.dossierOf = (s, city) => {
     wall: G.lvl(city, 'wall'), th: G.lvl(city, 'townhall'), loyalty: Math.round(city.loyalty ?? 100), pop: Math.round(city.pop),
     happy: G.happyOf ? G.happyOf(city) : null, hideout: G.lvl(city, 'hideout'), guards: guardsOf(s, city).length,
     queue: city.buildQueue.map(q => ({ type: q.type, level: q.level, end: q.end })), train,
-    techs: Object.keys(R.done || {}), studying: R.active ? R.active.id : null,
+    techs: Object.keys(R.done || {}), studying: R.active ? R.active.id : null, studies: (R.studies || []).map(x => x.id),
     hero: h && !h.dead ? { name: h.name, level: h.level, hp: Math.round(h.hp), here: (city.units.hero || 0) > 0 } : null,
     buildings: { ...city.buildings },
   };
@@ -286,13 +286,13 @@ const EFFECTS = {
   tech(s, spy, city) {
     const mine = G.research(s, spy.owner).done, theirs = G.research(s, city.owner).done;
     const myRace = s.empires[spy.owner].race;
-    const opts = Object.keys(theirs).filter(id => { const t = DATA.techs[id]; return t && !mine[id] && (t.reqs || (t.req ? [t.req] : [])).every(r => mine[r]) && (!t.race || t.race === myRace); });
+    const opts = Object.keys(theirs).filter(id => { const t = DATA.techs[id]; return t && !t.repeat && !mine[id] && (t.reqs || (t.req ? [t.req] : [])).every(r => mine[r]) && (!t.race || t.race === myRace); });
     if (opts.length) {
       const id = G.pick(opts);
       mine[id] = true;
       if (G.bumpEpoch) G.bumpEpoch();
       const R = G.research(s, spy.owner);
-      if (R.active && R.active.id === id) { const c = s.cities[R.active.city]; if (c && c.owner === spy.owner) G.gain(s, c, R.active.cost, 0.5); R.active = null; }
+      if ((R.studies || []).some(x => x.id === id)) G.cancelResearch(s, spy.owner, id);   // refunds half of that study
       return { text: `${spy.name} copied the scholars' notes in ${city.name}: you now know ${DATA.techs[id].icon} ${DATA.techs[id].name}.`, tech: id };
     }
     const tEmp = s.empires[city.owner];

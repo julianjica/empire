@@ -1,12 +1,14 @@
 // =====================================================================
 //  Magic. Every city draws a little mana from the land; ley enclaves —
-//  where glowing lines of power cross — give far more. Mage Towers study
-//  schools of magic, each aligned with a god: a realm knows its people's
-//  native school and the school of its faith's patron. Spells shape the
-//  economy, war and, late in the game, the world itself. Heavy casting
-//  strains the weave and risks wild backlash and demon rifts. The Great
-//  Working is a third path to victory.
-//    s.ley   = { nodes:[{id,x,y,power}], lines:[[i,j]], lineTiles:[idx...] }
+//  where glowing lines of power cross — give far more. Mage Towers cast
+//  the spells a realm has learned in its Grimoire (js/arcana.js: study
+//  tree, opened schools, mastery, enchantments, the celestial calendar).
+//  Schools are aligned with gods: a realm is attuned to its people's
+//  native school and its faith's patron school, and may open others.
+//  Spells shape the economy, war and, late in the game, the world itself.
+//  Heavy casting strains the weave and risks wild backlash and demon
+//  rifts. The Great Working is a third path to victory.
+//    s.ley   = { nodes:[{id,x,y,power,school}], lines:[[i,j]], lineTiles:[idx...] }
 //    s.magic = { strain:{cityId:n}, casts:{owner:{spell:[t...]}}, cool:{owner:{spell:t}}, fallen:{owner:[{t,n}]}, working:{owner:{stage,city,start,end}} }
 // =====================================================================
 'use strict';
@@ -18,7 +20,7 @@
 DATA.buildings.magetower = {
   name: 'Mage Tower', icon: '🔮', max: 20, time: 35, growth: 1.38, workers: 2,
   cost: { timber: 250, stone: 300, grain: 100, gold: 150 },
-  desc: 'Where your magi study and cast. Draws mana from the land (far more on a ley enclave), trains battle mages, and unlocks stronger spells at levels 1, 5, 10 and 15.',
+  desc: 'Where your magi study and cast. Draws mana from the land (far more on a ley enclave), trains battle mages, holds enchantments (1 slot, +1 per 5 levels) and opens the Grimoire circles at levels 1, 5, 10 and 15.',
   req: { townhall: 4, academy: 1 },
 };
 DATA.buildingOrder.push('magetower');
@@ -118,13 +120,13 @@ G.genLey = s => {
     const t = s.tiles[G.rint(0, s.tiles.length - 1)];
     if (G.isWater(t) || t.camp || t.oasis || t.ruin || t.minor) continue;
     if (nodes.some(n => Math.hypot(n.x - t.x, n.y - t.y) < 4.5)) continue;
-    nodes.push({ id: nodes.length, x: t.x, y: t.y, power: G.pick([1, 1, 2, 2, 3]) });
+    nodes.push({ id: nodes.length, x: t.x, y: t.y, power: G.pick([1, 1, 2, 2, 3]) }); G.leySchool(nodes[nodes.length - 1]);
   }
   // a Veilborn capital always lies near an enclave
   for (const c of Object.values(s.cities)) {
     if (s.empires[c.owner].race !== 'veil' || nodes.some(n => Math.hypot(n.x - c.x, n.y - c.y) <= 2.5)) continue;
     const t = G.freeTile(s, x => Math.hypot(x.x - c.x, x.y - c.y) >= 1 && Math.hypot(x.x - c.x, x.y - c.y) <= 2.2) || c;
-    nodes.push({ id: nodes.length, x: t.x, y: t.y, power: 3 });
+    nodes.push({ id: nodes.length, x: t.x, y: t.y, power: 3, school: 'glamour' });
   }
   // connect: minimum spanning tree plus a couple of extra lines
   const lines = [], inTree = new Set([0]);
@@ -141,6 +143,8 @@ G.genLey = s => {
   const lineTiles = [...new Set(lines.flatMap(([a, b]) => lineTilesOf(s, nodes[a], nodes[b])))];
   return { nodes, lines, lineTiles };
 };
+// every enclave is attuned to a school (older saves: derived from its place, so it never changes)
+G.leySchool = n => n.school || (n.school = DATA.schoolOrder[(n.x * 7 + n.y * 13 + n.id * 3) % DATA.schoolOrder.length]);
 const ley = s => { if (!s.ley) s.ley = G.genLey(s); return s.ley; };
 const magic = s => {
   s.magic = s.magic || {};
@@ -215,10 +219,14 @@ G.spellCost = (s, owner, id) => {
   let mult = (1 + 0.2 * recent) * G.mod(s, owner, null, 'spellCost');
   const sc = sp.school && DATA.schools[sp.school];
   if (sc && G.patronOf && G.patronOf(s, owner) === sc.god) mult *= 0.85;      // faith and magic in harmony
+  if (G.arcCostMult) mult *= G.arcCostMult(s, owner, id);                      // mastery, school lore, the stars (arcana.js)
   return Math.round(sp.cost * mult);
 };
 const power = (s, owner) => G.mod(s, owner, null, 'spellPower');
-const amp = (s, owner, mult) => mult >= 1 ? 1 + (mult - 1) * power(s, owner) : 1 - (1 - mult) * power(s, owner);
+// the cast in progress: its power (realm × mastery × metamagic × stars × the target's resistance) and duration factor
+const CAST = { P: null, dur: 1 };
+const amp = (s, owner, mult) => { const P = CAST.P || power(s, owner); return mult >= 1 ? 1 + (mult - 1) * P : Math.max(0.05, 1 - (1 - mult) * P); };
+G.spellAmp = amp;
 
 // pay mana from the casting city first, then from the realm's other cities
 const manaOf = (s, owner) => G.citiesOf(s, owner).reduce((a, c) => a + (c.res.mana || 0), 0);
@@ -233,7 +241,7 @@ const payMana = (s, owner, city, amount) => {
 G.spellStatus = (s, owner, cityId, id) => {
   const sp = DATA.spells[id], city = s.cities[cityId];
   const res = { cost: G.spellCost(s, owner, id), ok: true };
-  if (!G.spellsOf(s, owner).includes(id)) return { ...res, ok: false, hidden: true, reason: 'Not of your schools' };
+  if (!G.spellsOf(s, owner).includes(id)) return { ...res, ok: false, hidden: true, reason: G.spellUnknownReason ? G.spellUnknownReason(s, owner, id) : 'Not of your schools' };
   if (!city || city.owner !== owner) return { ...res, ok: false, reason: 'Cast from one of your cities' };
   if (G.lvl(city, 'magetower') < sp.tier) return { ...res, ok: false, locked: true, reason: `Needs a Mage Tower ${sp.tier} in ${city.name}` };
   const cd = (magic(s).cool[owner] || {})[id] || 0;
@@ -242,10 +250,11 @@ G.spellStatus = (s, owner, cityId, id) => {
   return res;
 };
 
-const addMod = (target, s, key, mult, mins, label) => {
+const addMod = (target, s, key, mult, mins, label, extra) => {
   target.mods = (target.mods || []).filter(m => m.until > s.time);
-  target.mods.push({ key, mult, until: s.time + mins * 60 * G.pace(s).time, label });
+  target.mods.push(Object.assign({ key, mult, until: s.time + mins * CAST.dur * 60 * G.pace(s).time, label }, extra || {}));
 };
+G.spellMod = addMod;
 // 'raw' expands to the four raw goods
 const applyFx = (s, owner, city, sp, target) => {
   for (const f of sp.fx || []) {
@@ -255,6 +264,11 @@ const applyFx = (s, owner, city, sp, target) => {
   }
 };
 const hostileAct = (s, owner, targetOwner) => { for (const h of G.hostileHooks) h(s, owner, targetOwner, 'raid'); };
+G.spellHostile = hostileAct;
+G.payMana = (s, owner, city, amount) => payMana(s, owner, city, amount);
+// a city shielded from wild magic and calamity penalties: a Ward of Weaving, or a standing Aegis enchantment (arcana.js)
+const warded = (s, city) => (city.ward || 0) > s.time || !!(G.hasEnchantment && G.hasEnchantment(city, 'aegis'));
+G.isWarded = warded;
 
 const SHAPES = {
   raise:   t => G.isWater(t) ? 'plains' : null,
@@ -271,8 +285,8 @@ G.reshape = (s, t, terrain) => {
   for (const c of Object.values(s.cities)) if (Math.hypot(c.x - t.x, c.y - t.y) <= 3) c.site = null;
 };
 
-// cast a spell. ctx: { city: casting city id, target: city id or {x,y} }
-G.castSpell = (s, owner, cityId, id, target) => {
+// cast a spell. target: city id or {x,y}. meta: optional list of metamagic ids (arcana.js: empower, extend, quicken, twin)
+G.castSpell = (s, owner, cityId, id, target, meta) => {
   const st = G.spellStatus(s, owner, cityId, id);
   if (!st.ok) return st.reason;
   const sp = DATA.spells[id], city = s.cities[cityId], emp = s.empires[owner];
@@ -289,17 +303,61 @@ G.castSpell = (s, owner, cityId, id, target) => {
       if (Math.hypot(tile.x - city.x, tile.y - city.y) > G.cityReach(s, city) + 3) return `Too far: shape the land within ${(G.cityReach(s, city) + 3).toFixed(1)} tiles of ${city.name}`;
       if (!SHAPES[sp.shape](tile)) return 'That land cannot be shaped this way';
       if (sp.shape === 'raise' && ![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const n = G.tileAt(s, tile.x + dx, tile.y + dy); return n && !G.isWater(n); })) return 'Raised land must touch the shore';
-    }
+    } else if (sp.range && Math.hypot(tile.x - city.x, tile.y - city.y) > sp.range) return `Too far from ${city.name} (${sp.range} tiles at most)`;
   }
-  payMana(s, owner, city, st.cost);
+  const metas = G.castMetas ? G.castMetas(s, owner, id, meta) : [];
+  const mm = G.metaMults ? G.metaMults(metas) : { cost: 1, power: 1, dur: 1, cool: 1, strain: 1 };
+  const cost = Math.round(st.cost * mm.cost);
+  if (manaOf(s, owner) < cost) return 'Not enough mana' + (metas.length ? ' for the metamagic' : '');
+  const ctx = { s, owner, emp, city, tcity, tile, sp, id, metas, msg: null };
+  if (sp.check) { const err = sp.check(s, ctx); if (err) return err; }
+  payMana(s, owner, city, cost);
   if (G.noteSpellCast) G.noteSpellCast(s, owner);
   const M = magic(s);
   (M.casts[owner] = M.casts[owner] || {})[id] = [...((M.casts[owner] || {})[id] || []).filter(t => s.time - t < 7200), s.time];
-  (M.cool[owner] = M.cool[owner] || {})[id] = s.time + sp.cool * 60 * G.pace(s).time;
-  M.strain[city.id] = (M.strain[city.id] || 0) + sp.strain;
-  const P = power(s, owner);
-  let msg = `${sp.icon} ${sp.name} cast from ${city.name}.`;
-  applyFx(s, owner, city, sp, tcity || city);
+  const coolMult = (G.arcCoolMult ? G.arcCoolMult(s, owner, id) : 1) * mm.cool;
+  (M.cool[owner] = M.cool[owner] || {})[id] = s.time + sp.cool * 60 * G.pace(s).time * coolMult;
+  M.strain[city.id] = (M.strain[city.id] || 0) + sp.strain * mm.strain * G.mod(s, owner, null, 'strain');
+  // power of this cast: realm, mastery and school lore, the stars, metamagic; hexes weaken against warded realms
+  const basePower = power(s, owner) * (G.arcPowerMult ? G.arcPowerMult(s, owner, id) : 1) * mm.power;
+  const powerAt = tc => basePower * (tc && tc.owner !== owner ? G.mod(s, owner, null, 'hexPower') * G.mod(s, tc.owner, null, 'hexResist') : 1);
+  CAST.dur = mm.dur;
+  try {
+    const one = tc => {
+      ctx.tcity = tc;
+      const P = ctx.P = CAST.P = powerAt(tc);
+      let msg = `${sp.icon} ${sp.name} cast from ${city.name}.`;
+      applyFx(s, owner, city, sp, tc || city);
+      if (sp.run) { const m = sp.run(s, ctx); if (m) msg = m; }
+      else msg = legacy(s, ctx, P, M, msg);
+      return msg;
+    };
+    let msg = one(tcity);
+    // Twin: the same spell strikes a second city (the nearest other own city, or the nearest other foreign city in range)
+    if (metas.includes('twin') && tcity && (sp.target === 'city' || sp.target === 'enemy')) {
+      const pool = sp.target === 'city' ? G.citiesOf(s, owner) : Object.values(s.cities).filter(c => c.owner !== owner && Math.hypot(c.x - city.x, c.y - city.y) <= 14 && (owner !== 'p' || s.explored[c.y * s.map + c.x]) && (c.owner === tcity.owner || (G.hostility && G.hostility(s, owner, c.owner) > 0) || owner === 'p' && G.rel && G.rel(s, c.owner).status === 'war'));
+      const first = tcity;
+      const twin = pool.filter(c => c !== first).sort((a, b) => Math.hypot(a.x - first.x, a.y - first.y) - Math.hypot(b.x - first.x, b.y - first.y))[0];
+      if (twin) { one(twin); msg += ` Twinned onto ${twin.name}.`; }
+      ctx.tcity = first;
+    }
+    if (sp.shape) {
+      const to = SHAPES[sp.shape](tile);
+      G.reshape(s, tile, to);
+      G.log(s, 'p', `${sp.icon} The land itself changes at (${tile.x}, ${tile.y}): now ${DATA.terrain[to].name.toLowerCase()}${owner === 'p' ? '' : `, by the magic of the ${emp.name}`}.`, owner === 'p' ? 'good' : 'warn');
+      msg = `${sp.icon} ${sp.name}: the land at (${tile.x}, ${tile.y}) is now ${DATA.terrain[to].name.toLowerCase()}.`;
+    }
+    if (G.noteMastery) { const up = G.noteMastery(s, owner, id); if (up && owner === 'p') msg += ` Mastery of ${sp.name} rises to rank ${up}.`; }
+    if (metas.length && owner === 'p') msg += ` (${metas.map(k => DATA.metamagic[k].name).join(', ')})`;
+    if (owner === 'p') G.log(s, 'p', msg, 'good');
+  } finally { CAST.P = null; CAST.dur = 1; }
+  s.stats.spells = (s.stats.spells || 0) + (owner === 'p' ? 1 : 0);
+  return null;
+};
+// the effects of the original spells (new spells carry their own run(s, ctx) in arcana.js)
+const legacy = (s, ctx, P, M, msg) => {
+  const { owner, city, emp, tile, id, sp } = ctx;
+  const tcity = ctx.tcity;
   switch (id) {
     case 'scry': {
       G.reveal(s, tile.x, tile.y, 3);
@@ -320,27 +378,27 @@ G.castSpell = (s, owner, cityId, id, target) => {
       msg = `⚗️ ${amt} ${DATA.goods[from].name.toLowerCase()} became ${DATA.goods[to].name.toLowerCase()} in ${tcity.name}.`;
       break;
     }
-    case 'manaward': tcity.ward = s.time + 30 * 60 * G.pace(s).time; break;
+    case 'manaward': tcity.ward = s.time + 30 * CAST.dur * 60 * G.pace(s).time; break;
     case 'healingsong':
       tcity.mods = (tcity.mods || []).filter(m => !(m.mult < 1 && m.key === 'popGrowth'));
-      tcity.pop = Math.min(G.econ(s, tcity).civCap, tcity.pop * (1 + 0.08 * P));
+      tcity.pop = Math.min(G.econ(s, tcity).civCap, tcity.pop * (1 + 0.08 * P * G.mod(s, owner, null, 'heal')));
       if (emp.hero && tcity.units.hero) emp.hero.hp = 100;
       break;
     case 'wildcall': {
-      const n = Math.round((10 + 2 * G.lvl(city, 'magetower')) * P);
+      const n = Math.round((10 + 2 * G.lvl(city, 'magetower')) * P * G.mod(s, owner, null, 'summon'));
       tcity.units.elemental = (tcity.units.elemental || 0) + n;
-      tcity.summoned = (tcity.summoned || []).concat([{ unit: 'elemental', n, until: s.time + 20 * 60 * G.pace(s).time }]);
+      tcity.summoned = (tcity.summoned || []).concat([{ unit: 'elemental', n, until: s.time + 20 * CAST.dur * 60 * G.pace(s).time }]);
       msg = `🐻 ${n} beasts answer the call and guard ${tcity.name}.`;
       break;
     }
-    case 'bloodrage': { const cap = G.capital(s, owner); if (cap) cap.pop *= 0.97; break; }
+    case 'bloodrage': { const cap = G.capital(s, owner); if (cap && G.mod(s, owner, null, 'bloodPrice') > 0.5) cap.pop *= 0.97; break; }
     case 'emberstorm': case 'tempest': case 'lightning': {
       hostileAct(s, owner, tcity.owner);
       const killed = {};
       for (const [u, n] of Object.entries(tcity.units)) {
-        const d = DATA.units[u]; if (!d.at && u !== 'hero') continue; if (u === 'hero') continue;
+        const d = DATA.units[u]; if (!d || (!d.at && u !== 'hero')) continue; if (u === 'hero') continue;
         const share = id === 'emberstorm' ? 0.12 : id === 'tempest' ? (d.type === 'ship' ? 0.25 : G.coastal(s, tcity.x, tcity.y) ? 0.1 : 0.06) : 0.05;
-        const k = Math.round(n * share * P); if (k > 0) { tcity.units[u] -= k; killed[u] = k; }
+        const k = Math.min(n, Math.round(n * share * P)); if (k > 0) { tcity.units[u] -= k; killed[u] = k; }
       }
       if (id === 'emberstorm') for (const g of ['grain', 'timber']) tcity.res[g] = (tcity.res[g] || 0) * 0.8;
       if (id === 'lightning') { const b = G.pick(Object.keys(tcity.buildings).filter(k => tcity.buildings[k] > 1 && !DATA.buildings[k].wonder)); if (b) tcity.buildings[b]--; }
@@ -349,8 +407,8 @@ G.castSpell = (s, owner, cityId, id, target) => {
       break;
     }
     case 'curseofash': hostileAct(s, owner, tcity.owner); msg = `🌫️ ${tcity.name} is cursed.`; break;
-    case 'plaguewind': hostileAct(s, owner, tcity.owner); tcity.pop *= 1 - 0.12 * P; msg = `🦠 Plague sweeps ${tcity.name}.`; if (tcity.owner === 'p') G.log(s, 'p', `🦠 A foul wind from the ${emp.name} brings plague to ${tcity.name}!`, 'bad'); break;
-    case 'veilmist': emp.veiled = s.time + 20 * 60 * G.pace(s).time; break;
+    case 'plaguewind': hostileAct(s, owner, tcity.owner); tcity.pop *= Math.max(0.5, 1 - 0.12 * P); msg = `🦠 Plague sweeps ${tcity.name}.`; if (tcity.owner === 'p') G.log(s, 'p', `🦠 A foul wind from the ${emp.name} brings plague to ${tcity.name}!`, 'bad'); break;
+    case 'veilmist': emp.veiled = s.time + 20 * CAST.dur * 60 * G.pace(s).time; break;
     case 'dreamsend': {
       if (tcity.owner !== 'p' && owner === 'p' && G.rel) { const r = G.rel(s, tcity.owner); r.opinion = Math.min(100, r.opinion + 25 * P); if (r.status === 'war' && Math.random() < 0.4) { r.status = 'peace'; r.since = s.time; msg += ' They wake longing for peace — the war is over.'; } }
       else if (owner !== 'p' && tcity.owner === 'p' && G.rel) { const r = G.rel(s, owner); r.opinion = Math.min(100, r.opinion + 10); }
@@ -358,7 +416,7 @@ G.castSpell = (s, owner, cityId, id, target) => {
     }
     case 'raisedead': {
       const lost = (M.fallen[owner] || []).filter(f => s.time - f.t < 1800 * G.pace(s).time).reduce((a, f) => a + f.n, 0);
-      const n = Math.max(5, Math.round(lost * 0.25 * P));
+      const n = Math.max(5, Math.round(lost * 0.25 * P * G.mod(s, owner, null, 'raise')));
       tcity.units.risen = (tcity.units.risen || 0) + n;
       M.fallen[owner] = [];
       msg = `🧟 ${n} of the fallen rise again in ${tcity.name}.`;
@@ -366,23 +424,16 @@ G.castSpell = (s, owner, cityId, id, target) => {
     }
     case 'soulharvest': { const k = tcity.pop * 0.08; tcity.pop -= k; G.gain(s, tcity, { mana: Math.round(k * 12 * P) }); msg = `👻 ${Math.round(k)} souls fuel the ${emp.name}'s magic.`; break; }
   }
-  if (sp.shape) {
-    const to = SHAPES[sp.shape](tile);
-    G.reshape(s, tile, to);
-    G.log(s, 'p', `${sp.icon} The land itself changes at (${tile.x}, ${tile.y}): now ${DATA.terrain[to].name.toLowerCase()}${owner === 'p' ? '' : `, by the magic of the ${emp.name}`}.`, owner === 'p' ? 'good' : 'warn');
-    msg = `${sp.icon} ${sp.name}: the land at (${tile.x}, ${tile.y}) is now ${DATA.terrain[to].name.toLowerCase()}.`;
-  }
-  if (owner === 'p') G.log(s, 'p', msg, 'good');
-  s.stats.spells = (s.stats.spells || 0) + (owner === 'p' ? 1 : 0);
-  return null;
+  return msg;
 };
+G.SHAPES = SHAPES;
 
 // ---------------------------------------------------------------------
 // Effects that need more than a timed modifier
 // ---------------------------------------------------------------------
 G.modSources.push((s, owner, city, key) => {
   // Ward of Weaving cancels calamity penalties
-  if (!city || !city.ward || city.ward <= s.time || !s.calamities) return 1;
+  if (!city || !s.calamities || !s.calamities.length || !((city.ward || 0) > s.time || (city.ench && city.ench.length && warded(s, city)))) return 1;
   let m = 1;
   for (const c of s.calamities) {
     if (c.end <= s.time || Math.hypot(c.x - city.x, c.y - city.y) > c.r) continue;
@@ -432,7 +483,7 @@ G.slowHooks.push((s, dtMin) => {
     const city = s.cities[cid];
     if (!city) { delete M.strain[cid]; continue; }
     M.strain[cid] = Math.max(0, v - 2 * dtMin);
-    if (v > 60 && !(city.ward > s.time) && Math.random() < (v - 60) / 400 * dtMin) {
+    if (v > 60 && !warded(s, city) && Math.random() < (v - 60) / 400 * dtMin) {
       const roll = Math.random();
       if (roll < 0.35) {
         const rift = spawnRift(s, city);
@@ -539,8 +590,16 @@ G.modSources.push((s, owner, city, key) => {
 });
 
 // ---------------------------------------------------------------------
-// AI magic
+// AI magic: spells are picked by their tags (spell.ai: defend, ward, raise, strike, econ), so every
+// spell a realm learns in its Grimoire is used. Study, schools and enchantments live in arcana.js.
 // ---------------------------------------------------------------------
+const AI_TAG = {
+  defend: ['illusion', 'stormshield', 'hearthward', 'runeward', 'wildcall'],
+  strike: ['emberstorm', 'lightning', 'tempest', 'plaguewind', 'curseofash'],
+  econ: ['bountifulrain', 'verdant', 'runehaste', 'golems', 'calmseas', 'summersun'],
+};
+for (const [tag, ids] of Object.entries(AI_TAG)) for (const id of ids) if (DATA.spells[id] && !DATA.spells[id].ai) DATA.spells[id].ai = tag;
+DATA.spells.manaward.ai = 'ward'; DATA.spells.raisedead.ai = 'raise';
 G.aiHooks.push((s, emp, dtMin) => {
   if (Math.random() > 0.35) return;
   const cities = G.citiesOf(s, emp.id).filter(c => G.lvl(c, 'magetower') > 0);
@@ -551,26 +610,27 @@ G.aiHooks.push((s, emp, dtMin) => {
   const mana = manaOf(s, emp.id);
   const can = (id, k = 1.6) => { const st = G.spellStatus(s, emp.id, best.id, id); return st.ok && mana > st.cost * k ? st : null; };
   const spells = G.spellsOf(s, emp.id);
+  const tagged = tag => spells.filter(id => DATA.spells[id].ai === tag).sort((a, b) => DATA.spells[b].tier - DATA.spells[a].tier);
   // defend a city under threat
   const threatened = s.moves.find(m => m.owner !== emp.id && ['raid', 'attack', 'conquer'].includes(m.type) && (() => { const t = G.tileAt(s, m.x, m.y); return t.city && s.cities[t.city].owner === emp.id; })());
   if (threatened) {
     const t = G.tileAt(s, threatened.x, threatened.y);
-    for (const id of ['illusion', 'stormshield', 'hearthward', 'runeward', 'wildcall']) if (spells.includes(id) && can(id)) { G.castSpell(s, emp.id, best.id, id, t.city); return; }
+    for (const id of tagged('defend')) if (can(id)) { if (G.castSpell(s, emp.id, best.id, id, DATA.spells[id].target === 'city' ? t.city : undefined) === null) return; }
   }
   // ward against calamities
   const struck = G.citiesOf(s, emp.id).find(c => G.calamitiesAt && G.calamitiesAt(s, c.x, c.y).some(q => DATA.calamities[q.kind].bad));
-  if (struck && can('manaward')) { G.castSpell(s, emp.id, best.id, 'manaward', struck.id); return; }
+  if (struck && spells.includes('manaward') && can('manaward')) { G.castSpell(s, emp.id, best.id, 'manaward', struck.id); return; }
   // raise the fallen
   if (spells.includes('raisedead') && (M.fallen[emp.id] || []).reduce((a, f) => a + f.n, 0) > 20 && can('raisedead')) { G.castSpell(s, emp.id, best.id, 'raisedead', best.id); return; }
   // strike an enemy at war, late in the game
   if (G.aiPressure(s) > 0.5) {
     const foe = Object.values(s.cities).filter(c => c.owner !== emp.id && Math.hypot(c.x - best.x, c.y - best.y) <= 14 && G.hostility(s, emp.id, c.owner) >= 1.2)[0];
-    if (foe) for (const id of ['emberstorm', 'lightning', 'tempest', 'plaguewind', 'curseofash']) if (spells.includes(id) && can(id)) { G.castSpell(s, emp.id, best.id, id, foe.id); return; }
+    if (foe) for (const id of tagged('strike')) if (DATA.spells[id].target === 'enemy' && can(id)) { if (G.castSpell(s, emp.id, best.id, id, foe.id) === null) return; }
   }
   // the Great Working, when the stars align
   if (G.aiPressure(s) > 0.9 && G.workingStatus(s, emp.id).ok && Math.random() < 0.3) { G.beginWorkingStage(s, emp.id); return; }
   // otherwise, an economic spell on its best city
-  for (const id of ['bountifulrain', 'verdant', 'runehaste', 'golems', 'calmseas', 'summersun']) if (spells.includes(id) && can(id, 3) && Math.random() < 0.5) { G.castSpell(s, emp.id, best.id, id, best.id); return; }
+  for (const id of tagged('econ')) if ((DATA.spells[id].target === 'city' || DATA.spells[id].target === 'realm') && can(id, 3) && Math.random() < 0.5) { if (G.castSpell(s, emp.id, best.id, id, best.id) === null) return; }
 });
 
 // new games get a ley network

@@ -122,5 +122,26 @@ ok('people layers drawn (head present) for a hero', (G.portrait({race:'delver',k
   { PORTRAIT.clearCache(); const t0=Date.now(); let n=0; for(const [r,u] of all) for(const era of [0,3]){ G.portrait({race:r,kind:'unit',unit:u,era,rank:7},96); n++; } ok('gear: every unit renders under 2 ms ('+((Date.now()-t0)/n).toFixed(3)+' ms)', (Date.now()-t0)/n<2); }
 }
 
+{ // kind 'magus' (the Circle of Magi): every people x school x rank, deterministic, never the '?' fallback
+  const SCH=DATA.schoolOrder; let bad=[], big=0, n=0; PORTRAIT.clearCache(); const t0=Date.now();
+  for(const r of RACES) for(const sc of SCH) for(const rank of [1,2,3,4,5]){ const sp={race:r,kind:'magus',school:sc,rank,era:(rank+SCH.indexOf(sc))%4,seed:r+sc+rank,color:DATA.races[r].color,age:rank>=4?'old':undefined}; const v=G.portrait(sp,64); n++;
+    big=Math.max(big,v.length); if(!wellFormed(v)||v.includes('>?<')||(v.match(/<path/g)||[]).length<20||![...v.matchAll(/url\(#([^)]+)\)/g)].every(m=>v.includes('id="'+m[1]+'"'))) bad.push(r+':'+sc+':'+rank); }
+  ok('magus: '+n+' people x school x rank portraits well-formed, no fallback, refs resolve', bad.length===0&&n===RACES.length*SCH.length*5, bad.slice(0,5).join(' '));
+  ok('magus: under 20 KB each (max '+big+') and fast ('+((Date.now()-t0)/n).toFixed(3)+' ms)', big<20000&&(Date.now()-t0)/n<3);
+  const s0={race:'veil',kind:'magus',school:'glamour',seed:'Ysmera',rank:4,era:2,color:'#c35bb0'};
+  const a=G.portrait(s0,96); PORTRAIT.clearCache(); ok('magus: deterministic per seed (cache cleared)', a===G.portrait({...s0},96) && a!==G.portrait({...s0,seed:'Other'},96));
+  ok('magus: school, rank and era each change the picture', a!==G.portrait({...s0,school:'necromancy'},96) && a!==G.portrait({...s0,rank:5},96) && a!==G.portrait({...s0,rank:1},96) && a!==G.portrait({...s0,era:3},96));
+  ok('magus: five ranks give five pictures for every people', RACES.every(r=>new Set([1,2,3,4,5].map(k=>G.portrait({race:r,kind:'magus',seed:'m',rank:k,era:1},64))).size===5));
+  ok('magus: the school colour is worn (aura/sigils)', SCH.every(sc=>G.portrait({race:'hearth',kind:'magus',school:sc,seed:1,rank:4,era:2},64).toLowerCase().includes(DATA.schools[sc].color.toLowerCase())));
+  const noId=v=>v.replace(/pt[0-9a-z]+/g,'#');
+  ok('magus: missing or unknown school = the people’s own', noId(G.portrait({race:'grave',kind:'magus',seed:2,rank:3},64))===noId(G.portrait({race:'grave',kind:'magus',school:'necromancy',seed:2,rank:3},64)) && noId(G.portrait({race:'grave',kind:'magus',school:'nope',seed:2,rank:3},64))===noId(G.portrait({race:'grave',kind:'magus',school:'necromancy',seed:2,rank:3},64)));
+  ok('magus: rank clamps (0 → 1, 9 → 5) and plans a focus, no armour', noId(G.portrait({race:'tide',kind:'magus',seed:3,rank:0},64))===noId(G.portrait({race:'tide',kind:'magus',seed:3,rank:1},64)) && noId(G.portrait({race:'tide',kind:'magus',seed:3,rank:9},64))===noId(G.portrait({race:'tide',kind:'magus',seed:3,rank:5},64))
+    && (()=>{ const c={spec:{race:'ash',kind:'magus',rank:5},race:'ash',kind:'magus',role:'mage',era:0,pal:PORTRAIT.palette.ash,anat:PORTRAIT.anatomy.ash,id:'t'}; const g=PORTRAIT.gear.plan(c); return g.weapon==='focus'&&!g.armour&&g.helm.includes('archhalo')&&g.rank===10; })());
+  ok('magus: every school has a focus and a glyph', SCH.every(k=>PORTRAIT.gear.FOCUS[k]&&PORTRAIT.gear.SGLYPH[k]));
+  const mages=RACES.map(r=>[r,DATA.races[r].mageUnit||DATA.races[r].units.find(u=>G.roleOf(u)==='mage')]).filter(x=>x[1]);
+  ok('mage units wear their people’s school colour ('+mages.length+')', mages.length===8 && mages.every(([r,u])=>{ const sc=DATA.schools[DATA.schoolOrder.find(k=>DATA.schools[k].race===r)].color; return G.portrait({race:r,kind:'unit',unit:u,era:2},64).length>0 && PORTRAIT.schoolOf(r,{})[1]===sc; }));
+  ok('portraitHtml marks the kind', G.portraitHtml({race:'wind',kind:'magus',rank:2},40).includes('pt-magus'));
+}
+
 console.log(fails?fails+' FAILED':'ALL PASS'); if(fails) process.exitCode=1;
 `);

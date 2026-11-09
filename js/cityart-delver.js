@@ -902,31 +902,54 @@
   });
 
   // =====================================================================
-  //  MAGE TOWER — rune-tower of stacked stone drums ringed with glowing bands, a hovering rune stone
+  //  MAGE TOWER — the rune-forge spire: stepped stone banded with glowing runes, a forge at its foot, a hovering keystone
   // =====================================================================
   reg('magetower', ([x, y, w, d], L, band) => {
-    const cx = x + w / 2, cy = y + d / 2, H = 40 + band * 10 + Math.min(16, L), tiers = 3 + (band >= 2 ? 1 : 0);
-    let z = 0;
+    // the rune-forge spire: a squat rune-stone on a forge plinth (1-4) → a stepped spire banded with glowing runes
+    // and a forge-mouth at its foot (5-9) → taller, hovering rune-stones circling the capstone, a rune circle cut
+    // in the yard (10-14) → an obelisk-tipped spire with a floating keystone and a turning ring of runes (15+).
+    // Rough stone → ashlar → bronze-capped → gilded runes by era.
+    const M = CITYART.mage, s = sub(L, band), cx = x + w / 2, cy = y + d / 2, era = Math.max(0, Math.min(3, X.era | 0));
+    const RUNE = era >= 3 ? '#ffd86a' : '#6fd8ff', RUNE_D = runeDay();
+    if (band >= 2) M.groundCircle(A, cx, cy, 0.7, 'rgba(60,130,180,0.55)', '#9cf0ff', 12);
     box(cx - 0.6, cy - 0.6, 1.2, 1.2, 0, 3, stone(-0.15));
+    const tiers = [1, 3, 4, 5][band], H = [16, 40, 54, 66][band] + Math.min(8, s * 1.5);
+    let z = 3, sz = band === 0 ? 0.36 : 0.5;
     for (let i = 0; i < tiers; i++) {
-      const sz = 0.5 - i * 0.075, hh = H / tiers;
-      const b = box(cx - sz, cy - sz, 2 * sz, 2 * sz, z, hh, stone(i % 2 ? 0.0 : -0.1)); ashlar(b, 4.5);
-      // corner buttress on the front edge, glowing rune bands and a rune column
-      box(cx + sz - 0.06, cy + sz - 0.06, 0.12, 0.12, z, hh * 0.8, stone(-0.18));
-      for (const sd of ['L', 'R']) { const f = sd === 'L' ? A.onL : A.onR; A.lamp(f(b, 0.06, 2 * sz - 0.06, hh - 4, hh - 2.8), runeDay(), '#9cf0ff'); }
-      for (let v = 4; v < hh - 7; v += 3) { const p = A.onL(b, sz * 0.7, 0, v, 0)[0]; rune(p[0], p[1], 0.7); }
-      A.slit(b, 'R', sz, hh * 0.35, 5);
-      z += hh;
+      const hh = H / tiers * (i === 0 ? 1.15 : 1 - i * 0.04), b = box(cx - sz, cy - sz, 2 * sz, 2 * sz, z, hh, stone(i % 2 ? 0.0 : -0.1)); ashlar(b, 4.5);
+      // the rune band round each tier, and rune columns cut into the faces
+      for (const sd of ['L', 'R']) { const f = sd === 'L' ? A.onL : A.onR; A.lamp(f(b, 0.06, 2 * sz - 0.06, hh - 4, hh - 2.8), RUNE_D, RUNE); }
+      for (let v = 4; v < hh - 6; v += 3.2) { const p = A.onL(b, sz * 0.62, 0, v, 0)[0]; rune(p[0], p[1], 0.7); const q = A.onR(b, sz * 1.3, 0, v + 1.4, 0)[0]; rune(q[0], q[1], 0.6); }
+      const pc = A.onL(b, sz, 0, hh * 0.5, 0)[0]; M.pulse(A, pc[0], pc[1], 9 + sz * 6, RUNE, 2.4 + i * 0.3);
+      if (era >= 1) { box(cx + sz - 0.07, cy + sz - 0.07, 0.14, 0.14, z, hh * 0.85, stone(-0.2)); line(A.onL(b, 0, 0, hh, hh)[0], A.onL(b, 2 * sz, 0, hh, hh)[0], trim(), 1.4); }
+      if (i === 0 && band >= 1) { // the forge-mouth: a glowing arch at the foot of the spire
+        const q = A.onR(b, sz * 0.55, sz * 1.15, 0, 6.5); A.lamp([q[0], q[1], q[2], [(q[2][0] + q[3][0]) / 2, q[2][1] - 2], q[3]], FIRE_D, FIRE_N);
+        const fm = A.onR(b, sz * 0.85, 0, 2, 0)[0]; A.rec('fires', { x: fm[0], y: fm[1], s: 0.4, glowOnly: true }); A.rec('lights', { x: fm[0], y: fm[1] - 2, r: 16 });
+        const an = P(cx + sz + 0.22, cy + 0.15); box(cx + sz + 0.14, cy + 0.08, 0.16, 0.1, 0, 3, IRON); line([an[0] - 2.5, an[1] - 4], [an[0] + 3, an[1] - 4.5], IRON, 1.8);
+      }
+      z += hh; sz *= band === 0 ? 1 : 0.84;
     }
-    const top0 = { x: cx - 0.3, y: cy - 0.3, w: 0.6, d: 0.6, z: z - 3, h: 3, col: stone(0.04) }; A.parapet(top0, 3);
-    // the hovering rune monolith (with orbiting stones at band 3)
-    const mz = z + 8 + band * 2;
-    const rb = box(cx - 0.09, cy - 0.09, 0.18, 0.18, mz, 12 + band * 2, '#5a6470'); A.lamp(A.onL(rb, 0.06, 0.12, 2, rb.h - 2), runeDay(), '#bff4ff'); A.lamp(A.onR(rb, 0.06, 0.12, 2, rb.h - 2), shade(runeDay(), -0.2), '#bff4ff');
-    if (band >= 3) for (let k = 0; k < 4; k++) { const a = k / 4 * A.TAU + 0.8; box(cx + Math.cos(a) * 0.45 - 0.05, cy + Math.sin(a) * 0.45 - 0.05, 0.1, 0.1, mz + 2 + (k % 2) * 6, 5, '#6a7480'); }
-    const orb = P(cx, cy, mz + rb.h * 0.5); A.lampDot(orb[0], orb[1] - 2, 1.6 + band * 0.3, '#d8e8ff', '#ffffff');
-    A.rec('magic', { x: orb[0], y: orb[1], r: 9 + band * 3 + Math.min(6, L / 3), n: 4 + band * 2, col: 'rgba(110,210,255,A)', seed: A.R(), bolt: band >= 3 });
-    if (X.era >= 3) { const [gx, gy] = P(cx, cy, mz + rb.h); circ(gx, gy, 1.6, GOLD, A.OUT); }
-    return mz + rb.h + 4;
+    let mz;
+    if (band === 0) { // a rune-stone set upright on the plinth
+      const rb = box(cx - 0.1, cy - 0.1, 0.2, 0.2, z, 12 + s, '#6a7480'); A.lamp(A.onL(rb, 0.05, 0.15, 2, rb.h - 2), RUNE_D, '#bff4ff'); A.lamp(A.onR(rb, 0.05, 0.15, 2, rb.h - 2), shade(RUNE_D, -0.2), '#bff4ff');
+      mz = z + rb.h;
+    } else {
+      A.parapet({ x: cx - sz, y: cy - sz, w: 2 * sz, d: 2 * sz, z: z - 3, h: 3, col: stone(0.04) }, 3);
+      if (band === 3) { const t = M.taper(A, cx, cy, sz * 0.7, 0.04, z, 22, stone(0.06), stone(-0.14)); A.lamp([t.fl[0], t.fl[1], t.fl[2]].map((p, k) => k === 2 ? p : [p[0] + (t.fl[2][0] - p[0]) * 0.65, p[1] + (t.fl[2][1] - p[1]) * 0.65]), RUNE_D, RUNE); z += 22; }
+      // the hovering keystone
+      mz = z + 7 + band * 2;
+      const rb = box(cx - 0.09, cy - 0.09, 0.18, 0.18, mz, 11 + band * 2, era >= 2 ? '#56606c' : '#5a6470'); A.lamp(A.onL(rb, 0.05, 0.13, 2, rb.h - 2), RUNE_D, '#bff4ff'); A.lamp(A.onR(rb, 0.05, 0.13, 2, rb.h - 2), shade(RUNE_D, -0.2), '#bff4ff');
+      if (era >= 2) { line(A.onL(rb, 0, 0, rb.h, rb.h)[0], A.onL(rb, 0.18, 0, rb.h, rb.h)[0], trim(), 1.2); }
+      const [hx, hy] = P(cx, cy, z + 2); A.c.beginPath(); A.c.ellipse(hx, hy, 6, 2.4, 0, 0, A.TAU); A.c.strokeStyle = A.GLOW ? '#9cf0ff' : 'rgba(90,190,230,0.6)'; A.c.lineWidth = 0.8; A.c.stroke();
+      mz += rb.h;
+      if (band >= 2) M.shards(A, P(cx, cy, mz - 6)[0], P(cx, cy, mz - 6)[1], { r: 14 + band * 3, h: 4.5, n: band + 1, col: era >= 3 ? '#ffe08a' : '#8fe4ff', sp: 0.45 });
+      if (band >= 3) M.ring(A, cx, cy, mz - 14, 0.62, RUNE, 8, 0.4);
+    }
+    const orb = P(cx, cy, mz + 4); A.lampDot(orb[0], orb[1], 1.6 + band * 0.3, '#d8e8ff', '#ffffff');
+    A.rec('magic', { x: orb[0], y: orb[1], r: 8 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2, col: era >= 3 ? 'rgba(255,220,130,A)' : 'rgba(110,210,255,A)', seed: A.R(), bolt: band >= 3 });
+    A.rec('lights', { x: orb[0], y: orb[1], r: 24 + band * 8, col: 'storm' });
+    if (era >= 3) circ(orb[0], orb[1] - 4, 1.4, GOLD, A.OUT);
+    return { top: mz + 8, hit: [[cx - 0.5, cy - 0.5, 1.0, 1.0, mz + 8]] };
   });
 
   // =====================================================================

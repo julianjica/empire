@@ -813,27 +813,66 @@
   });
 
   def('magetower', ([x, y, w, d], L, band) => {
-    const cx = x + w / 2, cy = y + d / 2, H = 44 + band * 12 + Math.min(16, L);
-    // the moontree: two silver trunks twisting round each other, cradling a moon-orb in their crown
-    A.roots(cx, cy, 0.3);
-    const pz = plinth(cx, cy, 0.42, 3);
-    A.cyl(cx, cy, 0.2, pz, H * 0.78, '#b8c0c8', '#d8e0e8');
-    A.twistLines(cx, cy, pz, pz + H * 0.78, 0.2, '#7e8894', 2 + band * 0.5, 0.9, 0);
-    A.twistLines(cx, cy, pz, pz + H * 0.78, 0.2, '#dfe6ee', 2 + band * 0.5, 0.9, Math.PI);
-    for (let v = 12; v < H * 0.7; v += 13) { const [wx, wy] = A.P(cx + 0.14, cy + 0.14, pz + v); A.lamp([[wx - 1.2, wy], [wx + 1.2, wy], [wx + 1.2, wy - 3.5], [wx, wy - 5], [wx - 1.2, wy - 3.5]], '#3a4658', '#dff0ff'); }
-    if (band >= 1) { stair(cx, cy, 0.2, pz + 2, pz + H * 0.6, 1.5, 'front', 0.2); }
-    const zc = pz + H * 0.78;
-    boughs(cx, cy, zc, 0.5, '#b8c0c8');
-    const [x0, y0] = A.P(cx, cy, zc + 12);
-    A.blobs(x0, y0, (0.55 + band * 0.1) * A.HW, A.SEASON === 3 ? ['#7a8aa0', '#a8b8d0', '#f2f6fa'] : era() >= 3 ? ['#8a9ab8', '#c4d0ea', '#fff4c8'] : ['#7f93b8', '#aebfe0', '#eef4ff'], false);
-    // the orb
-    const [ox, oy] = A.P(cx, cy, zc + 14);
-    A.lampDot(ox, oy, 3.4 + band * 0.4, '#e8f0ff', '#ffffff');
+    // the moon-tree: a silver sapling over a little moon-pool (1-4) → a living tower, two trunks twisting round
+    // a door and lit windows, a stair winding up (5-9) → bough-platforms hung with lanterns, stepping stones
+    // across a wider pool (10-14) → a vast pale crown cradling a moon-orb, silver motes rising from the pool (15+).
+    // Bark → moonstone plinth → gilded leaves by era.
+    const M = CITYART.mage, cx = x + w * 0.44, cy = y + d * 0.4, e = era(), k = Math.max(0, L - [1, 5, 10, 15][band]);
+    const H = [18, 40, 54, 66][band] + Math.min(8, k * 1.6), TR = [0.09, 0.18, 0.22, 0.26][band];
+    // the moon-pool, laid in the ground in front of the tree
+    const px = x + w * 0.66, py = y + d * 0.74, pr = 0.24 + band * 0.05, c = A.c;
+    {
+      const [ex, ey, rx, ry] = A.ell(px, py, 0.2, pr);
+      c.beginPath(); c.ellipse(ex, ey, rx + 1.6, ry + 1, 0, 0, A.TAU); c.fillStyle = A.F(stoneOf() || '#8a8a78'); c.fill(); c.strokeStyle = A.F(A.OUT); c.lineWidth = 0.7; c.stroke();
+      c.beginPath(); c.ellipse(ex, ey, rx, ry, 0, 0, A.TAU);
+      if (A.GLOW) c.fillStyle = '#9ad8ff'; else if (A.SNOW) c.fillStyle = '#d8e6ee'; else { const g = c.createRadialGradient(ex - rx * 0.3, ey - ry * 0.3, 1, ex, ey, rx); g.addColorStop(0, '#5a7ab0'); g.addColorStop(1, '#1e2c50'); c.fillStyle = g; }
+      c.fill();
+      A.lampDot(ex + rx * 0.25, ey - ry * 0.1, 1.6 + band * 0.3, '#f0f4ff', '#ffffff');   // the moon in the water
+      if (!A.GLOW && !A.SNOW) { c.beginPath(); c.ellipse(ex - rx * 0.2, ey + ry * 0.2, rx * 0.5, ry * 0.25, 0, 0, A.TAU); c.strokeStyle = 'rgba(220,235,255,0.45)'; c.lineWidth = 0.6; c.stroke(); }
+      if (band >= 2) for (let s = 0; s < 3; s++) { const a = 2.4 + s * 0.5; const [sx, sy] = A.P(px + Math.cos(a) * (pr + 0.06), py + Math.sin(a) * (pr + 0.06), 0.4); A.circ(sx, sy, 1.6, MOON, A.OUT); }
+      if (band >= 1) A.rec('sparks', { x: ex, y: ey - 2, kind: 'moon' });
+      A.rec('lights', { x: ex, y: ey, r: 16 + band * 6, col: 'grove' });
+      if (band >= 3) M.rise(A, ex, ey - 2, { r: rx * 0.8, h: 70, n: 7, col: '#d8ecff', sp: 0.08, sz: 2.4 });
+    }
+    A.roots(cx, cy, TR + 0.12);
+    const pz = band >= 1 ? plinth(cx, cy, TR + 0.2, 2.5) : 0;
+    if (band === 0) { // a silver sapling: a slender stem and a small round crown
+      A.cyl(cx, cy, TR, pz, H, '#b8c0c8', '#d8e0e8');
+      const [x0, y0] = A.P(cx, cy, pz + H + 6); A.blobs(x0, y0, 0.36 * A.HW, A.SEASON === 3 ? ['#7a8aa0', '#a8b8d0', '#f2f6fa'] : ['#7f93b8', '#aebfe0', '#eef4ff'], false);
+      A.lampDot(x0 + 2, y0 - 2, 1.6, '#e8f0ff', '#ffffff');
+      A.rec('magic', { x: x0, y: y0 - 2, r: 7 + Math.min(6, L / 3), n: 3, col: 'rgba(200,230,255,A)', seed: A.R() });
+      A.rec('lights', { x: x0, y: y0, r: 22, col: 'grove' });
+      return { top: pz + H + 12, noDress: ['stock'], hit: [[x + 0.15, y + 0.15, w - 0.3, d - 0.3, pz + H + 12]] };
+    }
+    // two trunks twisting round each other
+    A.cyl(cx, cy, TR, pz, H * 0.8, '#b8c0c8', '#d8e0e8');
+    A.twistLines(cx, cy, pz, pz + H * 0.8, TR, '#7e8894', 2 + band * 0.5, 0.9, 0);
+    A.twistLines(cx, cy, pz, pz + H * 0.8, TR, '#dfe6ee', 2 + band * 0.5, 0.9, Math.PI);
+    // a door between the roots and windows up the trunk
+    { const [dx, dy] = A.P(cx + TR * 0.5, cy + TR * 0.85, pz); A.lamp([[dx - 2.4, dy], [dx + 2.4, dy], [dx + 2.4, dy - 6], [dx, dy - 9], [dx - 2.4, dy - 6]], '#3a4658', '#dff0ff'); }
+    for (let v = 14; v < H * 0.72; v += 11) { const [wx, wy] = A.P(cx + TR * 0.7, cy + TR * 0.7, pz + v); A.lamp([[wx - 1.2, wy], [wx + 1.2, wy], [wx + 1.2, wy - 3.5], [wx, wy - 5], [wx - 1.2, wy - 3.5]], '#3a4658', '#dff0ff'); M.pulse(A, wx, wy - 2, 6, '#cfe8ff', 1.4); }
+    stair(cx, cy, TR, pz + 2, pz + H * 0.6, 1.5, 'front', 0.2);
+    const zc = pz + H * 0.8;
+    boughs(cx, cy, zc, 0.38 + band * 0.08, '#b8c0c8');
+    if (band >= 2) for (const [t, zz] of [[0.3, zc - 14], [2.2, zc - 8]]) { // bough platforms with a lantern each
+      const [ox, oy] = [cx + Math.cos(t) * (TR + 0.22), cy + Math.sin(t) * (TR + 0.22)];
+      A.cyl(ox, oy, 0.16, zz, 1.4, WOOD, A.shade(WOOD, 0.12));
+      const [hx, hy] = A.P(ox, oy, zz); hang(hx + 3, hy + 1, 1.3);
+    }
+    const rCrown = [0, 0.5, 0.68, 0.9][band];
+    const [x0, y0] = A.P(cx, cy, zc + 10 + band * 2);
+    A.blobs(x0, y0, rCrown * A.HW, A.SEASON === 3 ? ['#7a8aa0', '#a8b8d0', '#f2f6fa'] : e >= 3 ? ['#7a8cb4', '#b4c4e6', '#fff0c0'] : ['#6a80ae', '#9cb2dc', '#e4ecfc'], false);
+    // the moon-orb in the crown: a lamp at 5-9, a great pearl moon with a crescent shadow at 15+
+    const [ox, oy] = A.P(cx, cy, zc + 14 + band * 3), orR = 2.6 + band * 0.9;
+    if (band >= 3) { M.orb(A, ox, oy, orR, '#e8eeff'); if (!A.GLOW) { c.beginPath(); c.arc(ox + orR * 0.35, oy - orR * 0.1, orR * 0.85, 0, A.TAU); c.fillStyle = 'rgba(120,140,190,0.35)'; c.fill(); } }
+    else A.lampDot(ox, oy, orR, '#e8f0ff', '#ffffff');
+    M.pulse(A, ox, oy, 14 + band * 4, '#dceaff', 1.1);
     A.rec('magic', { x: ox, y: oy, r: 10 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2 + Math.floor(L / 5), col: 'rgba(200,230,255,A)', seed: A.R() });
     A.rec('lights', { x: ox, y: oy, r: 34 + band * 8, col: 'grove' });
-    if (band >= 2) for (const t of [0.2, 1.6, 3.0]) { const p = Gp(cx, cy, t, 0.55, zc + 2); hang(p[0], p[1] + 6, 1.3); }
-    if (band >= 3) for (let k = 0; k < 4; k++) { const a = k / 4 * Math.PI * 2 + 0.5; const [sx, sy] = A.P(cx + Math.cos(a) * 0.6, cy + Math.sin(a) * 0.6, zc + 22 + (k % 2) * 6); A.lampDot(sx, sy, 1.3, '#cfe8ff', '#ffffff'); A.rec('sparks', { x: sx, y: sy, kind: 'star' }); }
-    return zc + 14 + (0.55 + band * 0.1) * A.HW;
+    if (band >= 2) for (const t of [0.2, 1.6, 3.0]) { const p = Gp(cx, cy, t, rCrown * 0.85, zc + 2); hang(p[0], p[1] + 6, 1.3); }
+    if (band >= 3) M.ring(A, cx, cy, zc + 14 + band * 3, 0.55, '#e4f0ff', 5, 0.3);
+    const top = zc + 14 + band * 3 + rCrown * A.HW * 0.8;
+    return { top, noDress: ['stock'], hit: [[x + 0.1, y + 0.1, w - 0.2, d - 0.2, top]] };
   });
 
   def('heartgrove', ([x, y, w, d], L, band) => {

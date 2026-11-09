@@ -16,7 +16,7 @@ const renderWorld = city => {
   if (typeof worldMapHtml === 'function') {
     const sel = UI.sel ? G.tileAt(S, UI.sel.x, UI.sel.y) : null;
     return `<div class="mapwrap">${worldMapHtml(city)}
-      <div class="card">${sel ? renderTilePanel(city, sel, G.visibleSet(S)) : '<p class="muted">Select a place on the map to see what lies there and send troops, scouts, your hero, settlers or caravans. Drag to pan, scroll or pinch to zoom.</p>'}</div></div>`;
+      <div class="card">${sel ? ((UI.sel.move && typeof armyPanel === 'function' && armyPanel(city)) || renderTilePanel(city, sel, G.visibleSet(S))) : '<p class="muted">Select a place on the map to see what lies there and send troops, scouts, your hero, settlers or caravans. Drag to pan, scroll or pinch to zoom.</p>'}</div></div>`;
   }
   const vis = G.visibleSet(S);
   const sel = UI.sel ? G.tileAt(S, UI.sel.x, UI.sel.y) : null;

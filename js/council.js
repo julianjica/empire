@@ -13,10 +13,12 @@
 //  Military, Faith & Culture, Magic, Balanced) and an optional gold reserve.
 //  They never spend below the reserve, never build what would starve the
 //  city, respect storage, never touch wonders or realm-unique works, and
-//  keep a short log.
+//  keep a short log. With "Think for the realm" (on by default) they read a realm snapshot
+//  (G.realmEcon): a deficit that supply lines or a sister city's surplus covers is not built for,
+//  works for goods the realm lacks go where the land suits them, and the market waits for caravans.
 //
 //  State (lazy, so older saves load):
-//    s.council = { gov: { cityId: { on, focus, reserve, troops, log:[{t,text}], wait } },
+//    s.council = { gov: { cityId: { on, focus, reserve, troops, market, realm (undefined = on), rwait, log:[{t,text}], wait } },
 //                  snooze: { adviceId: untilTime | -1 (dismissed until it clears) } }
 //  Pure engine code: no S / UI / document here (UI lives in ui-council.js).
 // =====================================================================
@@ -34,6 +36,8 @@
     logMax: 8,
     timeWeight: 12,      // how strongly governors prefer quick works
     waitMins: 4,         // a governor waits this long (× pace) to afford its first choice before settling for another
+    realmSpec: 30,       // how strongly a realm-minded governor raises works for what the realm lacks where its land is better (and less where worse)
+    realmWaitMins: 10,   // a realm-minded governor waits this long (× pace) for a caravan before buying an upkeep good after all
   };
 
   // -------------------------------------------------------------------
@@ -143,9 +147,143 @@
   const GRAIN_B = ['farm', 'harbor', 'bakery'];
   const AMENITY = ['tavern', 'temple', 'theatre'];
 
+  // -------------------------------------------------------------------
+  // The realm view: one cheap snapshot per owner, built once per slow tick (in G.councilGovern) for
+  // realm-minded governors, so they lean on supply lines and sister cities instead of building a bit
+  // of everything. Kept outside the save.
+  //   G.realmEcon(s, owner, { fresh, econ }) -> {
+  //     owner, t, n, cities, lines (supply lines on), econ: { cityId: econ }, inbound: { cityId: { g: n } },
+  //     plan (last supply plan or null), adv: { cityId: { g: ratio vs realm mean } }, excl: { cityId },
+  //     goods: { g: { stock, net, cap, use, line, short (0..1), glut, deficitRate,
+  //                   surplus: [{ c, spare, net }], deficit: [{ c, net }] } } }
+  //   G.realmCover(s, R, city, g) -> { frac, from, inbound } | null   — how far the realm makes good a local deficit
+  //   G.govRealmNotes(s, city) -> [text]                              — what the governor weighs for the realm
+  // -------------------------------------------------------------------
+  const REALM = new WeakMap();
+  const REALM_GOODS = ['grain', 'timber', 'stone', 'ore', 'iron', 'tools', 'weapons'];
+  const B_GOOD = { farm: 'grain', lumber: 'timber', quarry: 'stone', mine: 'ore', smelter: 'iron', smithy: 'tools', armory: 'weapons' };
+  const ADV_KEY = { iron: 'ore' };      // a smelter's advantage is the ore under it
+  const DEP_WORD = { ore: 'ore', stone: 'fine quarry stone', timber: 'an ancient grove', grain: 'black earth' };
+  const gnm = g => DATA.goods[g] ? DATA.goods[g].name.toLowerCase() : g;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const buildRealm = (s, owner, econMap) => {
+    const cities = G.citiesOf(s, owner);
+    const lg = s.logistics && s.logistics[owner];          // read only: never create the policy from here
+    const R = { owner, t: s.time, n: cities.length, cities, lines: !!(lg && lg.on), econ: {}, inbound: {}, plan: null, adv: {}, excl: (lg && lg.excl) || {}, goods: {} };
+    for (const c of cities) R.econ[c.id] = (econMap && econMap[c.id]) || G.econ(s, c);
+    if (cities.length < 2) return R;
+    R.inbound = G.supplyInbound ? G.supplyInbound(s, owner) : {};
+    R.plan = G.supplyLastPlan ? G.supplyLastPlan(s, owner) : null;
+    // comparative advantage: the land, deposits, oases and people's yield for a good, against the realm's mean
+    const keys = ['grain', 'timber', 'stone', 'ore'], mods = {};
+    for (const c of cities) { mods[c.id] = {}; for (const k of keys) mods[c.id][k] = G.mod(s, owner, c, k); }
+    const mean = {};
+    for (const k of keys) mean[k] = cities.reduce((a, c) => a + mods[c.id][k], 0) / cities.length || 1;
+    for (const c of cities) {
+      const a = R.adv[c.id] = {};
+      for (const k of keys) a[k] = mods[c.id][k] / mean[k];
+      a.iron = a.ore;
+      // tools and weapons are forged where the iron is
+      a.tools = a.weapons = 1 + ((R.econ[c.id].net.iron || 0) > 0.2 ? 0.15 : 0);
+    }
+    for (const g of REALM_GOODS) {
+      const pol = lg && lg.goods && lg.goods[g];
+      const x = R.goods[g] = { stock: 0, net: 0, cap: 0, use: 0, line: !!(R.lines && pol && pol.on), short: 0, glut: false, deficitRate: 0, surplus: [], deficit: [] };
+      for (const c of cities) {
+        const e = R.econ[c.id], res = c.res[g] || 0, net = e.net[g] || 0;
+        x.stock += res; x.net += net; x.cap += e.cap;
+        x.use += G.supplyUse ? G.supplyUse(s, c, g, e) : ((e.use && e.use[g]) || 0);
+        if (R.excl[c.id]) continue;
+        // a sister with goods to spare, as the supply planner sees it (above its export level, with a Market to send),
+        // and sustained: it gains, or its spare would last two hours of its own drain
+        if (lg && lg.cities && lg.goods && G.supplyTarget && G.lvl(c, 'market') >= 1) {
+          const spare = Math.max(0, res - G.supplyTarget(s, c, g, e, lg).export);
+          if (spare > 0 && (net >= 0 || spare > -net * 120)) x.surplus.push({ c, spare, net });
+        }
+        if (net < -0.05) { x.deficit.push({ c, net }); x.deficitRate -= net; }
+      }
+      if (x.net < -0.05) x.short = clamp(0.3 + -x.net / Math.max(1, x.use), 0.3, 1);
+      else if (x.use > 0.05 && x.stock < x.use * 10) x.short = 0.25;
+      if ((g === 'iron' || g === 'tools' || g === 'weapons') && x.stock < 40 * cities.length && x.net < 0.5) x.short = Math.max(x.short, 0.3);
+      if (R.plan) for (const nd of R.plan.needs) if (nd.g === g && nd.unmet > 0) x.short = Math.max(x.short, nd.prio >= 60 ? 0.6 : 0.35);
+      if (x.net < 0 && x.stock > -x.net * 120) x.short *= 0.5;      // two hours of stock in hand: no hurry
+      x.glut = x.net > 0 && x.stock > x.cap * 0.6;
+    }
+    R.goods.ore.short = Math.max(R.goods.ore.short, R.goods.iron.short * 0.8);     // iron is smelted from ore
+    return R;
+  };
+  G.realmEcon = (s, owner = 'p', opts = {}) => {
+    let m = REALM.get(s);
+    if (!m) { m = {}; REALM.set(s, m); }
+    const R = m[owner];
+    if (!opts.fresh && R && s.time - R.t <= 30 && R.n === G.citiesOf(s, owner).length) return R;
+    return (m[owner] = buildRealm(s, owner, opts.econ));
+  };
+  // the realm thinks only with two or more cities and supply lines on: otherwise every governor stands alone
+  const realmOn = R => !!(R && R.n >= 2 && R.lines);
+  // how far the realm makes good this city's deficit of g: { frac (0..1), from (city), inbound }
+  G.realmCover = (s, R, city, g) => {
+    if (!realmOn(R) || R.excl[city.id]) return null;
+    const x = R.goods[g];
+    if (!x) return null;
+    const e = R.econ[city.id] || G.econ(s, city);
+    const net = e.net[g] || 0;
+    let inbound = (R.inbound[city.id] || {})[g] || 0;
+    if (R.plan) for (const nd of R.plan.needs) if (nd.city === city.id && nd.g === g) inbound += nd.met;
+    if (!x.line) return inbound > 0 ? { frac: net < 0 ? Math.min(1, inbound / (-net * 30)) : 1, from: null, inbound } : null;
+    let rate = 0, from = null, best = 0;
+    for (const sp of x.surplus) {
+      if (sp.c === city || !G.supplyReach || !G.supplyReach(s, R.owner, sp.c, city)) continue;
+      const r = Math.max(0, sp.net) + sp.spare / 30;       // its flow, plus half an hour's draw on its spare stock
+      rate += r;
+      if (r > best) { best = r; from = sp.c; }
+    }
+    if (!from && !inbound) return null;
+    const frac = net >= 0 ? (x.short < 0.3 ? 1 : 0.5) : Math.min(1, Math.max(rate / Math.max(0.1, x.deficitRate), inbound / (-net * 10)));
+    return { frac, from, inbound };
+  };
+  const coverText = (g, cv) => `${gnm(g)} ${/s$/.test(gnm(g)) ? 'come' : 'comes'} by caravan${cv.from ? ' from ' + cv.from.name : ''}`;
+  const realmWhy = (s, city, g) => {
+    const k = ADV_KEY[g] || g;
+    const site = G.site(s, city);
+    const R = REALM.get(s) && REALM.get(s)[city.owner];
+    const a = R && R.adv[city.id] ? R.adv[city.id][g] : 1;
+    const land = (site.deposits || []).includes(k) ? ` and ${city.name} sits on ${DEP_WORD[k] || gnm(k)}`
+      : a >= 1.12 ? (k === 'tools' || k === 'weapons' ? ` and ${city.name} has iron to spare` : ` and ${city.name}'s land is rich in ${gnm(k)}`) : '';
+    return `the realm is short of ${gnm(g)}${land}`;
+  };
+  // what a realm-minded governor of this city weighs, in words (for the Council tab)
+  G.govRealmNotes = (s, city) => {
+    const R = G.realmEcon(s, city.owner);
+    if (!R || R.n < 2) return [];
+    if (!R.lines) return ['supply lines are off, so this city fends for itself'];
+    if (R.excl[city.id]) return ['left out of the supply lines, so this city fends for itself'];
+    const out = [], e = R.econ[city.id];
+    if (!e) return out;
+    for (const g of REALM_GOODS) {
+      if (!((e.net[g] || 0) < -0.05)) continue;
+      const cv = G.realmCover(s, R, city, g);
+      if (cv && cv.frac >= 0.8) out.push(coverText(g, cv));
+    }
+    let best = null, bv = 0;
+    for (const g of REALM_GOODS) { const x = R.goods[g], a = R.adv[city.id][g]; if (x.short > 0 && a >= 1.12 && x.short * a > bv) { bv = x.short * a; best = g; } }
+    if (best) out.push(realmWhy(s, city, best));
+    for (const g of REALM_GOODS) { const x = R.goods[g]; if (x.line && (e.net[g] || 0) > 0 && x.surplus.some(sp => sp.c === city) && x.deficit.some(d => d.c !== city)) { out.push(`sends spare ${gnm(g)} to sister cities`); break; } }
+    return out.slice(0, 3);
+  };
+
   // score every building the city could raise next; returns candidates sorted best first
-  const govCandidates = (s, city, focus, e) => {
+  const govCandidates = (s, city, focus, e, R) => {
     e = e || G.econ(s, city);
+    // the realm view (two or more cities with supply lines on); null = the old, purely local reckoning
+    const RR = realmOn(R) && !R.excl[city.id] ? R : null;
+    const covers = {};
+    // this city's shortfall of g made good by caravans or a sister's surplus: { from } or null
+    const covered = g => {
+      if (!RR) return null;
+      if (covers[g] === undefined) { const cv = G.realmCover(s, RR, city, g); covers[g] = cv && cv.frac >= 0.8 ? cv : null; }
+      return covers[g];
+    };
     const emp = s.empires[city.owner];
     const th = G.lvl(city, 'townhall');
     const F = (DATA.govFocus[focus] || DATA.govFocus.balanced).w;
@@ -167,16 +305,19 @@
       const L = G.lvl(city, t);
       let w = 20, why = '';
       switch (t) {
-        case 'farm': if (e.net.grain < 5 + city.pop * 0.05) { w += 120; why = 'grain is short'; } else w += (city.res.grain || 0) < e.cap * 0.25 ? 45 - L : 32 - L; break;
+        case 'farm': if (e.net.grain < 5 + city.pop * 0.05) {
+            const cv = !hungry && covered('grain');
+            if (cv) { w += 20 - L; why = coverText('grain', cv); } else { w += 120; why = 'grain is short'; }
+          } else w += (city.res.grain || 0) < e.cap * 0.25 ? 45 - L : 32 - L; break;
         case 'houses': if (city.pop >= e.civCap * 0.9) { w += 70; why = 'homes are full'; } else w += 5; break;
         case 'warehouse': if (nearCap) { w += 60; why = 'stores are nearly full'; } break;
         case 'townhall': w += 25 + (L <= 3 ? 20 : 0); break;
-        case 'lumber': w += 28 - L + ((city.res.timber || 0) < e.cap * 0.15 ? 25 : 0); break;
-        case 'quarry': w += 28 - L + ((city.res.stone || 0) < e.cap * 0.15 ? 25 : 0); break;
-        case 'mine': w += 22 - L + ((city.res.ore || 0) < e.cap * 0.15 ? 20 : 0); break;
+        case 'lumber': w += 28 - L + ((city.res.timber || 0) < e.cap * 0.15 && !covered('timber') ? 25 : 0); break;
+        case 'quarry': w += 28 - L + ((city.res.stone || 0) < e.cap * 0.15 && !covered('stone') ? 25 : 0); break;
+        case 'mine': w += 22 - L + ((city.res.ore || 0) < e.cap * 0.15 && !covered('ore') ? 20 : 0); break;
         case 'workshop': w += focus === 'military' ? 5 - L * 2 : -30; break;
         case 'smelter': w += 22 - L; break;
-        case 'smithy': w += (city.res.tools || 0) < 20 ? 30 : 5; break;
+        case 'smithy': w += (city.res.tools || 0) < 20 && !covered('tools') ? 30 : 5; break;
         case 'armory': w += 22 - L + aggr * 10; break;
         case 'barracks': w += 15 + aggr * 10 - L; break;
         case 'stable': w += aggr * 12 - L; break;
@@ -188,10 +329,35 @@
         default: w += 18 - L;
       }
       if (e.eff < 0.95 && t === 'houses') { w += 50; why = 'short of workers'; }
-      if (t === 'houses' && e.net.grain < 1 + city.pop * 0.03) w -= 50;            // more mouths would starve
+      // more mouths would starve — unless caravans feed this city and the realm still grows more grain than it eats
+      if (t === 'houses' && e.net.grain < 1 + city.pop * 0.03 && !(covered('grain') && RR.goods.grain.net > 5 + city.pop * 0.03)) w -= 50;
       if (AMENITY.includes(t) && happy >= 62 && focus !== 'faith') w -= 25;
       if (AMENITY.includes(t) && happy < 40) { w += 30; why = 'the people are unhappy'; }
       if (t !== 'townhall' && L >= th + 2) w -= 40;
+      if (RR) {
+        // specialise: build what the realm lacks where the land suits it, and leave a glut to better-placed cities
+        const g = B_GOOD[t];
+        if (g) {
+          const x = RR.goods[g], a = RR.adv[city.id][g] || 1;
+          if (x.short > 0) {
+            const bonus = Math.round(C.realmSpec * x.short * clamp((a - 1) / 0.25, -0.5, 1.3));
+            w += bonus;
+            if (bonus >= 8 && (!why || bonus >= 30)) why = realmWhy(s, city, g === 'ore' && RR.goods.iron.short * 0.8 >= x.short - 1e-9 ? 'iron' : g);
+          } else if (x.glut && a < 0.95) w -= 12;
+          else w += a >= 1.2 ? 8 : a <= 0.8 ? -8 : 0;
+        }
+        // a Market lets a city with spare goods send them by caravan to sister cities that lack them
+        if (t === 'market' && L === 0) {
+          for (const gd of REALM_GOODS) {
+            const x = RR.goods[gd];
+            if (!x.line || !((e.net[gd] || 0) > 0) || (city.res[gd] || 0) < e.cap * 0.4) continue;
+            const d = x.deficit.find(z => z.c !== city);
+            if (!d) continue;
+            w += 45; why = `a Market here would send spare ${gnm(gd)} to ${d.c.name} by caravan`;
+            break;
+          }
+        }
+      }
       w += F[t] || 0;
       out.push({ t, w, st, why });
     }
@@ -203,6 +369,9 @@
     }
     return out.sort((a, b) => b.w - a.w);
   };
+  // read-only, for tests and tools: the scored candidates [{ t, w, why }] (realm: a snapshot, true for a fresh one, or null)
+  G.councilCandidates = (s, city, focus = 'balanced', realm = null) => govCandidates(s, city, focus, null, realm === true ? G.realmEcon(s, city.owner, { fresh: true }) : realm)
+    .map(c => ({ t: c.t, w: Math.round(c.w), why: c.why }));
   // can the governor pay for this without breaking its rules?
   const govAffords = (s, city, cand, reserve, e) => {
     if (!cand.st.ok) return false;
@@ -215,7 +384,8 @@
   // the governor's choice (or the Steward's suggestion): { t, why, level } or { wait: reason }
   G.councilPick = (s, city, focus = 'balanced', opts = {}) => {
     const e = opts.econ || G.econ(s, city);
-    const cands = govCandidates(s, city, focus, e);
+    const R = opts.realm === true ? G.realmEcon(s, city.owner, { fresh: true }) : opts.realm || null;
+    const cands = govCandidates(s, city, focus, e, R);
     if (!cands.length) return { wait: 'nothing left to build' };
     const reserve = opts.reserve || 0;
     const top = cands[0];
@@ -246,7 +416,7 @@
     const city = s.cities[cityId];
     if (!city || city.owner !== 'p') return 'Not one of your cities';
     const gov = council(s).gov;
-    const g = gov[cityId] = gov[cityId] || { on: false, focus: 'balanced', reserve: 0, troops: 0, log: [] };
+    const g = gov[cityId] = gov[cityId] || { on: false, focus: 'balanced', reserve: 0, troops: 0, realm: true, log: [] };
     if (cfg.focus !== undefined) {
       if (cfg.focus === 'off' || cfg.focus === null) g.on = false;
       else if (DATA.govFocus[cfg.focus]) { g.focus = cfg.focus; g.on = true; }
@@ -256,6 +426,7 @@
     if (cfg.reserve !== undefined) g.reserve = Math.max(0, Math.floor(+cfg.reserve || 0));
     if (cfg.troops !== undefined) g.troops = Math.max(0, Math.min(500, Math.floor(+cfg.troops || 0)));
     if (cfg.market !== undefined) g.market = !!cfg.market;
+    if (cfg.realm !== undefined) g.realm = !!cfg.realm;
     g.wait = null;
     if (G.councilDirty) G.councilDirty(s);
     return null;
@@ -304,11 +475,24 @@
     if (G.queueTrain(s, city.id, u, n) === null) govLog(s, g, `Training ${n} ${uname(u)} (garrison ${have + n}/${g.troops})`);
   };
   // with a market, a governor sells what would spill over and buys what its next work lacks — never below the reserve
-  const govMarket = (s, city, g, e) => {
+  // a log line that repeats (same key within ten game-minutes) is refreshed in place instead of pushing out the building news
+  const govNote = (s, g, key, text) => {
+    const prev = (g.log || []).find(l => l.key === key && s.time - l.t < 600 * paceT(s));
+    if (prev) { prev.t = s.time; prev.text = text; return; }
+    govLog(s, g, text); g.log[0].key = key;
+  };
+  const govMarket = (s, city, g, e, R) => {
     if (g.market === false || G.lvl(city, 'market') < 1) return;
     const emp = s.empires[city.owner];
+    const RR = realmOn(R) && !R.excl[city.id] ? R : null;
     for (const gd of ['grain', 'timber', 'stone', 'ore']) {
       if ((city.res[gd] || 0) > e.cap * 0.92 && (e.net[gd] || 0) > 0) {
+        // realm first: keep what a sister city lacks for the supply caravans, unless it is truly spilling over
+        if (RR && (city.res[gd] || 0) < e.cap * 0.98) {
+          const x = RR.goods[gd];
+          const d = x && x.line && x.deficit.find(z => z.c !== city && G.supplyReach && G.supplyReach(s, city.owner, city, z.c));
+          if (d) { govNote(s, g, 'keep:' + gd, `Kept spare ${gnm(gd)} for the caravans to ${d.c.name} instead of selling`); continue; }
+        }
         const n = Math.floor(e.cap * 0.15);
         if (G.trade(s, city.id, gd, n, 'sell') === null) {
           // fold repeated sales into one log line so they don't push out the building news
@@ -320,9 +504,19 @@
     }
     // upkeep goods running out (tools, weapons, iron, firewood, stone, bonedust): buy half an hour's worth
     const lack = ['tools', 'weapons', 'iron', 'timber', 'stone', 'bonedust'].filter(gd => (city.short || {})[gd] || ((e.use && e.use[gd]) > 0 && (e.net[gd] || 0) < 0 && (city.res[gd] || 0) < -(e.net[gd]) * 10));
+    if (g.rwait) { for (const gd of Object.keys(g.rwait)) if (!lack.includes(gd)) delete g.rwait[gd]; if (!Object.keys(g.rwait).length) delete g.rwait; }
     for (const gd of lack) {
       const n = Math.ceil(Math.min(e.cap * 0.2 - (city.res[gd] || 0), Math.max(10, (e.use[gd] || 0) * 30)));
       if (!(n > 0)) continue;
+      // realm first: a supply line already brings it, or a sister city has it to spare
+      if (RR) {
+        const cv = G.realmCover(s, RR, city, gd);
+        const rw = g.rwait = g.rwait || {};
+        if (rw[gd] === undefined) rw[gd] = s.time;
+        // …but not for ever: after ten game-minutes (× pace) with nothing on the road, buy after all
+        if (cv && (cv.inbound > 0 || (cv.frac >= 0.5 && s.time - rw[gd] < C.realmWaitMins * 60 * paceT(s)))) { govNote(s, g, 'wait:' + gd, `Waiting for ${gnm(gd)} by caravan${cv.from ? ' from ' + cv.from.name : ''} instead of buying`); continue; }
+      }
+      if (g.rwait) delete g.rwait[gd];
       const price = n * G.marketRates(s, city, gd).buy;
       if (emp.gold - price < (g.reserve || 0) + 100) continue;
       if (G.trade(s, city.id, gd, n, 'buy') === null) govLog(s, g, `Bought ${n} ${DATA.goods[gd].name.toLowerCase()} for upkeep (${Math.round(price)} gold)`);
@@ -339,12 +533,13 @@
     for (const [gd, n] of short) G.trade(s, city.id, gd, n, 'buy');
     govLog(s, g, `Bought ${short.map(([gd, n]) => n + ' ' + DATA.goods[gd].name.toLowerCase()).join(', ')} for ${bname(want)} (${Math.round(price)} gold)`);
   };
-  const govStep = (s, city, g) => {
-    const e = G.econ(s, city);
-    govMarket(s, city, g, e);
+  const govStep = (s, city, g, R) => {
+    const e = (R && R.econ[city.id]) || G.econ(s, city);
+    const realm = g.realm === false ? null : R;      // "Think for the realm" (on unless switched off; older saves have no field)
+    govMarket(s, city, g, e, realm);
     let built = 0;
     while (built < 2 && city.buildQueue.length < G.buildSlots(city)) {
-      const pick = G.councilPick(s, city, g.focus, { reserve: g.reserve, patient: true, waitedSince: g.wait ? g.wait.since : null, econ: e });
+      const pick = G.councilPick(s, city, g.focus, { reserve: g.reserve, patient: true, waitedSince: g.wait ? g.wait.since : null, econ: e, realm });
       if (!pick.t) {
         if (!g.wait || g.wait.text !== pick.wait) g.wait = { since: g.wait && g.wait.saving === pick.saving ? g.wait.since : s.time, text: pick.wait, saving: pick.saving };
         break;
@@ -360,11 +555,14 @@
   G.councilGovern = s => {
     if (s.gameOver) return;
     const gov = council(s).gov;
+    // one realm snapshot per slow tick, only when some governor thinks for the realm and there is a realm to think of
+    let R = null;
+    if (Object.entries(gov).some(([cid, g]) => g.on && g.realm !== false && s.cities[cid] && s.cities[cid].owner === 'p') && G.citiesOf(s, 'p').length >= 2) R = G.realmEcon(s, 'p', { fresh: true });
     for (const [cid, g] of Object.entries(gov)) {
       const city = s.cities[cid];
       if (!city) { delete gov[cid]; continue; }
       if (!g.on || city.owner !== 'p') continue;
-      govStep(s, city, g);
+      govStep(s, city, g, R);
     }
   };
   G.slowHooks.push(s => { if (s.council && s.council.gov) G.councilGovern(s); });
@@ -707,7 +905,7 @@
     for (const [id, until] of Object.entries(sn)) if ((until === -1 && !ids.has(id)) || (until !== -1 && until <= s.time)) delete sn[id];
     return list;
   };
-  G.councilDirty = s => { CACHE.delete(s); };
+  G.councilDirty = s => { CACHE.delete(s); REALM.delete(s); };
   const hidden = (s, id) => { const u = council(s).snooze[id]; return u === -1 || (u !== undefined && u > s.time); };
   // the advice to show: sorted by priority, snoozed and dismissed items left out. opts.advisor filters
   G.councilAdvice = (s, opts = {}) => G.councilRaw(s).filter(i => !hidden(s, i.id) && (!opts.advisor || i.advisor === opts.advisor) && (!opts.city || (i.action && i.action.c === opts.city)));

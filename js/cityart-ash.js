@@ -986,37 +986,67 @@
   });
 
   def('magetower', ([x, y, w, d], L, band) => {
-    const cx = x + w / 2, cy = y + d / 2, H = 40 + band * 10 + Math.min(20, L), m = matOf(band);
-    let orbZ, top;
-    if (band <= 1) { // a fire-shaman's totem over a bone pyre
-      totem(cx - 0.3, cy - 0.3, H * 0.85, 1.1);
-      for (let r2 = 0; r2 < 3; r2++) A.log(cx - 0.4, cx + 0.4, cy + 0.2 - r2 * 0.05, 3 + r2 * 4, 2);
-      for (let k = 0; k < 6; k++) { const a = k / 6 * A.TAU; const [bx, by] = A.P(cx + Math.cos(a) * 0.55, cy + Math.sin(a) * 0.55); curve([bx, by], [bx + 4, by - 8], [bx + Math.cos(a) * 3, by - 14], BONE, 1.8); }
-      fire(cx, cy + 0.1, 14, 1.2 + band * 0.2, 30); orbZ = 30 + band * 6; top = H * 0.85 + 10;
-    } else { // a tapering pylon of basalt (obsidian veined with fire at the Legend era)
-      const col = wallOf(m === 'timber' ? 'stone' : m), s0 = 0.36, s1 = 0.16, h = H * 0.8;
-      A.box(cx - 0.45, cy - 0.45, 0.9, 0.9, 0, 4, BASALT);
-      A.poly([A.P(cx + s0, cy - s0, 4), A.P(cx + s0, cy + s0, 4), A.P(cx + s1, cy + s1, h), A.P(cx + s1, cy - s1, h)], A.shade(col, -0.22));
-      A.poly([A.P(cx - s0, cy + s0, 4), A.P(cx + s0, cy + s0, 4), A.P(cx + s1, cy + s1, h), A.P(cx - s1, cy + s1, h)], col);
-      // ember veins / runes
-      for (let v = 10; v < h - 6; v += 9) { const t = v / h, sx = s0 + (s1 - s0) * t; A.lamp([A.P(cx - sx * 0.3, cy + sx, v), A.P(cx + sx * 0.3, cy + sx, v), A.P(cx + sx * 0.3, cy + sx, v + 4), A.P(cx - sx * 0.3, cy + sx, v + 4)], '#7a2a1a', '#ff8a3a'); }
-      if (m === 'obs') glints((u, v) => A.P(cx - s0 + u * s0 * 2, cy + s0, 6 + v * h * 0.8), 6);
-      // bone buttresses
-      for (const [px, py] of [[cx - s0, cy + s0], [cx + s0, cy + s0], [cx + s0, cy - s0]]) { const a = A.P(px, py, H * 0.3), g = A.P(px + (px - cx) * 0.4, py + (py - cy) * 0.4); A.line(a, g, BONE, 2); }
-      const z = brazier(cx, cy, h, 1.3, false);
-      fire(cx, cy, h + 10, 1.3, 34);
-      if (band >= 3) { // a crown of obsidian horns curling round the flame, rune-stones hanging in the air
-        const t = A.P(cx, cy, h);
-        for (const s2 of [-1, 1]) { curve([t[0] + s2 * 4, t[1] + 1], [t[0] + s2 * 13, t[1] - 4], [t[0] + s2 * 7, t[1] - 18], m === 'obs' ? '#3a3040' : BONE, 2.6); }
-        for (let k = 0; k < 3; k++) { const a = k / 3 * A.TAU + 0.6, p = A.P(cx + Math.cos(a) * 0.5, cy + Math.sin(a) * 0.5, h - 10 - k * 6); A.poly([[p[0], p[1] - 4], [p[0] + 2.2, p[1]], [p[0], p[1] + 4], [p[0] - 2.2, p[1]]], OBS); A.lampDot(p[0], p[1], 0.9, '#c0501a', '#ffb050'); }
+    // the ember obelisk: a cracked standing stone with a blood-red brazier at its foot (1-4) → a basalt obelisk
+    // split by glowing fire-veins, the blood-brazier on its point (5-9) → horn-crowned totem pillars with their
+    // own braziers and a blood channel cut round the yard (10-14) → a towering obelisk wrapped in chains, a ring
+    // of embers wheeling over the brazier and sparks streaming skyward (15+). Bone → iron → bronze → gold by era.
+    const M = CITYART.mage, e = era(), cx = x + w / 2, cy = y + d / 2, k = Math.max(0, L - [1, 5, 10, 15][band]), c = A.c;
+    const BLOOD = ['#8e1a14', '#d0301e', '#ffb08a'], VEIN_D = '#7a1e14', VEIN_N = '#ff5a2a';
+    const stone = e >= 3 ? OBS : BASALT, stoneL = e >= 3 ? A.shade(OBS, 0.12) : BASALT_L;
+    const trim = [BONE, '#4a4440', '#a0703a', GOLD][e];
+    const bloodBrazier = (gx, gy, z, s) => {
+      const [bx, by] = A.P(gx, gy, z);
+      A.poly([[bx - 5 * s, by - 2 * s], [bx + 5 * s, by - 2 * s], [bx + 3 * s, by + 2 * s], [bx - 3 * s, by + 2 * s]], e >= 2 ? trim : '#2a2420', A.OUT, 0.8);
+      for (const dx of [-3.4, 3.4]) A.line([bx + dx * s, by - 2 * s], [bx + dx * s * 1.25, by - 4.4 * s], BONE, 1.4 * s);   // horn handles
+      A.lampDot(bx, by - 2 * s, 3.2 * s, '#a01e14', '#ff7a4a');
+      if (!A.GLOW) { c.beginPath(); c.moveTo(bx - 3.4 * s, by - 2 * s); c.quadraticCurveTo(bx - 2 * s, by - 9 * s, bx, by - 12 * s); c.quadraticCurveTo(bx + 2.6 * s, by - 8 * s, bx + 3.4 * s, by - 2 * s); c.closePath(); c.fillStyle = 'rgba(200,40,24,0.85)'; c.fill(); }
+      A.rec('fires', { x: bx, y: by - 2 * s, s: 0.75 * s, cols: BLOOD, glowCol: 'rgba(255,70,40,A)' });
+      A.rec('lights', { x: bx, y: by - 6 * s, r: 28 * s });
+      M.pulse(A, bx, by - 5 * s, 12 * s, '#ff4a2a', 3.1);
+      return [bx, by - 2 * s];
+    };
+    const veins = (t, h, s0, s1, z0) => { // fire-veins zigzagging down the two faces we see
+      for (const side of [0, 1]) for (let q = 0; q < 2; q++) {
+        const u = 0.3 + q * 0.4, pts = [];
+        for (let v = 0; v <= 6; v++) { const tt = v / 6, s = s0 + (s1 - s0) * tt * 0.95, uu = (u - 0.5) * 2 * s + ((v % 2) - 0.5) * s * 0.35; pts.push(side ? A.P(cx + s, cy + uu, z0 + h * tt * 0.92) : A.P(cx + uu, cy + s, z0 + h * tt * 0.92)); }
+        M.glowLine(A, pts, VEIN_D, VEIN_N, 1.1);
+        const mp = pts[3]; M.pulse(A, mp[0], mp[1], 7, '#ff5a2a', 1.7 + q + side);
       }
-      orbZ = z + 12 + band * 3; top = orbZ + 10;
+    };
+    if (band >= 2) M.groundCircle(A, cx, cy, 0.68, 'rgba(150,30,20,0.6)', '#ff5a2a', 10);
+    let orbZ, top, br;
+    if (band === 0) { // a cracked standing stone and the blood-brazier at its foot
+      const h = 22 + k * 1.5;
+      A.box(cx - 0.36, cy - 0.36, 0.72, 0.72, 0, 2, BASALT);
+      const t = M.taper(A, cx - 0.08, cy - 0.1, 0.16, 0.1, 2, h, stoneL, stone);
+      veins(t, h, 0.16, 0.1, 2);
+      totem(cx - 0.32, cy + 0.22, 14, 0.7);
+      br = bloodBrazier(cx + 0.25, cy + 0.22, 3, 0.8); orbZ = h + 8; top = h + 8;
+    } else {
+      const h = [0, 42, 54, 70][band] + Math.min(10, k * 2), s0 = [0, 0.3, 0.34, 0.38][band], s1 = s0 * 0.42;
+      A.box(cx - 0.5, cy - 0.5, 1.0, 1.0, 0, 3, BASALT); A.box(cx - 0.42, cy - 0.42, 0.84, 0.84, 3, 2, BASALT_L);
+      if (band >= 2) for (const [px, py] of [[cx - 0.48, cy + 0.36], [cx + 0.36, cy - 0.48]]) { // horn-crowned totem pillars with braziers
+        A.box(px - 0.07, py - 0.07, 0.14, 0.14, 0, 18 + band * 2, stoneL);
+        const [tx, ty] = A.P(px, py, 18 + band * 2); for (const sgn of [-1, 1]) A.c.beginPath(), A.c.moveTo(tx + sgn * 2, ty), A.c.quadraticCurveTo(tx + sgn * 7, ty - 2, tx + sgn * 5, ty - 9), A.c.strokeStyle = A.F(BONE), A.c.lineWidth = 1.6, A.c.stroke();
+        bloodBrazier(px, py, 18 + band * 2, 0.55);
+      }
+      const t = M.taper(A, cx, cy, s0, s1, 5, h, stoneL, stone);
+      veins(t, h, s0, s1, 5);
+      if (e >= 1) for (const v of [0.25, 0.62]) { const s = s0 + (s1 - s0) * v; A.line(A.P(cx - s, cy + s, 5 + h * v), A.P(cx + s, cy + s, 5 + h * v), trim, 1.6); A.line(A.P(cx + s, cy + s, 5 + h * v), A.P(cx + s, cy - s, 5 + h * v), A.shade(trim, -0.2), 1.6); }
+      if (band >= 3) { // chains from the obelisk to the pillars
+        for (const [px, py] of [[cx - 0.48, cy + 0.36], [cx + 0.36, cy - 0.48]]) { const a = A.P(cx, cy + (py > cy ? s1 : 0), 5 + h * 0.7), b = A.P(px, py, 20 + band * 2), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + 6]; c.beginPath(); c.moveTo(a[0], a[1]); c.quadraticCurveTo(m[0], m[1], b[0], b[1]); c.setLineDash([1.6, 1.2]); c.strokeStyle = A.F('#3a3430'); c.lineWidth = 1.3; c.stroke(); c.setLineDash([]); }
+      }
+      // a horned crown on the point, the blood-brazier in it
+      const pt = A.P(cx, cy, 5 + h);
+      for (const sgn of [-1, 1]) { c.beginPath(); c.moveTo(pt[0] + sgn * 3, pt[1] + 1); c.quadraticCurveTo(pt[0] + sgn * (10 + band * 2), pt[1] - 3, pt[0] + sgn * (6 + band), pt[1] - 14 - band * 2); c.strokeStyle = A.F(e >= 3 ? '#3a3040' : BONE); c.lineWidth = 2.4; c.stroke(); }
+      br = bloodBrazier(cx, cy, 5 + h, 1 + band * 0.12);
+      orbZ = 5 + h + 18 + band * 3; top = orbZ + 6;
+      if (band >= 3) { M.ring(A, cx, cy, 5 + h + 12, 0.5, '#ff6a3a', 7, 0.7); M.rise(A, br[0], br[1] - 6, { r: 6, h: 60, n: 9, col: '#ff7a3a', sp: 0.22, sz: 1.8 }); }
+      else if (band >= 1) M.rise(A, br[0], br[1] - 6, { r: 4, h: 34, n: 5, col: '#ff8a4a', sp: 0.2, sz: 1.6 });
     }
     const orb = A.P(cx, cy, orbZ);
-    A.lampDot(orb[0], orb[1], 2.4 + band * 0.4, '#ffb070', '#fff0c0');
-    A.rec('magic', { x: orb[0], y: orb[1], r: 9 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2 + Math.floor(L / 5), col: 'rgba(255,140,60,A)', seed: A.R(), bolt: false });
-    A.rec('lights', { x: orb[0], y: orb[1], r: 30 + band * 8 });
-    return top;
+    A.rec('magic', { x: orb[0], y: orb[1], r: 9 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2, col: 'rgba(255,90,50,A)', seed: A.R(), bolt: false });
+    return { top, noDress: ['stock'], hit: [[x + 0.15, y + 0.15, w - 0.3, d - 0.3, top]] };
   });
 
   // ---- spare-plot buildings: scale to the plot they are dealt ----

@@ -1,7 +1,7 @@
 // Royal Council and city governors: advisors, priorities, snooze/dismiss, governors, persistence, all peoples, a sim.  node tests/council.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:'')); };
@@ -157,6 +157,70 @@ for(const [f,set] of Object.entries(FOCUS_SETS)){ const p=firstPicks(f); ok('gov
   G.setGovernor(s,c.id,{focus:'growth'}); refresh(s); ok('no idle-builder advice for a governed city', !adv(s,new RegExp('^steward:idle:'+c.id)));
   ok('setGovernor rejects foreign cities', !!G.setGovernor(s,G.capital(s,'a1').id,{focus:'growth'}));
   ok('setGovernor rejects a bad focus', !!G.setGovernor(s,c.id,{focus:'piracy'})); }
+
+// ---- realm-minded governors ----
+// two cities with supply lines on: a big granary capital with a Market, and a hungry sister
+const realmPair=()=>{ const s=fresh(); const A=G.capital(s,'p'); G.logistics(s,'p');
+  Object.assign(A.buildings,{townhall:7,houses:6,farm:10,lumber:5,quarry:5,mine:4,academy:1,barracks:1,warehouse:14,market:3});
+  const t=near(s,A,4,6); const B=G.foundCity(s,'p',t.x,t.y,'Brookby');
+  Object.assign(B.buildings,{townhall:5,houses:6,farm:1,lumber:3,quarry:3,warehouse:10});
+  B.pop=G.econ(s,B).civCap*0.9; A.pop=G.econ(s,A).civCap*0.5;
+  for(const g of DATA.goodOrder){ A.res[g]=G.storageCap(s,A)*0.9; B.res[g]=G.storageCap(s,B)*0.6; } s.empires.p.gold=20000;
+  const u=DATA.races.hearth.units[0]; B.units[u]=0; while(G.econ(s,B).net.grain>-8 && B.units[u]<2000) B.units[u]+=5;
+  return {s,A,B}; };
+{ const {s,A,B}=realmPair(); const e=G.econ(s,B);
+  ok('realm setup: sister has a grain deficit, capital overflows', e.net.grain<0 && G.econ(s,A).net.grain>0 && !!G.supplyReach(s,'p',A,B), e.net.grain.toFixed(1));
+  const R=G.realmEcon(s,'p',{fresh:true});
+  ok('realm snapshot: per-good stock, net, cap, surplus and deficit cities', R.n===2 && R.lines && R.goods.grain.surplus.some(x=>x.c===A) && R.goods.grain.deficit.some(x=>x.c===B) && R.goods.grain.cap>0 && R.econ[B.id]);
+  const cv=G.realmCover(s,R,B,'grain'); ok('realm cover: the deficit is made good from the capital', cv && cv.frac>=0.8 && cv.from===A, JSON.stringify(cv&&{frac:cv.frac,from:cv.from&&cv.from.name}));
+  const local=G.councilPick(s,B,'balanced'), realm=G.councilPick(s,B,'balanced',{realm:true});
+  ok('local reckoning: a grain deficit means a farm first', local.t==='farm' && /grain is short/.test(local.why), JSON.stringify(local));
+  ok('realm reckoning: a deficit covered by a supply line from a surplus sister does not put the farm first', realm.t && realm.t!=='farm', JSON.stringify(realm));
+  const fc=G.councilCandidates(s,B,'balanced',true).find(c=>c.t==='farm');
+  ok('…and the farm says where the grain comes from', fc && /grain comes by caravan from /.test(fc.why) && fc.why.includes(A.name), fc&&fc.why);
+  ok('Council notes name the caravan source', G.govRealmNotes(s,B).some(n=>/grain comes by caravan from/.test(n)), JSON.stringify(G.govRealmNotes(s,B)));
+  // the governor itself, on and off
+  G.setGovernor(s,B.id,{focus:'balanced'}); ok('new governors think for the realm by default', s.council.gov[B.id].realm===true);
+  G.councilDirty(s); slow(s); const q1=B.buildQueue.map(q=>q.type);
+  ok('realm governor does not queue a farm first for a covered deficit', q1.length>0 && q1[0]!=='farm', q1.join(','));
+  B.buildQueue.length=0; G.setGovernor(s,B.id,{realm:false}); G.councilDirty(s); slow(s); const q0=B.buildQueue.map(q=>q.type);
+  ok('"Think for the realm" OFF restores the local reckoning (farm first)', s.council.gov[B.id].realm===false && q0[0]==='farm', q0.join(','));
+  // supply lines off: the realm cannot ship, so the governor stands alone again
+  G.setSupplyRealm(s,'p',{on:false}); G.councilDirty(s); const off=G.councilPick(s,B,'balanced',{realm:true});
+  ok('with supply lines off the realm view falls back to local (farm first)', off.t==='farm', JSON.stringify(off));
+  // old save: a governor without the field thinks for the realm
+  G.setSupplyRealm(s,'p',{on:true}); B.buildQueue.length=0; G.setGovernor(s,B.id,{realm:true}); delete s.council.gov[B.id].realm;
+  const s2=G.deserialize(G.serialize(s)); const B2=s2.cities[B.id]; let thrown=null;
+  try{ G.councilDirty(s2); slow(s2); }catch(err){ thrown=err; }
+  ok('old save without the realm field loads; the governor thinks for the realm', !thrown && s2.council.gov[B.id].realm===undefined && B2.buildQueue.length>0 && B2.buildQueue[0].type!=='farm', thrown?thrown.stack:B2.buildQueue.map(q=>q.type).join(','));
+}
+// ore: the realm lacks iron, one city sits on an ore vein, the other on poor ground
+{ const s=fresh(); const A=G.capital(s,'p'); G.logistics(s,'p');
+  const t=near(s,A,4,6); const B=G.foundCity(s,'p',t.x,t.y,'Orehold');
+  for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){ const u=G.tileAt(s,B.x+dx,B.y+dy); if(u&&!u.city) u.deposit='ore'; const v=G.tileAt(s,A.x+dx,A.y+dy); if(v&&v.deposit==='ore') v.deposit=null; }
+  B.site=null; A.site={...G.siteYield(s,A.x,A.y),x:A.x,y:A.y,ore:0.7};   // the capital sits on poor ore ground
+  for(const c of [A,B]){ Object.assign(c.buildings,{townhall:6,houses:6,farm:6,lumber:5,quarry:5,mine:2,academy:1,barracks:1,warehouse:14}); c.pop=G.econ(s,c).civCap*0.6; for(const g of DATA.goodOrder) c.res[g]=4000; c.res.iron=0; }
+  s.empires.p.gold=20000;
+  const R=G.realmEcon(s,'p',{fresh:true});
+  ok('realm snapshot: iron short, ore city has the advantage', R.goods.iron.short>0 && R.adv[B.id].ore>1.1 && R.adv[A.id].ore<1, R.goods.iron.short+' '+R.adv[B.id].ore.toFixed(2));
+  const wOf=(c,t,r)=>(G.councilCandidates(s,c,'balanced',r).find(x=>x.t===t)||{w:-1e9}).w;
+  const top=G.councilCandidates(s,B,'balanced',true).slice(0,2);
+  ok('ore-deposit city gets mine/smelter priority when the realm lacks iron', top.some(x=>x.t==='mine'||x.t==='smelter') && wOf(B,'mine',true)>wOf(B,'mine',null)+5, JSON.stringify(top));
+  ok('…and says why', top.some(x=>/realm is short of iron and Orehold sits on ore/.test(x.why)), JSON.stringify(top));
+  ok('the poor-ore city leans away from mining', wOf(A,'mine',true)<wOf(A,'mine',null), wOf(A,'mine',true)+' vs '+wOf(A,'mine',null));
+}
+// market: no buying what a sister has to spare with a supply line running
+{ const {s,A,B}=realmPair(); B.buildings.market=1; B.buildings.townhall=5; B.short={iron:true}; B.wear={iron:99}; B.res.iron=0; A.res.iron=G.storageCap(s,A)*0.9;
+  B.buildQueue.push({type:'houses',level:99,end:s.time+1e6,start:s.time,cost:{}},{type:'houses',level:99,end:s.time+1e6,start:s.time,cost:{}});
+  G.setGovernor(s,B.id,{focus:'balanced'}); G.councilDirty(s); slow(s);
+  const g=s.council.gov[B.id];
+  ok('realm governor does not buy iron a sister has in surplus with a supply line', !g.log.some(l=>/Bought .*iron/.test(l.text)) && g.log.some(l=>/Waiting for iron by caravan from /.test(l.text)), JSON.stringify(g.log.map(l=>l.text)));
+  G.setGovernor(s,B.id,{realm:false}); B.short={iron:true}; B.wear={iron:99}; B.res.iron=0; G.councilDirty(s); slow(s);
+  ok('…the local governor buys it', g.log.some(l=>/Bought .*iron/.test(l.text)), JSON.stringify(g.log.map(l=>l.text)));
+}
+// perf: one snapshot per slow tick, cheap
+{ const {s,B}=realmPair(); G.setGovernor(s,B.id,{focus:'balanced'}); const t0=Date.now(); for(let i=0;i<100;i++) G.realmEcon(s,'p',{fresh:true}); const ms=(Date.now()-t0)/100;
+  ok('realm snapshot is cheap', ms<5, ms.toFixed(2)+'ms'); }
 
 // ---- persistence ----
 { const s=fresh(); const c=G.capital(s,'p'); G.setGovernor(s,c.id,{focus:'production',reserve:300,troops:5}); slow(s);

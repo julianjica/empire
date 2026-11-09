@@ -385,6 +385,8 @@ G.econ = (s, city, awayUnits) => {
     sink('mana', lean ? '' : `Mage Tower upkeep (level ${tower})`, K.towerMana * tower * P);
     sink('mana', lean ? '' : `Battle mages (${mages})`, K.mageMana * mages * P);
     if ((city.ward || 0) > s.time) sink('mana', 'Ward of Weaving', K.wardMana * P);
+    // standing enchantments (arcana.js): one line each, already scaled by pace
+    if (city.ench && city.ench.length && G.enchantUpkeepParts) for (const e of G.enchantUpkeepParts(s, city)) sink('mana', lean ? '' : `Enchantment: ${e.name}`, e.amount);
   }
   if (emp.race === 'grave') sink('bonedust', lean ? '' : `Binding the dead (${undead} undead)`, K.binding * undead * P);
   const LUX = G.LUXURY;
@@ -560,11 +562,13 @@ G.path = (s, from, to, naval) => {
   // a land path to another land region (or a sea path to another sea) cannot exist: answer without searching
   if (!naval && start !== goal) { const c = G.landRegions(s); if (c[start] >= 0 && c[goal] >= 0 && c[start] !== c[goal]) { cache.set(key, null); return null; } }
   const water = WATER.get(s.tiles) || G.waterMask(s);
+  // roads.js: per-tile road factors (edge cost × mean of both ends), ford penalties, heuristic scale (min factor in use)
+  const rc = !naval && G.roadCosts ? G.roadCosts(s) : null, hm = rc ? rc.hm : 1, fac = rc && rc.fac, ford = rc && rc.ford;
   const ok = i => { if (i === start || i === goal || naval === 'any') return true; return naval ? water[i] === 1 : water[i] === 0; };
   // A* with an octile-distance heuristic over a binary heap (same costs as before: 1 straight, 1.4142 diagonal)
   const D = new Float64Array(NN).fill(Infinity), prev = new Int32Array(NN).fill(-1), done = new Uint8Array(NN);
   const gx = to.x, gy = to.y;
-  const h = i => { const x = i % N, y = (i - x) / N, ax = Math.abs(x - gx), ay = Math.abs(y - gy); return ax > ay ? ax + 0.4142 * ay : ay + 0.4142 * ax; };
+  const h = i => { const x = i % N, y = (i - x) / N, ax = Math.abs(x - gx), ay = Math.abs(y - gy); return (ax > ay ? ax + 0.4142 * ay : ay + 0.4142 * ax) * hm; };
   const heapI = [], heapF = [];
   const push = (i, f) => { let k = heapI.length; heapI.push(i); heapF.push(f); while (k > 0) { const p = (k - 1) >> 1; if (heapF[p] <= f) break; heapI[k] = heapI[p]; heapF[k] = heapF[p]; k = p; } heapI[k] = i; heapF[k] = f; };
   const pop = () => {
@@ -586,7 +590,7 @@ G.path = (s, from, to, naval) => {
       const v = vy * N + vx;
       if (done[v] || !ok(v)) continue;
       if (dx && dy && strict && water[uy * N + vx] && water[vy * N + ux]) continue;  // no squeezing between two water tiles
-      const nd = D[u] + (dx && dy ? 1.4142 : 1);
+      const nd = D[u] + (dx && dy ? 1.4142 : 1) * (fac ? (fac[u] + fac[v]) * 0.5 : 1) + (ford && v !== goal ? ford[v] : 0);
       if (nd < D[v] - 1e-9) { D[v] = nd; prev[v] = u; push(v, nd + h(v)); }
     }
   }

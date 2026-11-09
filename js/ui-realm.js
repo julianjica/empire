@@ -55,12 +55,13 @@ const renderResearch = city => {
   const R = G.research(S, 'p');
   const ac = G.lvl(city, 'academy');
   const parts = [];
-  if (R.active) {
-    const t = DATA.techs[R.active.id];
-    parts.push(`<div class="card"><h3>Studying: ${t.icon} ${t.name}</h3><div class="bar"><i style="width:${pct(S.time - R.active.start, R.active.end - R.active.start)}%"></i></div>
-      <div class="row" style="margin-top:6px"><span class="muted">Done in ${fmtTime(realSecs(R.active.end - S.time))} (at ${esc((S.cities[R.active.city] || {}).name || '?')})</span><span class="spacer"></span><button class="small" data-act="cancelResearch" title="Refund 50%">Cancel</button></div></div>`);
+  for (const x of R.studies || []) {
+    const t = DATA.techs[x.id];
+    if (!t) continue;
+    parts.push(`<div class="card"><h3>Studying: ${t.icon} ${t.name}</h3><div class="bar"><i style="width:${pct(S.time - x.start, x.end - x.start)}%"></i></div>
+      <div class="row" style="margin-top:6px"><span class="muted">Done in ${fmtTime(realSecs(x.end - S.time))} (at ${esc((S.cities[x.city] || {}).name || '?')})</span><span class="spacer"></span><button class="small" data-act="cancelResearch" data-t="${x.id}" title="Refund 50%">Cancel</button></div></div>`);
   }
-  parts.push(`<div class="card"><p style="margin:0">${ac ? `The Academy of <b>${esc(city.name)}</b> is level ${ac}. Research is shared by your whole realm; one study at a time. Higher Academy levels unlock advanced topics and study faster.` : `<span class="warn">${esc(city.name)} has no Academy.</span> Build one (Town Hall 3) to research, or switch to a city that has one.`} Completed: ${Object.keys(R.done).length} / ${Object.keys(DATA.techs).length}.</p></div>`);
+  parts.push(`<div class="card"><p style="margin:0">${ac ? `The Academy of <b>${esc(city.name)}</b> is level ${ac}. Research is shared by your whole realm; several studies can run at once, each in its own Academy. Higher Academy levels unlock advanced topics and study faster.` : `<span class="warn">${esc(city.name)} has no Academy.</span> Build one (Town Hall 3) to research, or switch to a city that has one.`} Completed: ${Object.keys(R.done).length} / ${Object.keys(DATA.techs).length}.</p></div>`);
   for (const cat of ['Economy', 'Military']) {
     const cards = Object.entries(DATA.techs).filter(([, t]) => t.cat === cat).map(([id, t]) => {
       const st = G.techStatus(S, city.id, id);
@@ -253,7 +254,7 @@ Object.assign(act, {
   revive: () => { toast(G.reviveHero(S) || 'The healers begin their work'); render(true); },
   renameHero: () => { const h = G.hero(S); const n = prompt('Name your hero', h.name); if (n && n.trim()) { G.renameHero(S, n.trim().slice(0, 24)); render(true); } },
   research: d => { toast(G.startResearch(S, UI.city, d.t) || `Scholars begin studying ${DATA.techs[d.t].name}`); render(true); },
-  cancelResearch: () => { G.cancelResearch(S, 'p'); render(true); },
+  cancelResearch: d => { G.cancelResearch(S, 'p', d && d.t ? d.t : undefined); render(true); },
   diplo: d => {
     const msg = d.a === 'gift' ? G.diplo.gift(S, d.e, parseInt(UI.form['gift_' + d.e] || 100, 10)) : G.diplo[d.a](S, d.e);
     toast(msg); if (msg) G.log(S, 'p', '🕊️ ' + msg); render(true);

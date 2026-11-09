@@ -719,32 +719,73 @@
     return Math.max(top, rf.zt + 10);
   });
 
-  // ================================================================ MAGE TOWER: the necromancer's spire
+  // ================================================================ MAGE TOWER: the ossuary-spire with its green lanterns
   def('magetower', ([x, y, w, d], L, band, p) => {
-    const cx = x + w / 2, cy = y + d / 2, H = 40 + band * 10 + Math.min(20, L), col = '#2e2e36';
-    // a buttressed plinth, then two tapering drums with a bone-railed gallery between
-    A.box(cx - 0.42, cy - 0.42, 0.84, 0.84, 0, 5, p.stone);
-    for (const [ox, oy] of [[-0.42, 0.3], [0.3, 0.3], [0.3, -0.42]]) { A.box(cx + ox, cy + oy, 0.12, 0.12, 5, 9 + band * 2, p.stone2); pinnacle(cx + ox + 0.06, cy + oy + 0.06, 14 + band * 2, 6); }
-    const h1 = H * 0.5, h2 = H * 0.32;
-    A.cyl(cx, cy, 0.3, 5, h1, col, '#3a3a44');
-    A.twistLines(cx, cy, 5, 5 + h1, 0.3, BONE, 1.2, 0.95); A.twistLines(cx, cy, 5, 5 + h1, 0.3, BONE, 1.2, 0.95, Math.PI);
-    const gz = 5 + h1; A.cyl(cx, cy, 0.4, gz, 2.5, '#3a3a44');
-    { const [ex, ey, rx, ry] = A.ell(cx, cy, gz + 2.5, 0.4); for (let k = 0; k <= 8; k++) { const a = k / 8 * Math.PI, px = ex + Math.cos(a) * rx, py = ey + Math.sin(a) * ry; A.line([px, py], [px, py - 4], BONE, 0.9); } }
-    A.cyl(cx, cy, 0.22, gz + 2.5, h2, col, '#3a3a44');
-    for (let v = 12; v < h1; v += 13) { const [lx, ly] = A.P(cx + 0.21, cy + 0.21, 5 + v); A.lamp([[lx - 1, ly], [lx + 1, ly], [lx + 1, ly - 5], [lx, ly - 6.5], [lx - 1, ly - 5]], '#24302a', GLOW); }
-    { const [lx, ly] = A.P(cx + 0.16, cy + 0.16, gz + 6); A.lamp([[lx - 1, ly], [lx + 1, ly], [lx + 1, ly - 5], [lx, ly - 6.5], [lx - 1, ly - 5]], '#24302a', GLOW); }
-    // a crown of bone spikes round a green orb
-    const z0 = gz + 2.5 + h2, [ox, oy] = A.P(cx, cy, z0 + 2);
-    A.cyl(cx, cy, 0.3, z0, 2.5, col);
-    const spikes = front => { for (let k = 0; k < 9; k++) { const a = k / 9 * TAU, ex = ox + Math.cos(a) * 6.5, ey = oy + Math.sin(a) * 3 + 1; if ((Math.sin(a) >= 0) === front) { A.c.beginPath(); A.c.moveTo(ex, ey); A.c.quadraticCurveTo(ex + Math.cos(a) * 4, ey - 6, ex + Math.cos(a) * 1, ey - 11 - band * 1.5); A.c.strokeStyle = A.F(BONE); A.c.lineWidth = 1.6; A.c.stroke(); } } };
-    spikes(false);
-    A.lampDot(ox, oy - 7, 3 + band * 0.5, '#4aa870', '#c8ffd8');
-    spikes(true);
-    if (band >= 2) for (let k = 0; k < 3; k++) { const a = k / 3 * TAU + 0.4; A.skull(ox + Math.cos(a) * 12, oy - 9 + Math.sin(a) * 4, 0.6); } // skulls orbiting the orb
-    A.rec('magic', { x: ox, y: oy - 7, r: 8 + band * 2, n: 3 + band * 2, col: 'rgba(120,255,160,A)', seed: A.R(), bolt: band >= 3 });
-    A.rec('lights', { x: ox, y: oy - 7, r: 30 + band * 6, col: 'witch' });
-    ravensCircle(cx, cy, z0 + 12, 2 + band, 16);
-    return z0 + 16 + band;
+    // the ossuary-spire: a charnel shrine, its niche stacked with skulls, a green lantern on a crooked post (1-4)
+    // → a dark spire over an ossuary drum, lancets glowing witch-green, lanterns hung from bone arms (5-9) →
+    // rib-bone buttresses arching up its flanks, a ring of lanterns, a grave-circle cut in the yard (10-14) →
+    // a skull-crowned spire with a soul-fire burning over it, wisps rising and lanterns all round (15+).
+    // Rough stone → iron grilles → dark ashlar → tarnished silver by era.
+    const M = CITYART.mage, cx = x + w / 2, cy = y + d / 2, k = Math.max(0, L - [1, 5, 10, 15][band]), c = A.c, col = '#2e2e36';
+    const TRIM = p.e >= 3 ? '#b8b8c4' : p.e >= 2 ? '#6a6458' : IRON;
+    const lantern = (lx, ly, arm = 0) => { // a green lantern hanging from a short chain
+      if (arm) A.line([lx - arm, ly - 6], [lx, ly - 6], BONE, 1.2);
+      A.line([lx, ly - 6], [lx, ly - 2.6], IRON, 0.6);
+      A.poly([[lx - 1.6, ly - 2.6], [lx + 1.6, ly - 2.6], [lx + 1.2, ly + 1.8], [lx - 1.2, ly + 1.8]], IRON, null);
+      A.lampDot(lx, ly - 0.4, 1.3, '#3a8a5a', '#b8ffd0');
+      A.rec('lights', { x: lx, y: ly, r: 14, col: 'witch' }); A.rec('sparks', { x: lx, y: ly - 0.4, kind: 'witch' });
+    };
+    const niche = (b, side, u, v, nw = 0.22, nh = 8) => { // an arched niche stacked with skulls
+      const f = side === 'L' ? A.onL : A.onR, q = f(b, u - nw / 2, u + nw / 2, v, v + nh);
+      A.poly([q[0], q[1], q[2], [(q[2][0] + q[3][0]) / 2, q[2][1] - 2.4], q[3]], '#141216', null);
+      const m0 = f(b, u, u, v + 1.6, v + 1.6)[0]; A.skull(m0[0] - 1.6, m0[1], 0.5); A.skull(m0[0] + 1.6, m0[1] - 0.6, 0.5); A.skull(m0[0], m0[1] - 3.2, 0.5);
+    };
+    if (band >= 2) M.groundCircle(A, cx, cy, 0.7, 'rgba(60,140,90,0.55)', GLOW, 12);
+    let top, orb;
+    if (band === 0) { // a charnel shrine
+      const b = A.box(cx - 0.32, cy - 0.28, 0.64, 0.56, 0, 12 + k, p.stone); A.courses(b, 4, A.shade(p.stone, -0.14));
+      niche(b, 'L', 0.32, 2); niche(b, 'R', 0.28, 2, 0.2, 7);
+      const rz = A.hip(b, 10, '#26262c', 0.06);
+      const [tx, ty] = A.P(cx, cy, rz); A.skull(tx, ty - 2, 0.8);
+      A.witchLamp(x + w - 0.25, y + d - 0.25, 0, 14);
+      orb = [tx, ty - 8]; top = rz + 6;
+    } else {
+      const H = [0, 46, 56, 68][band] + Math.min(10, k * 2);
+      // the ossuary drum
+      A.box(cx - 0.46, cy - 0.46, 0.92, 0.92, 0, 4, p.stone);
+      const b = A.box(cx - 0.38, cy - 0.38, 0.76, 0.76, 4, 12, p.stone2); A.courses(b, 4, A.shade(p.stone2, -0.14));
+      niche(b, 'L', 0.2, 1.5); niche(b, 'L', 0.56, 1.5); niche(b, 'R', 0.38, 1.5);
+      if (p.e >= 1) A.line(A.onL(b, 0, 0, 12, 12)[0], A.onL(b, 0.76, 0, 12, 12)[0], TRIM, 1.4);
+      // the spire: a tapering dark shaft with witch-lit lancets
+      const s0 = 0.24, s1 = 0.08, z0 = 16, hs = H * 0.95;
+      const t = M.taper(A, cx, cy, s0, s1, z0, hs, '#34343c', col);
+      for (let v = 8; v < hs - 6; v += 11) { const s = s0 + (s1 - s0) * (v / hs), [lx, ly] = A.P(cx, cy + s, z0 + v); A.lamp([[lx - 1, ly], [lx + 1, ly], [lx + 1, ly - 5], [lx, ly - 6.5], [lx - 1, ly - 5]], '#24302a', GLOW); M.pulse(A, lx, ly - 3, 6, GLOW, 2.2 + v * 0.05); }
+      if (band >= 2) for (const [px, py] of [[cx - s0, cy + s0], [cx + s0, cy + s0], [cx + s0, cy - s0]]) { // rib-bone buttresses
+        const g = A.P(px + (px - cx) * 1.2, py + (py - cy) * 1.2, 16), a = A.P(px - (px - cx) * 0.3, py - (py - cy) * 0.3, z0 + hs * 0.55), m = [(g[0] + a[0]) / 2 + (px - cx) * 18, (g[1] + a[1]) / 2 - 6];
+        c.beginPath(); c.moveTo(g[0], g[1]); c.quadraticCurveTo(m[0], m[1], a[0], a[1]); c.strokeStyle = A.F(A.OUT); c.lineWidth = 2.8; c.stroke(); c.strokeStyle = A.F(BONE); c.lineWidth = 1.6; c.stroke();
+        for (let q = 1; q < 4; q++) { const tq = q / 4, rx = (1 - tq) * (1 - tq) * g[0] + 2 * tq * (1 - tq) * m[0] + tq * tq * a[0], ry = (1 - tq) * (1 - tq) * g[1] + 2 * tq * (1 - tq) * m[1] + tq * tq * a[1]; A.circ(rx, ry, 1.1, BONE, A.OUT); }
+      }
+      // lanterns on bone arms
+      const ls = band >= 2 ? [[cx - s0, cy + s0 * 0.2, 0.55], [cx + s0 * 0.2, cy + s0, 0.4], [cx + s0, cy - s0 * 0.4, 0.6]] : [[cx - s0, cy + s0 * 0.2, 0.5], [cx + s0, cy - s0 * 0.4, 0.55]];
+      for (const [gx, gy, f] of ls) { const s = s0 + (s1 - s0) * f, [lx, ly] = A.P(gx + (gx - cx) * 0.9, gy + (gy - cy) * 0.9, z0 + hs * f); lantern(lx, ly + 6, (gx < cx || gy > cy) ? -3 : 3); void s; }
+      const zt = z0 + hs;
+      // the crown: bone spikes (a ring of skulls at 15+) round the soul-fire
+      const [ox, oy] = A.P(cx, cy, zt + 2);
+      const spikes = front => { for (let q = 0; q < 9; q++) { const a = q / 9 * TAU, ex = ox + Math.cos(a) * 6.5, ey = oy + Math.sin(a) * 3 + 1; if ((Math.sin(a) >= 0) === front) { c.beginPath(); c.moveTo(ex, ey); c.quadraticCurveTo(ex + Math.cos(a) * 2, ey - 6, ex + Math.cos(a) * 3.4, ey - 11 - (q % 2) * 3); c.strokeStyle = A.F(BONE); c.lineWidth = 1.6; c.stroke(); } } };
+      spikes(false);
+      // soul-fire: a green flame over the point
+      const fh = 9 + band * 3;
+      if (!A.GLOW) { c.beginPath(); c.moveTo(ox - 4, oy - 2); c.quadraticCurveTo(ox - 5, oy - fh * 0.6, ox, oy - fh); c.quadraticCurveTo(ox + 1, oy - fh * 0.55, ox + 4, oy - 2); c.closePath(); c.fillStyle = 'rgba(90,220,140,0.85)'; c.fill(); }
+      A.lampDot(ox, oy - 5, 2.6 + band * 0.5, '#4aa870', '#c8ffd8');
+      spikes(true);
+      if (band >= 3) { for (let q = 0; q < 5; q++) { const a = q / 5 * TAU + 0.3; if (Math.sin(a) > -0.2) A.skull(ox + Math.cos(a) * 9, oy + 2 + Math.sin(a) * 3, 0.55); } M.rise(A, ox, oy - fh, { r: 8, h: 56, n: 7, col: '#8affb0', sp: 0.1, sz: 2.4 }); M.ring(A, cx, cy, zt + 14, 0.45, '#8affb0', 5, 0.5); }
+      M.pulse(A, ox, oy - 6, 16 + band * 3, GLOW, 2.6);
+      orb = [ox, oy - 6]; top = zt + fh + 8;
+      if (band >= 2) ravensCircle(cx, cy, zt + 16, 2 + band, 16);
+    }
+    A.rec('magic', { x: orb[0], y: orb[1], r: 8 + band * 2 + Math.min(6, L / 3), n: 3 + band * 2, col: 'rgba(120,255,160,A)', seed: A.R(), bolt: false });
+    A.rec('lights', { x: orb[0], y: orb[1], r: 30 + band * 6, col: 'witch' });
+    return { top, noDress: ['stock'], hit: [[x + 0.15, y + 0.15, w - 0.3, d - 0.3, top]] };
   });
 
   // ================================================================ HIDEOUT: the catacomb stair

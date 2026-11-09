@@ -24,10 +24,10 @@
 <div class="muted">Every portrait in the game, drawn by js/portraits.js and js/portrait-gear.js. Reload after edits.</div>
 <div class="gbar">
   <label>Size <select id="size"><option>128</option><option selected>96</option><option>64</option><option>40</option><option>32</option></select></label>
-  <label>Section <select id="sec"><option value="all">All</option><option value="units">Troops</option><option value="heroes">Heroes</option><option value="council">Advisors & governors</option><option value="others">Spies, rulers, citizens, monsters</option><option value="variety">Variety (16 seeds per kind)</option></select></label>
+  <label>Section <select id="sec"><option value="all">All</option><option value="units">Troops</option><option value="heroes">Heroes</option><option value="council">Advisors & governors</option><option value="others">Spies, rulers, citizens, monsters</option><option value="magi">Magi (rank × school)</option><option value="variety">Variety (16 seeds per kind)</option></select></label>
   <label>People <select id="race"><option value="all">All eight</option></select></label>
   <label>Era <select id="era"><option value="by">by unit</option><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
-  <label>Variety kind <select id="vk"><option>all</option><option>hero</option><option>citizen</option><option>advisor</option><option>ruler</option><option>governor</option><option>spy</option><option>unit</option></select></label>
+  <label>Variety kind <select id="vk"><option>all</option><option>hero</option><option>citizen</option><option>advisor</option><option>ruler</option><option>governor</option><option>spy</option><option>unit</option><option>magus</option></select></label>
   <label><input type="checkbox" id="small"> also show at 32px</label>
 </div>
 <div id="out"></div>
@@ -48,6 +48,8 @@
 <script src="js/traderoutes.js"></script>
 <script src="js/rivalheroes.js"></script>
 <script src="js/magic.js"></script>
+<script src="js/arcana.js"></script>
+<script src="js/magi.js"></script>
 <script src="js/espionage.js"></script>
 <script src="js/minors.js"></script>
 <script src="js/portraits.js"></script>
@@ -77,6 +79,11 @@
         + [0, 1].map(i => cell({ race: r, kind: 'governor', seed: 'gov' + i, color: col }, 'Governor', '')).join('');
       if (sec === 'all' || sec === 'others') g += cell({ race: r, kind: 'spy', seed: 'spy', color: col, rank: 3 }, 'Spy', '') + cell({ race: r, kind: 'ruler', seed: 'ruler', color: col, rank: 10 }, (DATA.aiRulers && DATA.aiRulers[r]) || 'Ruler', 'ruler')
         + [0, 1].map(i => cell({ race: r, kind: 'citizen', seed: 'cit' + i, color: col }, 'Citizen', '')).join('');
+      if (sec === 'all' || sec === 'magi') { // the Circle: ranks 1..5 in the people's own school, then every school at rank 4
+        const own = (DATA.schoolOrder || []).find(k => DATA.schools[k].race === r), RK = ['Apprentice', 'Initiate', 'Adept', 'Master', 'Archmagus'];
+        g += [1, 2, 3, 4, 5].map(rk => cell({ race: r, kind: 'magus', school: own, seed: 'mg' + rk, color: col, rank: rk, era: $('era').value === 'by' ? Math.min(3, rk - 1) : +$('era').value }, RK[rk - 1], 'magus · ' + (own ? DATA.schools[own].name : '') + ' · rank ' + rk)).join('');
+        if (sec === 'magi') g += (DATA.schoolOrder || []).filter(k => k !== own).map((k, i) => cell({ race: r, kind: 'magus', school: k, seed: 'ms' + i, color: col, rank: 4, era: eraFor(i) }, DATA.schools[k].name, 'magus · rank 4')).join('');
+      }
       h += `<div class="race"><h2 style="color:${col}">${R.name}</h2><div class="grid">${g}</div></div>`;
     }
     if (sec === 'variety') { // 16 seeds per people per kind, at 96px and 40px: faces should read as distinct individuals

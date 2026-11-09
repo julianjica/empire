@@ -189,6 +189,8 @@
     }
     return { inbound, out };
   };
+  // read-only: goods on the road towards each of a realm's cities { cityId: { g: n } } (supply carts and internal route carts)
+  G.supplyInbound = (s, owner) => roadState(s, owner).inbound;
   G.supplySlots = (s, city) => G.lvl(city, 'market') >= 1 ? 1 + Math.floor(G.lvl(city, 'market') / L.slotsPer) : 0;
 
   // how a cart gets from a to b: over land, or by sea from a Harbor; null when it cannot
@@ -324,10 +326,14 @@
     s.moves.push(m);
     return m;
   };
+  // the last plan each realm ran, kept outside the save (read-only for other modules: city governors)
+  const LAST_PLAN = new WeakMap();
+  G.supplyLastPlan = (s, owner) => { const m = LAST_PLAN.get(s); return (m && m[owner]) || null; };
   // plan and act: dispatch carts, hurry routes, then the market (player's switches only)
   G.supplyRun = (s, owner, opts = {}) => {
     const o = LS(s, owner);
     const plan = G.supplyPlan(s, owner, opts);
+    { let m = LAST_PLAN.get(s); if (!m) { m = {}; LAST_PLAN.set(s, m); } m[owner] = plan; }
     const emp = s.empires[owner];
     for (const rt of plan.routed) {
       if (!rt.hurry) continue;
@@ -451,7 +457,8 @@
   // -------------------------------------------------------------------
   G.slowHooks.push((s, dtMin) => {
     ambushes(s, dtMin);
-    const o = s.logistics && s.logistics.p;
+    // supply lines are on by default: create the player's settings once a second city exists, not only when the UI looks
+    const o = (s.logistics && s.logistics.p) || (s.empires.p && !s.empires.p.dead && G.citiesOf(s, 'p').length >= 2 ? LS(s, 'p') : null);
     if (!o || !o.on || s.gameOver) return;
     if ((o.next || 0) > s.time) return;
     o.next = s.time + L.every * 60 * paceT(s);

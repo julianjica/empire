@@ -181,7 +181,7 @@
   T('starrite', 'arcana', 1, 'Rite of Stars', '🌌', { pre: ['hedgelore|starsigns'], cer: 'starrite', eth: { faith: 1 }, tale: 'comet', lore: 'On clear nights the magi climb the towers together.' });
   T('wildmagic', 'arcana', 2, 'Embrace the Wild', '🌀', { pre: ['hedgelore'], excl: 'wardedweave', fx: { spellPower: 1.08, mana: 1.05 }, calamity: 1.1, eth: { open: 1 }, tale: 'wild_apprentice', lore: 'Magic is a storm. Dance in it.' });
   T('wardedweave', 'arcana', 2, 'Warded Weave', '🛡️', { pre: ['starsigns|hedgelore'], fx: { spellCost: 0.92 }, calamity: 0.85, eth: { open: -1 }, lore: 'Every spell bound, measured and signed for.' });
-  T('magicircle', 'arcana', 2, 'Circle of Magi', '🔮', { pre: ['starsigns'], req: { tower: 1 }, fx: { mana: 1.08 }, eth: { open: -1 }, lore: 'Twelve chairs around a table of moonstone.' });
+  T('magicircle', 'arcana', 2, 'Circle of Magi', '🔮', { pre: ['starsigns'], req: { tower: 1 }, fx: { mana: 1.08, studyTime: 0.9 }, eth: { open: -1 }, lore: 'Twelve chairs around a table of moonstone.' });
   T('leywalkers', 'arcana', 3, 'Ley Walkers', '〰️', { pre: ['magicircle|starrite'], fx: { mana: 1.08, travel: 1.03 }, eth: { open: 1 }, lore: 'They follow lines no one else can see.' });
   T('rationalmagic', 'arcana', 3, 'Arcane Rationalism', '🧪', { pre: ['wildmagic|wardedweave|magicircle'], req: { ethos: ['faith', -6] }, fx: { spellCost: 0.92, researchTime: 0.97 }, eth: { faith: -2 }, lore: 'Magic is a craft, not a gift. It can be taught.' });
   T('archmagi', 'arcana', 4, 'The Archmagi', '🧙', { pre: ['leywalkers|rationalmagic'], req: { tower: 5 }, fx: { spellPower: 1.1, spellCost: 0.92 }, eth: { faith: -1 }, lore: 'Seven who could unmake a city, and choose not to.' });
@@ -297,7 +297,7 @@
   };
   G.TRAD_MOD_KEYS = new Set(['refine', 'tax', 'popGrowth', 'housing', 'storage', 'buildTime', 'trainTime', 'researchTime', 'travel',
     'atk', 'def', 'wall', 'carry', 'vision', 'caravan', 'upkeep', 'market', 'protect', 'unitCost', 'shipCost', 'shipSpeed', 'fishing',
-    'mana', 'spellPower', 'spellCost', 'raise', 'heroXp', 'spy', 'counterintel', 'spyTravel', ...Object.keys(DATA.goods)]);
+    'mana', 'spellPower', 'spellCost', 'studyTime', 'raise', 'heroXp', 'spy', 'counterintel', 'spyTravel', ...Object.keys(DATA.goods)]);
 
   // -------------------------------------------------------------------
   // Plain-words descriptions
@@ -308,7 +308,7 @@
     market: 'market rates', protect: 'hidden stores', fishing: 'Harbor fishing', mana: 'mana', spellPower: 'spell strength',
     raise: 'dead raised', heroXp: 'hero experience', spy: 'spy skill', counterintel: 'counter-espionage', spyTravel: 'spy speed', shipSpeed: 'ship speed',
   };
-  const FASTER = { buildTime: 'construction', trainTime: 'training', researchTime: 'research' };
+  const FASTER = { buildTime: 'construction', trainTime: 'training', researchTime: 'research', studyTime: 'Grimoire study' };
   const CHEAPER = { upkeep: 'troop upkeep', unitCost: 'unit costs', shipCost: 'ship costs', spellCost: 'spell costs' };
   const pct = m => Math.round(Math.abs(m - 1) * 100);
   const fxWords = (key, m) => {

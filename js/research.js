@@ -133,14 +133,14 @@ const TECH_TREE = [
   ['leviathan', 'Leviathan Pacts', '🐋', 'sea', 11, ['admiralty', 'archmagery'], { fishing: 1.1, shipCost: 0.95, travel: 1.02 }, 'The great beasts of the deep swim at your side.'],
   // ---- Arcana ----
   ['hedgemagic', 'Hedge Magic', '🕯️', 'arcana', 0, [], { mana: 1.08 }, 'Charms, candles and the old words.'],
-  ['starcharts', 'Star Charts', '✨', 'arcana', 1, ['hedgemagic'], { researchTime: 0.97 }, 'The night sky drawn and named.'],
+  ['starcharts', 'Star Charts', '✨', 'arcana', 1, ['hedgemagic'], { researchTime: 0.97, studyTime: 0.95 }, 'The night sky drawn and named.'],
   ['runes', 'Runecraft', '🔣', 'arcana', 2, ['hedgemagic', 'stonecutting'], { spellPower: 1.04 }, 'Cut the sign deep and the stone remembers.'],
   ['alchemy', 'Alchemy', '🧪', 'arcana', 3, ['runes', 'charcoal'], { refine: 1.03, mana: 1.05 }, 'Retorts, salts and a great many explosions.'],
   ['leylore', 'Ley Lore', '🌀', 'arcana', 4, ['runes', 'starcharts'], { mana: 1.08 }, 'Dowsers trace the rivers of power under the land.'],
   ['wards', 'Wards', '🧿', 'arcana', 5, ['leylore'], { def: 1.02, calamity: 0.1 }, 'Circles of salt and silver against storm and blight.'],
   ['thaumaturgy', 'Thaumaturgy', '🪄', 'arcana', 6, ['leylore', 'libraries'], { spellPower: 1.06, spellCost: 0.95 }, 'Magic made a discipline, with proofs.'],
   ['transmutation', 'Transmutation', '💎', 'arcana', 7, ['alchemy', 'thaumaturgy'], { refine: 1.04, ore: 1.03 }, 'Lead to iron, iron to steel, sometimes gold.'],
-  ['arcaneacad', 'Arcane Colleges', '🔮', 'arcana', 8, ['thaumaturgy', 'libraries'], { researchTime: 0.95, mana: 1.06 }, 'Towers of apprentices and their long-suffering masters.'],
+  ['arcaneacad', 'Arcane Colleges', '🔮', 'arcana', 8, ['thaumaturgy', 'libraries'], { researchTime: 0.95, mana: 1.06, studyTime: 0.92 }, 'Towers of apprentices and their long-suffering masters.'],
   ['leymastery', 'Ley Mastery', '💫', 'arcana', 9, ['arcaneacad'], { mana: 1.08, spellCost: 0.94 }, 'The ley bends where the archmages will it.'],
   ['archmagery', 'Archmagery', '🌠', 'arcana', 10, ['leymastery', 'transmutation'], { spellPower: 1.08 }, 'Spells that move weather and mountains.'],
   ['embercrown', 'The Ember Crown', '👑', 'arcana', 11, ['archmagery', 'greatlibrary'], { spellPower: 1.04, spellCost: 0.95, mana: 1.05, researchTime: 0.97 }, 'The ancient circlet of living flame, rekindled at last.'],
@@ -223,6 +223,27 @@ const TECH_TREE = [
   ['thunderlords', 'Thunderlords', '⚡', 'war', 10, ['officers', 'stirrups'], { atk: 1.05, travel: 1.03 }, 'Riders who bring the storm with them.', 'wind'],
 ];
 
+// ---- repeatable "mastery" techs: open once a branch reaches the Legend era (column 9, Academy 11);
+//      each can be studied again and again, every level adds the same small bonus, the next level
+//      costs ×G.TECH_REPEAT_COST and takes ×G.TECH_REPEAT_TIME longer. Levels live in R.done
+//      (true = level 1, a number = that level), so every "is it known?" check keeps working.
+const TECH_REPEATS = [
+  ['improvedharvests', 'Improved Harvests', '🌾', 'agri', 9, ['agronomy'], { grain: 1.02 }, 'Every season a better seed, a straighter furrow.'],
+  ['refinedmethods', 'Workshop Refinements', '🔧', 'industry', 9, ['manufactories'], { refine: 1.02 }, 'A jig here, a better quench there: the workshops never stop learning.'],
+  ['masonryrefine', 'Masonry Refinements', '🧱', 'build', 9, ['planning'], { buildTime: 0.98 }, 'Mortar a little stronger, scaffolds a little quicker, every year.'],
+  ['ledgers', 'Ledger Keeping', '📒', 'commerce', 9, ['companies'], { tax: 1.02 }, 'Double entry, audited twice: not a copper slips away.'],
+  ['armsdrills', 'Arms Drills', '🤺', 'war', 9, ['standing'], { atk: 1.02 }, 'The same thrust ten thousand times, until it is a reflex.'],
+  ['rampartworks', 'Rampart Works', '🧰', 'siege', 9, ['starforts'], { wall: 1.03 }, 'Sappers thicken, angle and face the walls a little more each year.'],
+  ['seamanship', 'Seamanship', '🪢', 'sea', 9, ['galleons'], { fishing: 1.03 }, 'Knots, soundings and weather-lore handed from bosun to boy.'],
+  ['arcanetheory', 'Arcane Theory', '📐', 'arcana', 9, ['arcaneacad'], { spellPower: 1.02 }, 'Each proof opens two new questions, and a slightly brighter spell.'],
+  ['devotions', 'Devout Observance', '🙏', 'faith', 9, ['cathedrals'], { faith: 1.02, culture: 1.02 }, 'Feasts, vigils and pilgrimages added to the calendar.'],
+  ['civilservice', 'Civil Service', '🖋️', 'state', 9, ['administration'], { influence: 1.04, counterintel: 1.04 }, 'Examinations for every clerk, promotion by merit.'],
+  ['scholarship', 'Scholarship', '🎓', 'lore', 9, ['academia'], { heroXp: 1.04, researchTime: 0.99 }, 'Footnotes upon footnotes: knowledge compounds.'],
+];
+G.TECH_REPEAT_COST = 1.25;   // cost of each further level
+G.TECH_REPEAT_TIME = 1.12;   // study time of each further level
+G.TECH_REPEAT_MAX = 20;      // levels per mastery tech
+
 // keys handled by wrappers below rather than by G.mod (additive or unlock-like)
 G.TECH_SPECIAL = { happy: 1, festival: 1, culture: 1, faith: 1, routes: 1, influence: 1, calamity: 1, winter: 1 };
 const TECH_ADDITIVE = { happy: 1, festival: 1, routes: 1, calamity: 1, winter: 1 };
@@ -237,6 +258,14 @@ for (const [id, name, icon, branch, col, reqs, fx, flavor, race] of TECH_TREE) {
   };
   if (race) DATA.techs[id].race = race;
 }
+for (const [id, name, icon, branch, col, reqs, fx, flavor] of TECH_REPEATS) {
+  DATA.techs[id] = {
+    id, name, icon, branch, col, era: Math.floor(col / 3), tier: col % 3, reqs: reqs.slice(), fx, flavor,
+    cat: branch === 'war' || branch === 'siege' ? 'Military' : 'Economy',
+    ac: DATA.techAcademy[col], req: reqs[0], repeat: true,
+  };
+}
+const REPEAT_IDS = TECH_REPEATS.map(r => r[0]);
 DATA.techs.ciphers.cat = 'Military';
 // remembered so a module that re-declares a tech (espionage.js: ciphers) gets its place back
 const TECH_PLACE = {};
@@ -271,6 +300,7 @@ const FX_TEXT = {
   mana: f => `+${pctUp(f)}% mana`,
   spellPower: f => `spells ${pctUp(f)}% stronger`,
   spellCost: f => `spells cost ${pctDown(f)}% less mana`,
+  studyTime: f => `Grimoire study ${pctDown(f)}% faster`,
   fishing: f => `harbors fish ${pctUp(f)}% more`,
   shipCost: f => `ships ${pctDown(f)}% cheaper`,
   shipSpeed: f => `ships sail ${pctUp(f)}% faster`,
@@ -347,10 +377,11 @@ const BRANCH_COST = {
   lore:     { gold: 1.2 },
 };
 G.TECH_GOOD_CAP = 12000;
-G.techCost = id => {
+// level: for repeatable techs, the level being studied (1 = first); every further level costs ×G.TECH_REPEAT_COST
+G.techCost = (id, level = 1) => {
   normalizeAll();
   const t = DATA.techs[id];
-  const col = t.col, m = Math.pow(1.32, col);
+  const col = t.col, m = Math.pow(1.32, col) * (t.repeat ? Math.pow(G.TECH_REPEAT_COST, Math.max(0, level - 1)) : 1);
   const b = BRANCH_COST[t.branch] || {};
   const c = {
     timber: 220 * m * (b.timber || 1), stone: 170 * m * (b.stone || 1),
@@ -365,25 +396,103 @@ G.techCost = id => {
   }
   return c;
 };
-G.techBaseTime = id => { normalizeAll(); return 100 * Math.pow(1.36, DATA.techs[id].col); };
-G.techTime = (s, owner, id, city) => {
+G.techBaseTime = (id, level = 1) => { normalizeAll(); const t = DATA.techs[id]; return 100 * Math.pow(1.36, t.col) * (t.repeat ? Math.pow(G.TECH_REPEAT_TIME, Math.max(0, level - 1)) : 1); };
+// level defaults to the next level this realm would study
+G.techTime = (s, owner, id, city, level) => {
   const t = DATA.techs[id];
   const ac = G.lvl(city, 'academy');
-  const base = G.techBaseTime(id) / (1 + 0.06 * Math.max(0, ac - t.ac));
+  if (level === undefined) level = t.repeat ? G.techLevel(s, owner, id) + 1 : 1;
+  const base = G.techBaseTime(id, level) / (1 + 0.06 * Math.max(0, ac - t.ac));
   return Math.round(base * G.pace(s).time * G.mod(s, owner, city, 'researchTime'));
 };
 
 // ---------------------------------------------------------------------
 // state and queries
 // ---------------------------------------------------------------------
+// R = { done: {id: true | level}, studies: [{ id, city, start, end, cost, level? }], queue?, queueCity?, queueWait? }
+// Several studies run at once (see G.researchSlots). `R.active` is kept as a non-saved accessor for
+// older code: it reads the first study, and assigning null drops it. Old saves with a stored
+// R.active are migrated into R.studies the first time G.research sees them.
+const READY = new WeakSet();
+const prepResearch = R => {
+  const d = Object.getOwnPropertyDescriptor(R, 'active');
+  if (!Array.isArray(R.studies)) R.studies = [];
+  if (d && 'value' in d) {
+    delete R.active;
+    if (d.value && d.value.id && !R.studies.some(x => x.id === d.value.id)) R.studies.unshift(d.value);
+  }
+  if (!d || 'value' in d) Object.defineProperty(R, 'active', {
+    configurable: true, enumerable: false,
+    get() { return this.studies[0] || null; },
+    set(v) { if (!v) this.studies.shift(); else if (this.studies.length) this.studies[0] = v; else this.studies.push(v); },
+  });
+  READY.add(R);
+};
 G.research = (s, owner) => {
   if (!hooksReady) ensureHooks();
   const e = s.empires[owner];
-  e.research = e.research || { done: {}, active: null };
-  if (!e.research.done) e.research.done = {};
-  return e.research;
+  if (!e.research) e.research = { done: {}, studies: [] };
+  const R = e.research;
+  if (!READY.has(R)) prepResearch(R);
+  if (!R.done) R.done = {};
+  return R;
 };
 G.hasTech = (s, owner, id) => !!G.research(s, owner).done[id];
+// level of a tech: 0 unknown, 1 known; repeatable techs count up from there
+const levelIn = (R, id) => { const d = R.done[id]; return d === true ? 1 : typeof d === 'number' ? Math.max(0, d) : d ? 1 : 0; };
+G.techLevel = (s, owner, id) => levelIn(G.research(s, owner), id);
+G.isRepeatTech = id => !!(DATA.techs[id] && DATA.techs[id].repeat);
+G.researchStudies = (s, owner) => G.research(s, owner).studies;
+G.researchStudy = (s, owner, id) => G.research(s, owner).studies.find(x => x.id === id) || null;
+
+// ---------------------------------------------------------------------
+// study slots: parallel studies, each pinned to a city with an Academy
+//   - a realm with any Academy has 1 slot;
+//   - every city with an Academy of level G.RESEARCH_SLOT_ACADEMY (3)+ counts for one slot,
+//     an Academy of level G.RESEARCH_DOUBLE_ACADEMY (12)+ for two (it runs two studies);
+//   - at most G.RESEARCH_SLOT_MAX (4) slots.
+// A city runs one study at a time (two with an Academy 12+), and a topic only starts once all of
+// its prerequisites are known, so it never runs alongside its own prerequisite.
+// ---------------------------------------------------------------------
+G.RESEARCH_SLOT_ACADEMY = 3;
+G.RESEARCH_DOUBLE_ACADEMY = 12;
+G.RESEARCH_SLOT_MAX = 4;
+G.researchHostCap = city => { const a = G.lvl(city, 'academy'); return a >= G.RESEARCH_DOUBLE_ACADEMY ? 2 : a >= 1 ? 1 : 0; };
+const slotWorth = city => { const a = G.lvl(city, 'academy'); return a >= G.RESEARCH_DOUBLE_ACADEMY ? 2 : a >= G.RESEARCH_SLOT_ACADEMY ? 1 : 0; };
+G.researchCityLoad = (s, city) => {
+  const R = G.research(s, city.owner);
+  let n = 0;
+  for (const x of R.studies) if (x.city === city.id) n++;
+  return n;
+};
+G.researchHostFree = (s, city) => G.researchHostCap(city) - G.researchCityLoad(s, city);
+G.researchSlots = (s, owner) => {
+  const R = G.research(s, owner), cs = G.citiesOf(s, owner);
+  let any = false, worth = 0;
+  for (const c of cs) { if (G.lvl(c, 'academy') > 0) any = true; worth += slotWorth(c); }
+  const total = any ? Math.min(G.RESEARCH_SLOT_MAX, Math.max(1, worth)) : 0;
+  const used = R.studies.length;
+  let hint = '';
+  if (!any) hint = 'Build an Academy (Town Hall 3) to begin research.';
+  else if (total < G.RESEARCH_SLOT_MAX) {
+    const A = G.RESEARCH_SLOT_ACADEMY, low = cs.filter(c => !slotWorth(c));
+    if (cs.length === 1) hint = `Found another city and raise its Academy to ${A} for ${total > 1 ? 'one more' : 'a second'} study slot${G.lvl(cs[0], 'academy') < G.RESEARCH_DOUBLE_ACADEMY ? ` (or raise this Academy to ${G.RESEARCH_DOUBLE_ACADEMY} to run two studies here)` : ''}.`;
+    else if (low.length && worth >= 1) hint = `Raise the Academy of another city (${low.slice(0, 2).map(c => c.name).join(', ')}) to level ${A} for one more study slot.`;
+    else if (low.length) hint = `Raise Academies to level ${A} in two cities for a second study slot.`;
+    else hint = `Found another city with an Academy ${A}+ for one more slot${cs.some(c => G.lvl(c, 'academy') >= G.RESEARCH_DOUBLE_ACADEMY) ? '' : `, or raise an Academy to ${G.RESEARCH_DOUBLE_ACADEMY} to run two studies there`}.`;
+  }
+  return { total, used, free: Math.max(0, total - used), hint };
+};
+// the city that should study a topic: the preferred one if it can, else the best free Academy (affordable first)
+G.researchCityFor = (s, owner, id, pref) => {
+  const t = DATA.techs[id];
+  if (!t) return null;
+  const cost = G.techCost(id, t.repeat ? G.techLevel(s, owner, id) + 1 : 1);
+  const can = c => c && c.owner === owner && G.lvl(c, 'academy') >= t.ac && G.researchHostFree(s, c) > 0;
+  if (can(pref) && G.canAfford(s, pref, cost)) return pref;
+  const able = G.citiesOf(s, owner).filter(can).sort((a, b) => G.lvl(b, 'academy') - G.lvl(a, 'academy'));
+  return able.find(c => G.canAfford(s, c, cost)) || (can(pref) ? pref : able[0]) || null;
+};
 G.techForOwner = (s, owner, id) => { const t = DATA.techs[id]; return !!t && (!t.race || t.race === s.empires[owner].race); };
 G.techList = (s, owner) => { normalizeAll(); return Object.keys(DATA.techs).filter(id => G.techForOwner(s, owner, id)); };
 G.bestAcademy = (s, owner) => G.citiesOf(s, owner).filter(c => G.lvl(c, 'academy') > 0)
@@ -397,7 +506,7 @@ G.techEra = (s, owner) => {
   normalizeAll();
   const tot = [0, 0, 0, 0], got = [0, 0, 0, 0];
   for (const [id, t] of Object.entries(DATA.techs)) {
-    if (t.race && t.race !== e.race) continue;
+    if ((t.race && t.race !== e.race) || t.repeat) continue;
     tot[t.era]++;
     if (e.research.done[id]) got[t.era]++;
   }
@@ -410,7 +519,7 @@ G.techEraProgress = (s, owner) => {
   normalizeAll();
   const e = s.empires[owner], R = G.research(s, owner);
   const per = [0, 1, 2, 3].map(i => {
-    const ids = Object.keys(DATA.techs).filter(id => DATA.techs[id].era === i && (!DATA.techs[id].race || DATA.techs[id].race === e.race));
+    const ids = Object.keys(DATA.techs).filter(id => DATA.techs[id].era === i && !DATA.techs[id].repeat && (!DATA.techs[id].race || DATA.techs[id].race === e.race));
     return { got: ids.filter(id => R.done[id]).length, total: ids.length };
   });
   // need / prevGot: how many techniques of the era before are needed to enter this one, and how many are known
@@ -424,16 +533,22 @@ G.techStatus = (s, cityId, id) => {
   if (!t || !city) return { ok: false, locked: true, hidden: !t, reason: 'Unknown', cost: {}, time: 0 };
   if (t.race && t.race !== s.empires[city.owner].race) return { ok: false, hidden: true, locked: true, reason: `Only the ${DATA.races[t.race].name} know this`, cost: {}, time: 0 };
   const R = G.research(s, city.owner);
-  const cost = G.techCost(id);
-  const time = G.techTime(s, city.owner, id, city);
-  if (R.done[id]) return { done: true, cost, time };
-  if (R.active && R.active.id === id) return { active: true, cost, time };
+  const rep = !!t.repeat, level = levelIn(R, id), next = rep ? level + 1 : 1;
+  const cost = G.techCost(id, next);
+  const time = G.techTime(s, city.owner, id, city, next);
+  const extra = rep ? { repeat: true, level, next } : {};
+  if (R.done[id] && !rep) return { done: true, cost, time };
+  const study = R.studies.find(x => x.id === id);
+  if (study) return { active: true, study, cost, time, ...extra };
+  if (rep && level >= G.TECH_REPEAT_MAX) return { ok: false, done: true, maxed: true, reason: 'Fully mastered', cost, time, ...extra };
   const miss = t.reqs.filter(r => !R.done[r]);
-  if (miss.length) return { ok: false, locked: true, missing: miss, reason: `Needs ${miss.map(r => DATA.techs[r] ? DATA.techs[r].name : r).join(' and ')}`, cost, time };
-  if (G.lvl(city, 'academy') < t.ac) return { ok: false, locked: true, academy: true, reason: `Needs Academy ${t.ac} here`, cost, time };
-  if (R.active) return { ok: false, busy: true, reason: 'Scholars are busy', cost, time };
-  if (!G.canAfford(s, city, cost)) return { ok: false, poor: true, reason: 'Not enough goods', cost, time };
-  return { ok: true, cost, time };
+  if (miss.length) return { ok: false, locked: true, missing: miss, reason: `Needs ${miss.map(r => DATA.techs[r] ? DATA.techs[r].name : r).join(' and ')}`, cost, time, ...extra };
+  if (G.lvl(city, 'academy') < t.ac) return { ok: false, locked: true, academy: true, reason: `Needs Academy ${t.ac} here`, cost, time, ...extra };
+  const sl = G.researchSlots(s, city.owner);
+  if (sl.free <= 0) return { ok: false, busy: true, reason: sl.total > 1 ? `All ${sl.total} study slots are busy` : 'Scholars are busy', cost, time, ...extra };
+  if (G.researchHostFree(s, city) <= 0) return { ok: false, busy: true, here: true, reason: `Scholars in ${city.name} are busy: another Academy can take it`, cost, time, ...extra };
+  if (!G.canAfford(s, city, cost)) return { ok: false, poor: true, reason: 'Not enough goods', cost, time, ...extra };
+  return { ok: true, cost, time, ...extra };
 };
 
 G.startResearch = (s, cityId, id) => {
@@ -442,17 +557,23 @@ G.startResearch = (s, cityId, id) => {
   if (!st.ok) return st.reason || 'Cannot research';
   G.pay(s, city, st.cost);
   const R = G.research(s, city.owner);
-  R.active = { id, city: cityId, start: s.time, end: s.time + st.time, cost: st.cost };
-  if (R.queue) R.queue = R.queue.filter(q => q !== id);
+  const study = { id, city: cityId, start: s.time, end: s.time + st.time, cost: st.cost };
+  if (st.repeat) study.level = st.next;
+  R.studies.push(study);
+  if (R.queue) { const i = R.queue.indexOf(id); if (i >= 0) R.queue.splice(i, 1); if (!st.repeat) R.queue = R.queue.filter(q => q !== id); }
   return null;
 };
 
-G.cancelResearch = (s, owner) => {
+// cancel one study (by tech id; without an id, the first, as before): 50% of its goods come back
+G.cancelResearch = (s, owner, id) => {
   const R = G.research(s, owner);
-  if (!R.active) return;
-  const city = s.cities[R.active.city];
-  if (city && city.owner === owner) G.gain(s, city, R.active.cost, 0.5);
-  R.active = null;
+  const i = id ? R.studies.findIndex(x => x.id === id) : 0;
+  const st = R.studies[i];
+  if (!st) return false;
+  const city = s.cities[st.city];
+  if (city && city.owner === owner) G.gain(s, city, st.cost, 0.5);
+  R.studies.splice(i, 1);
+  return true;
 };
 
 // ---------------------------------------------------------------------
@@ -461,7 +582,8 @@ G.cancelResearch = (s, owner) => {
 G.techPath = (s, owner, id) => {
   const R = G.research(s, owner), out = [], seen = {};
   const visit = k => {
-    if (seen[k] || R.done[k] || (R.active && R.active.id === k) || !DATA.techs[k]) return;
+    if (seen[k] || !DATA.techs[k]) return;
+    if (k !== id || !DATA.techs[k].repeat) { if (R.done[k] || R.studies.some(x => x.id === k)) return; }
     seen[k] = true;
     for (const r of DATA.techs[k].reqs) visit(r);
     out.push(k);
@@ -471,15 +593,20 @@ G.techPath = (s, owner, id) => {
 };
 // The queue is unlimited. A topic may be queued once its prerequisites are known, being
 // studied, or queued ahead of it; G.planResearch queues the whole missing chain. Goods are paid
-// when a topic starts, so cancelling a queued topic costs nothing. When the scholars are free the
-// first queued topic whose prerequisites are known and that some Academy can afford starts; the
-// others wait (R.queueWait notes why) and are retried every few seconds.
+// when a topic starts, so cancelling a queued topic costs nothing. Whenever a study slot is free
+// the first queued topic whose prerequisites are all KNOWN (so never one whose prerequisite is
+// still being studied), that is not already running, and that a free Academy can afford starts;
+// this repeats until the slots are full. The others wait (R.queueWait notes why) and are retried
+// every few seconds. A repeatable tech may sit in the queue several times: one entry per level.
 const queueArgs = (a, b) => typeof b === 'string' ? { cityId: a, id: b } : { cityId: null, id: a };
+// levels of a repeatable tech already promised: known + studying + queued
+const plannedLevel = (R, id) => levelIn(R, id) + (R.studies.some(x => x.id === id) ? 1 : 0) + (R.queue || []).filter(k => k === id).length;
 const queueCheck = (s, owner, id) => {
   if (!DATA.techs[id] || !G.techForOwner(s, owner, id)) return 'Not for your people';
   const R = G.research(s, owner);
+  if (DATA.techs[id].repeat) return plannedLevel(R, id) >= G.TECH_REPEAT_MAX ? 'Every level is already planned' : null;
   if (R.done[id]) return 'Already known';
-  if (R.active && R.active.id === id) return 'Already being studied';
+  if (R.studies.some(x => x.id === id)) return 'Already being studied';
   if ((R.queue || []).includes(id)) return 'Already queued';
   return null;
 };
@@ -495,14 +622,14 @@ const enqueue = (s, owner, ids, cityId) => {
   return null;
 };
 // G.queueResearch(s, owner, cityId, id) — one topic (prerequisites known, studied or queued);
-// the old 3-argument form (s, owner, id) plans the whole path, as before
+// for a repeatable tech, one more level; the old 3-argument form (s, owner, id) plans the whole path
 G.queueResearch = (s, owner, a, b) => {
   const { cityId, id } = queueArgs(a, b);
   if (typeof b !== 'string') return G.planResearch(s, owner, null, id);
   const err = queueCheck(s, owner, id);
   if (err) return err;
   const R = G.research(s, owner), q = R.queue || [];
-  const miss = DATA.techs[id].reqs.filter(r => !R.done[r] && !(R.active && R.active.id === r) && !q.includes(r));
+  const miss = DATA.techs[id].reqs.filter(r => !R.done[r] && !R.studies.some(x => x.id === r) && !q.includes(r));
   if (miss.length) return `Needs ${miss.map(r => DATA.techs[r].name).join(' and ')} first (plan the path to queue them too)`;
   return enqueue(s, owner, [id], cityId);
 };
@@ -511,14 +638,21 @@ G.planResearch = (s, owner, cityId, id) => {
   const err = queueCheck(s, owner, id);
   if (err) return err;
   const R = G.research(s, owner);
-  const add = G.techPath(s, owner, id).filter(k => !(R.queue || []).includes(k));
+  const add = G.techPath(s, owner, id).filter(k => k === id && DATA.techs[k].repeat || !(R.queue || []).includes(k));
   if (add.some(k => !G.techForOwner(s, owner, k))) return 'Not for your people';
   return enqueue(s, owner, add, cityId);
 };
-// dropping a topic also drops queued topics that depend on it
-G.unqueueResearch = (s, owner, id) => {
+// dropping a topic also drops queued topics that depend on it; for a repeatable tech only one
+// queued level goes (the one at index `at`, else the last)
+G.unqueueResearch = (s, owner, id, at) => {
   const R = G.research(s, owner);
   if (!R.queue) return;
+  if (DATA.techs[id] && DATA.techs[id].repeat) {
+    const i = at !== undefined && R.queue[at] === id ? +at : R.queue.lastIndexOf(id);
+    if (i >= 0) R.queue.splice(i, 1);
+    if (R.queueWait && R.queueWait.id === id && !R.queue.includes(id)) R.queueWait = null;
+    return;
+  }
   const drop = new Set([id]);
   for (const k of R.queue) if (DATA.techs[k] && DATA.techs[k].reqs.some(r => drop.has(r))) drop.add(k);
   R.queue = R.queue.filter(k => !drop.has(k));
@@ -527,9 +661,10 @@ G.unqueueResearch = (s, owner, id) => {
 };
 G.dequeueResearch = G.unqueueResearch;
 // move a queued topic one place up (delta -1) or down (+1); never ahead of its own prerequisite
-G.moveQueuedResearch = (s, owner, id, delta) => {
+// (`at`: the queue index, for a repeatable tech queued more than once)
+G.moveQueuedResearch = (s, owner, id, delta, at) => {
   const R = G.research(s, owner), q = R.queue || [];
-  const i = q.indexOf(id), j = i + (delta < 0 ? -1 : 1);
+  const i = at !== undefined && q[at] === id ? +at : q.indexOf(id), j = i + (delta < 0 ? -1 : 1);
   if (i < 0 || j < 0 || j >= q.length) return 'Cannot move';
   const first = q[Math.min(i, j)], second = q[Math.max(i, j)];
   if (DATA.techs[second] && DATA.techs[second].reqs.includes(first)) return `${DATA.techs[second].name} needs ${DATA.techs[first].name}`;
@@ -538,32 +673,61 @@ G.moveQueuedResearch = (s, owner, id, delta) => {
 };
 G.processResearchQueue = (s, owner) => {
   const R = G.research(s, owner);
-  if (R.active || !R.queue || !R.queue.length) { if (!R.queue || !R.queue.length) R.queueWait = null; return; }
-  R.queue = R.queue.filter(k => DATA.techs[k] && !R.done[k] && G.techForOwner(s, owner, k));
+  if (!R.queue || !R.queue.length) { R.queueWait = null; return; }
+  if (G.researchSlots(s, owner).free <= 0) { R.queueWait = null; return; }   // every slot busy: nothing is waiting on goods
+  R.queue = R.queue.filter(k => DATA.techs[k] && (DATA.techs[k].repeat ? levelIn(R, k) < G.TECH_REPEAT_MAX : !R.done[k]) && G.techForOwner(s, owner, k));
   const cities = G.citiesOf(s, owner);
   let wait = null;
-  for (const k of R.queue) {
-    const t = DATA.techs[k];
-    if (!t.reqs.every(r => R.done[r])) continue;
-    const cost = G.techCost(k);
-    const able = cities.filter(c => G.lvl(c, 'academy') >= t.ac);
-    if (!able.length) { wait = wait || { id: k, reason: `Needs an Academy of level ${t.ac}` }; continue; }
-    const pref = R.queueCity && s.cities[R.queueCity[k]];
-    const city = (pref && pref.owner === owner && G.lvl(pref, 'academy') >= t.ac && G.canAfford(s, pref, cost)) ? pref
-      : able.filter(c => G.canAfford(s, c, cost)).sort((a, b) => G.lvl(b, 'academy') - G.lvl(a, 'academy'))[0];
-    if (!city) { wait = wait || { id: k, reason: 'Waiting for goods' }; continue; }
-    if (G.startResearch(s, city.id, k) === null) {
-      if (R.queueCity) delete R.queueCity[k];
-      R.queueWait = null;
-      if (owner === 'p') G.log(s, owner, `📚 From the queue, scholars in ${city.name} begin ${t.icon} ${t.name}.`);
-      return;
+  for (let guard = 0; guard < G.RESEARCH_SLOT_MAX + 1; guard++) {
+    if (G.researchSlots(s, owner).free <= 0) { wait = null; break; }
+    let started = false;
+    wait = null;
+    const tried = new Set();
+    for (const k of R.queue) {
+      const t = DATA.techs[k];
+      if (tried.has(k) || !t.reqs.every(r => R.done[r]) || R.studies.some(x => x.id === k)) continue;
+      tried.add(k);
+      const cost = G.techCost(k, t.repeat ? levelIn(R, k) + 1 : 1);
+      const able = cities.filter(c => G.lvl(c, 'academy') >= t.ac);
+      if (!able.length) { wait = wait || { id: k, reason: `Needs an Academy of level ${t.ac}` }; continue; }
+      const free = able.filter(c => G.researchHostFree(s, c) > 0);
+      if (!free.length) { wait = wait || { id: k, reason: 'Waiting for a free Academy' }; continue; }
+      const pref = R.queueCity && s.cities[R.queueCity[k]];
+      const city = (pref && free.includes(pref) && G.canAfford(s, pref, cost)) ? pref
+        : free.filter(c => G.canAfford(s, c, cost)).sort((a, b) => G.lvl(b, 'academy') - G.lvl(a, 'academy'))[0];
+      if (!city) { wait = wait || { id: k, reason: 'Waiting for goods' }; continue; }
+      if (G.startResearch(s, city.id, k) === null) {
+        if (R.queueCity && !R.queue.includes(k)) delete R.queueCity[k];
+        if (owner === 'p') G.log(s, owner, `📚 From the queue, scholars in ${city.name} begin ${t.icon} ${t.name}${t.repeat ? ' (level ' + (levelIn(R, k) + 1) + ')' : ''}.`);
+        started = true;
+        break;
+      }
     }
+    if (!started) break;
   }
   R.queueWait = wait;
 };
 G.researchQueueNote = (s, owner) => {
   const w = G.research(s, owner).queueWait;
   return w && DATA.techs[w.id] ? `${DATA.techs[w.id].name}: ${w.reason.toLowerCase()}` : '';
+};
+// what the queue will do next, one entry per queued topic: { id, level (repeatables), next (starts as
+// soon as a slot and goods allow, alongside the others marked next), after (the unknown prerequisite it waits for) }
+G.researchQueuePlan = (s, owner) => {
+  const R = G.research(s, owner), sl = G.researchSlots(s, owner);
+  const running = new Set(R.studies.map(x => x.id)), seen = {};
+  // free slots now, or (all busy) the topics that take over as the running ones finish
+  let room = sl.free > 0 ? sl.free : sl.total;
+  return (R.queue || []).map(k => {
+    const t = DATA.techs[k];
+    if (!t) return { id: k };
+    seen[k] = (seen[k] || 0) + 1;
+    const level = t.repeat ? levelIn(R, k) + (running.has(k) ? 1 : 0) + seen[k] : 0;
+    const after = t.reqs.find(r => !R.done[r]) || null;
+    let next = false;
+    if (!after && !running.has(k) && room > 0) { next = true; room--; running.add(k); }
+    return { id: k, level, next, after, busy: !after && running.has(k) && !next };
+  });
 };
 
 // ---------------------------------------------------------------------
@@ -592,16 +756,21 @@ const techFxRaw = (s, owner) => {
   if (!R || !R.done) return null;
   const n = Object.keys(R.done).length;
   if (!n) return null;
+  // levels of repeatable techs are part of the signature: a level-up changes no key count
+  let lv = 0;
+  for (const id of REPEAT_IDS) if (R.done[id]) lv += levelIn(R, id);
   const c = FX_CACHE.get(R.done);
-  if (c && c.n === n && c.race === e.race) return c.fx;
+  if (c && c.n === n && c.lv === lv && c.race === e.race) return c.fx;
   if (techCount !== Object.keys(DATA.techs).length) normalizeAll();
   const fx = {};
   for (const id in R.done) {
     const t = DATA.techs[id];
     if (!t || (t.race && t.race !== e.race)) continue;
-    for (const [k, v] of Object.entries(t.fx)) fx[k] = TECH_ADDITIVE[k] ? (fx[k] || 0) + v : (fx[k] || 1) * v;
+    const L = t.repeat ? levelIn(R, id) : 1;
+    if (!L) continue;
+    for (const [k, v] of Object.entries(t.fx)) fx[k] = TECH_ADDITIVE[k] ? (fx[k] || 0) + v * L : (fx[k] || 1) * (L === 1 ? v : Math.pow(v, L));
   }
-  FX_CACHE.set(R.done, { n, race: e.race, fx });
+  FX_CACHE.set(R.done, { n, lv, race: e.race, fx });
   return fx;
 };
 G.techMult = (s, owner, key) => { const fx = G.techFx(s, owner); return (fx && fx[key]) || 1; };
@@ -673,13 +842,29 @@ G.researchHooksReady = () => { ensureHooks(); return hooksReady; };
 G.stepHooks.push(s => {
   if (!hooksReady) ensureHooks();
   for (const e of Object.values(s.empires)) {
-    const R = e.research;
-    if (R && R.active && R.active.end <= s.time) {
-      const t = DATA.techs[R.active.id];
-      R.done[R.active.id] = true;
+    let R = e.research;
+    if (!R) continue;
+    if (!R.studies) { if (!R.active) continue; R = G.research(s, e.id); }   // an old save: migrate
+    if (!R.studies.length) continue;
+    let fin = false;
+    for (let i = R.studies.length - 1; i >= 0; i--) {
+      const st = R.studies[i];
+      if (!(st.end <= s.time)) continue;
+      R.studies.splice(i, 1);
+      const t = DATA.techs[st.id];
+      if (!t) continue;
+      if (t.repeat) {
+        const L = Math.min(G.TECH_REPEAT_MAX, levelIn(R, st.id) + 1);
+        R.done[st.id] = L === 1 ? true : L;
+        G.log(s, e.id, `📚 Research complete: ${t.icon} ${t.name}, level ${L}. ${G.techFxText(t.id)}`, 'good');
+      } else {
+        R.done[st.id] = true;
+        G.log(s, e.id, `📚 Research complete: ${t.icon} ${t.name}. ${G.techFxText(t.id)}`, 'good');
+      }
+      fin = true;
+    }
+    if (fin) {
       if (G.bumpEpoch) G.bumpEpoch();
-      R.active = null;
-      if (t) G.log(s, e.id, `📚 Research complete: ${t.icon} ${t.name}. ${G.techFxText(t.id)}`, 'good');
       if (R.queue && R.queue.length) G.processResearchQueue(s, e.id);
     }
   }
@@ -687,7 +872,7 @@ G.stepHooks.push(s => {
 G.slowHooks.push(s => {
   for (const e of Object.values(s.empires)) {
     const R = e.research;
-    if (R && !R.active && R.queue && R.queue.length && !e.dead) G.processResearchQueue(s, e.id);
+    if (R && R.queue && R.queue.length && !e.dead) G.processResearchQueue(s, e.id);
   }
 });
 G.newGameHooks.push(() => ensureHooks());
@@ -700,7 +885,8 @@ const openTechs = (s, owner, city) => {
   const R = G.research(s, owner), race = s.empires[owner].race, ac = G.lvl(city, 'academy');
   const out = [];
   for (const [id, t] of Object.entries(DATA.techs)) {
-    if (R.done[id] || (t.race && t.race !== race) || (R.active && R.active.id === id)) continue;
+    if ((t.race && t.race !== race) || R.studies.some(x => x.id === id)) continue;
+    if (t.repeat ? levelIn(R, id) >= G.TECH_REPEAT_MAX : R.done[id]) continue;
     if (!t.reqs.every(r => R.done[r])) continue;
     out.push({ id, t, gated: ac < t.ac });
   }
@@ -718,20 +904,25 @@ const techWeight = (s, emp, t) => {
   if (t.race) w *= 2.2;
   if (t.branch === 'sea' && !G.citiesOf(s, emp.id).some(c => G.lvl(c, 'harbor') > 0)) w *= 0.3;
   if (t.branch === 'arcana' && !G.citiesOf(s, emp.id).some(c => G.lvl(c, 'magetower') > 0)) w *= 0.5;
+  // mastery techs are a late sink: less attractive with every level
+  if (t.repeat) w *= 0.6 / (1 + levelIn(G.research(s, emp.id), t.id));
   return w / (1 + 0.12 * t.col);
 };
+const nextCost = (s, owner, id) => G.techCost(id, DATA.techs[id].repeat ? G.techLevel(s, owner, id) + 1 : 1);
 G.techRecommend = (s, owner, n = 3) => {
   const city = G.bestAcademy(s, owner);
   if (!city) return [];
   const emp = s.empires[owner];
   const pseudo = { ...emp, aggr: 0.35 };
   return openTechs(s, owner, city).filter(o => !o.gated)
-    .map(o => ({ id: o.id, w: techWeight(s, pseudo, o.t) * (G.canAfford(s, city, G.techCost(o.id)) ? 1.6 : 1) / Math.pow(1.3, o.t.col) * (1 + 0.15 * G.techUnlocks(o.id).length) }))
+    .map(o => ({ id: o.id, w: techWeight(s, pseudo, o.t) * (G.canAfford(s, city, nextCost(s, owner, o.id)) ? 1.6 : 1) / Math.pow(1.3, o.t.col) * (1 + 0.15 * G.techUnlocks(o.id).length) }))
     .sort((a, b) => b.w - a.w).slice(0, n).map(o => o.id);
 };
 
+// picks a topic for the best Academy that has room for another study (null when none has)
 G.aiResearchPick = (s, emp) => {
-  const city = G.bestAcademy(s, emp.id);
+  const city = G.citiesOf(s, emp.id).filter(c => G.researchHostFree(s, c) > 0)
+    .sort((a, b) => G.lvl(b, 'academy') - G.lvl(a, 'academy') || (a.founded || 0) - (b.founded || 0))[0];
   if (!city) return null;
   const opts = openTechs(s, emp.id, city);
   const open = opts.filter(o => !o.gated);
@@ -741,7 +932,7 @@ G.aiResearchPick = (s, emp) => {
     if (st.ok) G.queueBuild(s, city.id, 'academy');
   }
   // keep a margin so research never starves construction
-  const aff = open.filter(o => G.canAfford(s, city, G.techCost(o.id), 1.15));
+  const aff = open.filter(o => G.canAfford(s, city, nextCost(s, emp.id, o.id), 1.15));
   if (!aff.length) return null;
   let tot = 0;
   const ws = aff.map(o => { const w = techWeight(s, emp, o.t); tot += w; return w; });
@@ -749,10 +940,10 @@ G.aiResearchPick = (s, emp) => {
   for (let i = 0; i < aff.length; i++) { r -= ws[i]; if (r <= 0) return { city, id: aff[i].id }; }
   return { city, id: aff[aff.length - 1].id };
 };
-// AI studies something affordable now and then
+// AI studies something affordable now and then, filling its free study slots one by one
 G.aiHooks.push((s, emp) => {
-  const R = G.research(s, emp.id);
-  if (R.active || Math.random() > 0.25 || emp.saving) return;
+  if (Math.random() > 0.25 || emp.saving) return;
+  if (G.researchSlots(s, emp.id).free <= 0) return;
   const p = G.aiResearchPick(s, emp);
   if (p) G.startResearch(s, p.city.id, p.id);
 });

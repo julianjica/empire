@@ -146,13 +146,16 @@
       over += L(`M${cx} ${k.y + 3}V101`, trim ? sw(2.4) + ` stroke="${trim}"` : sw(1.4));
     };
     if (kind === 'unit') {
-      if (role === 'mage') { robe(dk(col, 0.3), true, GOLD); over += `<circle cx="${cx}" cy="${k.y + 6}" r="2.6" fill="#6fd3e8"/>`; }
+      if (role === 'mage') { robe(mix(dk(col, 0.3), dk(ctx.schoolCol || col, 0.35), 0.45), true, GOLD); over += `<circle cx="${cx}" cy="${k.y + 6}" r="2.6" fill="${lt(ctx.schoolCol || '#6fd3e8', 0.35)}"/>`; }
       else if (role === 'ranged' || role === 'flyer' || role === 'support') {
         base = race === 'wind' ? ['#7a5638', '#4a3020'] : ['#8c5d38', '#55361e'];
         over += L(`M${s.left + 9} ${s.y - 3}L66 101`, sw(5.5)) + L(`M${s.left + 9} ${s.y - 3}L66 101`, sw(3) + ` stroke="#b8894f"`);
         if (role === 'flyer' || race === 'wind') over += pauldron({ ...ctx, race: 'wind' }, `url(#${id}-p)`, 0);
         else over += P(path(sym([[cx, k.y - 3], [cx - k.w / 2 - 4, k.y - 5], [s.left + 6, s.y], [s.left + 5, s.y + 8], [cx - 7, s.y + 13], [cx, s.y + 11]]), true, 0.5), `url(#${id}-t)`);
       } else armour(0, role === 'cavalry');
+    } else if (kind === 'magus') { // robes in the school's colour, cut by the people (regalia: js/portrait-gear.js)
+      const sc = ctx.schoolCol || col, e = ctx.era;
+      robe(mix(dk(sc, 0.32 + (e === 0 ? 0.12 : 0)), mix(col, look.cloth, 0.5), e === 0 ? 0.45 : 0.22), true, e >= 2 ? GOLD : lt(sc, 0.3));
     } else if (kind === 'hero') armour(1, 1);
     else if (kind === 'advisor') {
       if (role === 'marshal') { armour(0, 1); over += L(`M${s.left + 10} ${s.y - 3}L70 101`, sw(7) + ` stroke="${INK}"`) + L(`M${s.left + 10} ${s.y - 3}L70 101`, sw(4.6) + ` stroke="${col}"`) + `<circle cx="38" cy="${cy0 + 7}" r="2.2" fill="${GOLD}"/><circle cx="44" cy="${cy0 + 9}" r="2.2" fill="#b0402a"/>`; }

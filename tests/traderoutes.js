@@ -1,7 +1,7 @@
 // Trade routes: internal and foreign routes, income, opinion, war, ambushes, escorts, AI, save/load.  node tests/traderoutes.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js',...['js/forge.js'].filter(f=>fs.existsSync(f)),'js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js',...['js/forge.js'].filter(f=>fs.existsSync(f)),'js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:'')); };
@@ -86,10 +86,12 @@ const orig=(s,a,b)=>noTrade(s,()=>G.hostility(s,a,b));
   const rel=G.rel(s,'a1'); rel.status='neutral'; rel.opinion=30;
   const r=G.createRoute(s,'p',c.id,a.id,{give:{ore:300},takeGood:'timber'});
   run(s,15); ok('caravan on the road', s.moves.some(m=>m.route===r.id));
+  const icOld=G.IC&&G.IC.aiCaravan; if(G.IC) G.IC.aiCaravan=1e9;   // keep the rival from intercepting this caravan (intercept.js)
   rel.status='war'; run(s,20);
   ok('war cancels the route without a breach penalty', !G.routeById(s,r.id) && rel.opinion>=29, 'opinion '+rel.opinion.toFixed(1));
   const mv=s.moves.find(m=>m.route===r.id); let n=0; while(s.moves.some(m=>m.route===r.id) && n++<400) run(s,10);
   ok('caravan in flight turns back home with its cargo', mv && c.res.ore>=2990 , 'ore '+Math.round(c.res.ore));
+  if(G.IC) G.IC.aiCaravan=icOld;
   const [, b]=twoCities(s,4); c.res.ore=3000;
   const r2=G.createRoute(s,'p',c.id,b.id,{give:{ore:100}});
   b.owner='a2'; run(s,20); ok('city changing owner cancels the route', !G.routeById(s,r2.id));

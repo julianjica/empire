@@ -47,7 +47,9 @@
     const m0 = base.metal;
     // era: 0 dull bronze/iron, 1 plain steel, 2 bright steel, 3 polished masterwork
     const metal = era === 0 ? mix(m0, '#8a6a4a', 0.4) : era === 2 ? shade(m0, 0.08) : era === 3 ? shade(m0, 0.16) : m0;
-    return Object.assign({}, base, { metal, accent: base.accent, cloth: first(pal.cloth) || base.cloth, realm, era, gold: era === 3 ? '#e8bf48' : '#d6a83e' });
+    const out = Object.assign({}, base, { metal, accent: base.accent, cloth: first(pal.cloth) || base.cloth, realm, era, gold: era === 3 ? '#e8bf48' : '#d6a83e', school: ctx.schoolCol || base.glow });
+    if (ctx.kind === 'magus' && ctx.schoolCol) out.glow = mix(ctx.schoolCol, '#ffffff', 0.45);   // a magus' gems and runes burn in the school's colour
+    return out;
   };
 
   // ---- anatomy: published by the people module; fall back to a generic bust ----
@@ -177,7 +179,8 @@
     const sp = ctx.spec, race = ctx.race, role = ctx.role, kind = sp.kind || 'unit', u = sp.unit;
     ctx.grnd = PORTRAIT.prng(PORTRAIT.hash([race, kind, u || '', role, sp.seed ?? '', 'gear'].join(':')));
     const g = { helm: [], weapon: null, shield: null, mount: null, wings: null, whole: null, quiver: false, satchel: false, armour: true };
-    const rank = clamp(+sp.rank || 0, 0, 10);
+    const mrank = kind === 'magus' ? clamp(Math.round(+sp.rank || 1), 1, 5) : 0;   // a magus' rank is 1..5: the frame trim reads it doubled
+    const rank = kind === 'magus' ? mrank * 2 : clamp(+sp.rank || 0, 0, 10);
     const band = rank >= 7 ? 2 : rank >= 3 ? 1 : 0;
     if (kind === 'monster') g.whole = 'monster:' + (MONSTERS.includes(sp.role) ? sp.role : MONSTER_UNITS[u] || 'beast');
     else if (u && MONSTER_UNITS[u]) g.whole = 'monster:' + MONSTER_UNITS[u];
@@ -202,6 +205,11 @@
         g.armour = r === 'marshal';
         g.helm = r === 'marshal' ? HERO_HELM[race][1].slice() : r === 'spymaster' ? ['hood:spy'] : r === 'priest' ? ['mitre'] : r === 'archmage' ? [MAGE_HELM[race]] : ['cap'];
         g.weapon = r === 'marshal' ? 'baton' : r === 'spymaster' ? 'dagger' : r === 'priest' ? 'crozier' : r === 'archmage' ? 'staff' : 'ledger';
+      } else if (kind === 'magus') {
+        g.magus = { rank: mrank };
+        g.helm = (MAGUS_HELM[race] || MAGUS_HELM.hearth)[magusTier(mrank)].slice();
+        if (mrank >= 5) g.helm.push('archhalo');
+        g.weapon = 'focus'; g.armour = false;
       } else if (kind === 'ruler') { g.helm = ['crown']; g.weapon = 'scepter'; g.armour = false; g.mantle = true; }
       else if (kind === 'spy') { g.helm = []; g.weapon = 'dagger'; g.armour = false; }
       else if (kind === 'governor') { g.helm = ctx.grnd() < 0.5 ? ['cap'] : []; g.weapon = 'chain'; g.armour = false; }
@@ -448,12 +456,14 @@
     s += P(`M${q(0, -0.92)}l-1.4 2.4h2l-1.2 2.4`, 'none', ` stroke="${c.accent}" stroke-width="1"`);
     return s;
   };
-  HELM.wizardhat = (ctx, A, c) => {
-    const q = Q(A), col = '#4f4a78';
-    return P(`M${q(-0.92, -0.55)}Q${q(-0.35, -1.5)} ${q(0.35, -2.25)}Q${q(0.85, -2.05)} ${q(1.25, -2.15)}Q${q(0.7, -1.8)} ${q(0.55, -1.4)}Q${q(0.6, -0.9)} ${q(0.95, -0.55)}Z`, grad(ctx, col, 0.3, 'd'))
+  HELM.wizardhat = (ctx, A, c, f) => {
+    const q = Q(A), mg = ctx.kind === 'magus', col = mg ? mix(ctx.schoolCol || '#4f4a78', '#2a2440', 0.45) : '#4f4a78', tall = f && f.grand ? 0.55 : 0;
+    let s = P(`M${q(-0.92, -0.55)}Q${q(-0.35, -1.5 - tall * 0.6)} ${q(0.35, -2.25 - tall)}Q${q(0.85, -2.05 - tall)} ${q(1.25 + tall * 0.4, -2.15 - tall * 0.7)}Q${q(0.7, -1.8 - tall * 0.5)} ${q(0.55, -1.4)}Q${q(0.6, -0.9)} ${q(0.95, -0.55)}Z`, grad(ctx, col, 0.3, 'd'))
       + P(`M${q(-1.7, -0.45)}Q${q(0, -0.95)} ${q(1.7, -0.45)}Q${q(0, -0.2)} ${q(-1.7, -0.45)}Z`, shade(col, -0.15))
-      + P(`M${q(-0.92, -0.62)}Q${q(0, -0.92)} ${q(0.95, -0.62)}L${q(0.85, -0.8)}Q${q(0, -1.05)} ${q(-0.82, -0.8)}Z`, c.realm, ' stroke-width="1.2"')
-      + P(`M${q(0.05, -1.45)}l0.8 1.6l1.7 0.2l-1.3 1.1l0.4 1.7l-1.6 -0.9l-1.6 0.9l0.4 -1.7l-1.3 -1.1l1.7 -0.2Z`, c.accent, ' stroke-width="0.7"');
+      + P(`M${q(-0.92, -0.62)}Q${q(0, -0.92)} ${q(0.95, -0.62)}L${q(0.85, -0.8)}Q${q(0, -1.05)} ${q(-0.82, -0.8)}Z`, mg ? c.gold : c.realm, ' stroke-width="1.2"')
+      + P(`M${q(0.05, -1.45)}l0.8 1.6l1.7 0.2l-1.3 1.1l0.4 1.7l-1.6 -0.9l-1.6 0.9l0.4 -1.7l-1.3 -1.1l1.7 -0.2Z`, mg ? c.glow : c.accent, ' stroke-width="0.7"');
+    if (tall) s += C(A.cx - A.rx * 0.35, A.cy - A.ry * 1.25, 0.8, '#f2d36a', NS) + C(A.cx + A.rx * 0.5, A.cy - A.ry * 1.75, 0.7, '#f2d36a', NS) + C(A.cx - A.rx * 0.05, A.cy - A.ry * 2.0, 0.6, '#f2d36a', NS) + C(A.cx + A.rx * (1.25 + tall * 0.4 + 0.22), A.cy - A.ry * (2.15 + tall * 0.7), 1.4, c.gold, ' stroke-width="0.8"');
+    return s;
   };
   HELM.mitre = (ctx, A, c) => {
     const q = Q(A), col = '#f1e8d2';
@@ -1076,6 +1086,7 @@
     if (tier >= 2) for (const [x, y] of [[50, 4.4], [4.4, 50], [95.6, 50]]) s += C(x, y, 1.3, tr.stud, ' stroke-width="0.8"');
     // grand crest at the top
     if (g.kind === 'ruler') s += P('M38 8L36 1.5L43 4.5L50 0.8L57 4.5L64 1.5L62 8Z', grad(ctx, gx('#f0c850'), 0.25), ' stroke-width="1.6"') + C(50, 5, 1.5, realm, ' stroke-width="0.8"');
+    else if (g.magus) s += C(50, 6, 4.6, grad(ctx, gx(ctx.schoolCol || '#9b6ad3'), 0.3, 'd'), ' stroke-width="1.4"') + sGlyph(ctx, ctx.school, 50, 6, 0.55, gx(schoolGlow(ctx)), 0.5);
     else if (g.kind === 'hero') s += P('M50 1L52.2 5.4L57.2 6L53.4 9.2L54.5 13.8L50 11.3L45.5 13.8L46.6 9.2L42.8 6L47.8 5.4Z', grad(ctx, tr.a, 0.3), ' stroke-width="1.4"');
     // realm banner tab at the bottom
     const tabC = grad(ctx, realm, 0.25);
@@ -1086,6 +1097,163 @@
   };
 
   // =====================================================================
+  //  MAGI — kind 'magus' (the Circle's named mages) and the mage units: school regalia.
+  //  ctx.school / ctx.schoolCol come from portraits.js. A magus reads spec.rank as 1..5:
+  //   1-2 apprentice (simple headgear) · 3-4 adept (the people's mage headgear, floating school motes)
+  //   5 archmagus (a halo of glyph-stones over the head); aura from rank 2, glowing eyes from rank 4.
+  //  The focus (staff head) is the school's; the shaft and the mantle are the people's.
+  // =====================================================================
+  const schoolGlow = ctx => mix(ctx.schoolCol || '#9b6ad3', '#ffffff', 0.45);
+  // one radial glow per colour per portrait (motes, eyes and the focus share it: keeps the svg small)
+  const gg = (ctx, col) => { const m = ctx._gg || (ctx._gg = {}); return m[col] || (m[col] = glowGrad(ctx, col)); };
+  // a school's glyph, ~10 units across, centred on (x, y)
+  const SGLYPH = {
+    hearthweather: 'M0 -5L1.2 -2.4L3.5 -3.5L2.4 -1.2L5 0L2.4 1.2L3.5 3.5L1.2 2.4L0 5L-1.2 2.4L-3.5 3.5L-2.4 1.2L-5 0L-2.4 -1.2L-3.5 -3.5L-1.2 -2.4Z',
+    runecraft: 'M0 -5L3.4 0L0 5L-3.4 0ZM0 -3.4V3.4M0 -0.6L1.8 -2.2',
+    songroot: 'M0 5Q-5 0 0 -5Q5 0 0 5ZM0 4.4V-3.6M0 0.4L-1.8 -1.4M0 2L1.8 0.2',
+    bloodember: 'M0 -5Q4.2 -0.4 2.8 2.4A3.1 3.1 0 0 1 -2.8 2.4Q-4.2 -0.4 0 -5ZM0 -0.6Q1.4 1.2 0 2.6Q-1.4 1.2 0 -0.6Z',
+    tidestorm: 'M-5 1.6Q-3.4 -3.4 0 -0.2Q3.4 3 5 -1.8M-5 4.2Q-3.4 -0.6 0 2.4Q3.4 5.4 5 0.8',
+    glamour: 'M0 -5L1.2 -1.2L5 0L1.2 1.2L0 5L-1.2 1.2L-5 0L-1.2 -1.2Z',
+    necromancy: 'M-3.6 0.4A3.6 3.6 0 1 1 3.6 0.4V3H2V5H-2V3H-3.6ZM-1.6 -0.4h0.2M1.4 -0.4h0.2',
+    skywind: 'M1.4 -5L-3 0.6H0L-1.4 5L3 -0.8H0Z',
+  };
+  // drawn once per portrait as a <defs> path, then placed with <use> (a magus wears a dozen of them)
+  const sGlyph = (ctx, school, x, y, s, col, w = 0.9) => {
+    const k = ctx._sg || (ctx._sg = {}), id = ctx.id + 'g' + school.slice(0, 3);
+    if (!k[school]) { k[school] = 1; ctx._gd = (ctx._gd || '') + `<path id="${id}" d="${SGLYPH[school] || SGLYPH.glamour}"/>`; }
+    const tr = ` transform="translate(${n(x)} ${n(y)}) scale(${n(s)})"`;
+    return school === 'tidestorm' ? `<use href="#${id}" fill="none" stroke="${col}" stroke-width="${n(1.5 / s)}"${tr}/>` : `<use href="#${id}" fill="${col}" stroke-width="${n(w / s)}"${tr}/>`;
+  };
+  // headgear by people and rank tier (apprentice, adept, archmagus)
+  const MAGUS_HELM = {
+    hearth: [['cap'], ['wizardhat'], ['wizardhat:grand']], delver: [['hood:rune'], ['hood:rune'], ['hood:rune:grand']],
+    sylvan: [['leafcrown'], ['mooncirclet'], ['branchcrown']], ash: [['bandana'], ['skullmask'], ['skullmask', 'embercrown']],
+    tide: [['pearlcirclet'], ['pearlcirclet'], ['coralhelm']], veil: [['thorncirclet'], ['thorncirclet:tall'], ['thorncirclet:tall']],
+    grave: [['hood:tatter'], ['hood:skull'], ['hood:skull', 'rustcrown']], wind: [['featherband'], ['feathermitre'], ['feathermitre']],
+  };
+  const magusTier = r => r >= 5 ? 2 : r >= 3 ? 1 : 0;
+  // a ring of flames over the head (Ashborn archmagi)
+  HELM.embercrown = (ctx, A, c) => {
+    let s = '';
+    for (let i = -3; i <= 3; i++) {
+      const x = A.cx + i * A.rx * 0.3, y = A.cy - A.ry * (0.95 + (1 - Math.abs(i) / 3) * 0.18), h = 5 + (3 - Math.abs(i)) * 1.2;
+      s += P(`M${n(x - 2)} ${n(y)}Q${n(x - 2.2)} ${n(y - h * 0.6)} ${n(x)} ${n(y - h)}Q${n(x + 2.2)} ${n(y - h * 0.6)} ${n(x + 2)} ${n(y)}Z`, i % 2 ? '#f2c040' : '#e0632a', ' stroke-width="0.9"');
+    }
+    return s;
+  };
+  // the archmagus' halo: glyph-stones floating in a ring over the head
+  HELM.archhalo = (ctx, A) => {
+    const sc = ctx.schoolCol || '#9b6ad3', gl = schoolGlow(ctx), cy = A.cy - A.ry * 1.55, rx = A.rx * 1.15, ry = A.ry * 0.28;
+    let s = `<ellipse cx="${n(A.cx)}" cy="${n(cy)}" rx="${n(rx)}" ry="${n(ry)}" fill="none" stroke="${gl}" stroke-width="1.1" opacity=".8"/>`;
+    for (let i = 0; i < 5; i++) {
+      const a = Math.PI * (0.1 + i * 0.2), x = A.cx - Math.cos(a) * rx, y = cy + Math.sin(a) * ry;
+      s += P(`M${n(x)} ${n(y - 2.6)}L${n(x + 2)} ${n(y)}L${n(x)} ${n(y + 2.6)}L${n(x - 2)} ${n(y)}Z`, i === 2 ? gl : sc, ' stroke-width="0.8"');
+    }
+    return s;
+  };
+  // the focus: shaft of the people's material, head of the school's making
+  const SHAFT = { hearth: '#8b5a2b', delver: '#6e6a64', sylvan: '#7a6a44', ash: '#e6dcc3', tide: '#c9a77a', veil: '#e6e9f5', grave: '#3d3530', wind: '#a07a4a' };
+  const FOCUS = {
+    hearthweather: (ctx, c, sc, gl) => `<path d="M80.5 17V21" fill="none" stroke-width="1.2"/>` + P('M76.5 21H84.5L83.5 23H77.5Z', c.gold) + P('M77.5 23H83.5V31H77.5Z', gl, ' stroke-width="1.4"') + `<path d="M80.5 23V31M77.5 27H83.5" fill="none" stroke="${c.gold}" stroke-width="0.9"/>` + P('M77 31H84L83 33H78Z', c.gold) + C(80.5, 27, 1.6, '#fff8d8', NS)
+      + `<path d="M70 18q2 -3 5 -1.6q1.6 -2.6 4.4 -0.6" fill="#f2f0e8" stroke-width="1"/><path d="M71 20l-0.8 2M74 20l-0.8 2" fill="none" stroke="#5fa3c8" stroke-width="0.9"/>`,
+    runecraft: (ctx, c, sc, gl) => `<g transform="rotate(12 80.5 25)">` + P('M74.5 18H86.5V32H74.5Z', grad(ctx, '#8e8a82', 0.3, 'd'), ' stroke-width="1.6"') + P('M74.5 20H86.5M74.5 30H86.5', 'none', ` stroke="${c.gold}" stroke-width="1.1"`) + `<path d="M80.5 21.5V28.5M80.5 23L83 21.5M80.5 26L78 24.5" fill="none" stroke="${gl}" stroke-width="1.5"/></g>`,
+    songroot: (ctx, c, sc, gl) => OL('M80.5 34Q79 26 75 20M80.5 33Q82 26 87 21M80.5 31Q81 25 81 16', SHAFT.sylvan, 1.5) + leaf(75, 20, 7, 2.4, -40, '#5e9a3a') + leaf(87, 21, 7, 2.4, 45, '#7fb24a') + leaf(81, 16, 6, 2.2, 5, '#5e9a3a') + C(80.5, 25, 2.6, gl, ' stroke-width="1"') + C(79.8, 24.3, 0.8, '#fff', NS),
+    bloodember: (ctx, c, sc, gl) => P('M75 26Q80.5 34 86 26Z', grad(ctx, c.bone || '#e6dcc3', 0.2), ' stroke-width="1.5"') + `<path d="M76.5 27.5l-1.5 -2M84.5 27.5l1.5 -2" fill="none" stroke-width="1.2"/>`
+      + P('M76.5 26Q75.5 20 79 15Q78.6 19 80.5 20Q81 15.5 84 13Q83 18 85 21Q85.4 24 84.5 26Z', '#e0632a', ' stroke-width="1.1"') + P('M78.5 26Q78 22.5 80.5 19.5Q81 22.5 82.6 23.5Q83 25 82.5 26Z', '#f2c040', NS) + C(73, 15, 0.8, '#f2a22a', NS) + C(87, 12, 0.7, sc, NS),
+    tidestorm: (ctx, c, sc, gl) => P('M74 30Q74 34 80.5 34Q87 34 87 30L87 19L85.4 22L85.4 30L75.6 30L75.6 22L74 19Z', grad(ctx, '#78b0a8', 0.3), ' stroke-width="1.4"') + P('M79.6 30V17L80.5 14L81.4 17V30', '#78b0a8', ' stroke-width="1.2"') + C(80.5, 24, 3.8, gl, ' stroke-width="1.2" fill-opacity=".85"') + `<path d="M78 24.5q1.2 -1.2 2.5 0t2.5 0" fill="none" stroke="#fff" stroke-width="0.9"/>`,
+    glamour: (ctx, c, sc, gl) => P('M86 17A8 8 0 1 0 86 31A6 6 0 1 1 86 17Z', grad(ctx, '#eef0fa', 0.15), ' stroke-width="1.4"') + `<path d="M82 21L83 23.3L85.4 24L83 24.7L82 27L81 24.7L78.6 24L81 23.3Z" fill="${gl}" stroke-width="0.7"/>` + C(82, 24, 4, gg(ctx, sc), ' stroke="none" opacity=".7"'),
+    necromancy: (ctx, c, sc, gl) => P('M80.5 12Q78 16 79 19Q76.5 17 77.5 13Q74.5 17 77 21H84Q86.5 17 83.5 13Q84.5 17 82 19Q83 16 80.5 12Z', gl, ' stroke-width="1"') + P('M76.2 25A4.3 4.3 0 1 1 84.8 25V28.4H83V30.4H78V28.4H76.2Z', grad(ctx, c.bone || '#d9d3b8', 0.2), ' stroke-width="1.4"') + C(78.6, 25, 1.1, gl, NS) + C(82.4, 25, 1.1, gl, NS) + `<path d="M79.4 30.4V29M81.6 30.4V29" fill="none" stroke-width="0.7"/>`,
+    skywind: (ctx, c, sc, gl) => OL('M80.5 34L77 18M80.5 34L84.5 17', '#c87a3a', 1.4) + `<ellipse cx="80.6" cy="29" rx="3" ry="1.1" fill="none" stroke="#d89a5a" stroke-width="1.1"/><ellipse cx="80.6" cy="25.5" rx="3.6" ry="1.2" fill="none" stroke="#d89a5a" stroke-width="1.1"/>` + `<path d="M77 18L79.6 21.5L78.6 22.6L81.6 26.5" fill="none" stroke="${gl}" stroke-width="1.6"/><path d="M84.5 17L82.2 20.6L83.4 21.4L81.6 24" fill="none" stroke="#fff" stroke-width="1"/>`,
+  };
+  WDRAW.focus = (ctx, c) => {
+    const sc = ctx.schoolCol || '#9b6ad3', gl = schoolGlow(ctx), r = ctx.gear && ctx.gear.magus ? ctx.gear.magus.rank : 2;
+    const wood = ctx.race === 'tide' || ctx.race === 'sylvan' ? SHAFT[ctx.race] : c.era === 3 && ctx.race !== 'grave' ? mix(SHAFT[ctx.race] || c.wood, '#e8bf48', 0.25) : (SHAFT[ctx.race] || c.wood);
+    let s = C(80.5, 25, 8 + r * 1.6, gg(ctx, sc), ` stroke="none" opacity="${n(0.35 + r * 0.1)}"`);
+    s += shaft(73, 100, 80.5, 33, wood, 2.6);
+    if (ctx.race === 'sylvan' || ctx.race === 'veil') s += leaf(77.5, 50, 7, 2.2, -50, ctx.race === 'sylvan' ? (c.leaf || '#5e9a3a') : c.accent);
+    if (ctx.race === 'grave') s += `<path d="M75 74h3M75.6 68h3M76.4 62h3" fill="none" stroke="${c.bone}" stroke-width="1.1"/>`;
+    if (ctx.race === 'delver') s += `<path d="M76.2 66l3 0.6M77 60l3 0.6" fill="none" stroke="${c.gold}" stroke-width="1.6"/>`;
+    if (c.era >= 2) s += `<path d="M78.6 40.4l3.6 0.8M78.9 38.4l3.6 0.8" fill="none" stroke="${c.gold}" stroke-width="1.4"/>`;
+    s += (FOCUS[ctx.school] || FOCUS.glamour)(ctx, c, sc, gl);
+    return s;
+  };
+  // behind the body: the aura (rank 2+), a turning rune ring (4+), rays (5) — clipped to the frame
+  const magusAura = (ctx, g) => {
+    const r = g.magus.rank, sc = ctx.schoolCol || '#9b6ad3', gl = schoolGlow(ctx), A = anat(ctx).head;
+    if (r < 2) return '';
+    const id = ctx.id + 'ma';
+    ctx._gd = (ctx._gd || '') + `<radialGradient id="${id}" cx="${n(A.cx)}" cy="${n(A.cy)}" r="${n(26 + r * 6)}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="${gl}" stop-opacity="${n(0.2 + r * 0.06)}"/><stop offset=".42" stop-color="${gl}" stop-opacity="${n(0.3 + r * 0.08)}"/><stop offset=".72" stop-color="${sc}" stop-opacity="${n(0.16 + r * 0.06)}"/><stop offset="1" stop-color="${sc}" stop-opacity="0"/></radialGradient>`
+      + `<clipPath id="${ctx.id}mc"><rect x="5" y="5" width="90" height="90" rx="12"/></clipPath>`;
+    let s = `<rect x="5" y="5" width="90" height="90" fill="url(#${id})" stroke="none"/>`;
+    if (r >= 5) { let d = ''; for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2 + 0.13, a1 = a - 0.07, a2 = a + 0.07; d += `M${n(A.cx)} ${n(A.cy)}L${n(A.cx + Math.cos(a1) * 70)} ${n(A.cy + Math.sin(a1) * 70)}L${n(A.cx + Math.cos(a2) * 70)} ${n(A.cy + Math.sin(a2) * 70)}Z`; } s += `<path d="${d}" fill="${gl}" stroke="none" opacity=".16"/>`; }
+    if (r >= 4) {
+      const R = A.ry * 1.62;
+      s += `<circle cx="${n(A.cx)}" cy="${n(A.cy)}" r="${n(R)}" fill="none" stroke="${gl}" stroke-width="1.2" opacity=".75"/><circle cx="${n(A.cx)}" cy="${n(A.cy)}" r="${n(R - 3.4)}" fill="none" stroke="${sc}" stroke-width="0.8" stroke-dasharray="2.6 1.6" opacity=".7"/>`;
+      let d = ''; for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2 - Math.PI / 2 + 0.2, x = A.cx + Math.cos(a) * (R - 1.7), y = A.cy + Math.sin(a) * (R - 1.7); d += i % 2 ? `M${n(x - 1)} ${n(y)}h2` : `M${n(x)} ${n(y - 1.6)}l1.1 1.6l-1.1 1.6l-1.1 -1.6Z`; }
+      s += `<path d="${d}" fill="${gl}" stroke="${gl}" stroke-width="0.8"/>`;
+    }
+    return `<g clip-path="url(#${ctx.id}mc)">${s}</g>`;
+  };
+  // the people's mantle and the school's stole, with era finery
+  const magusRobe = (ctx, c, g) => {
+    const a = anat(ctx), y = a.sh.y, nx = a.neck.x, L0 = a.sh.left, R0 = a.sh.right, e = g.era, sc = ctx.schoolCol || '#9b6ad3', gl = schoolGlow(ctx), race = ctx.race;
+    let s = '';
+    // the people's mantle
+    if (race === 'hearth') s += P(`M${n(L0 + 2)} ${n(y + 10)}Q${n(L0 + 3)} ${n(y - 6)} ${n(nx - 10)} ${n(y - 9)}Q${n(nx)} ${n(y - 3)} ${n(nx + 10)} ${n(y - 9)}Q${n(R0 - 3)} ${n(y - 6)} ${n(R0 - 2)} ${n(y + 10)}Q${n(nx)} ${n(y + 4)} ${n(L0 + 2)} ${n(y + 10)}Z`, grad(ctx, mix(c.realm, '#6a5a44', 0.45), 0.2), ' stroke-width="1.6"');
+    else if (race === 'delver') for (const d of [-1, 1]) s += `<path d="M${n(nx + d * 9)} ${n(y - 8)}L${n(nx + d * 22)} ${n(y + 24)}" fill="none" stroke-width="5"/><path d="M${n(nx + d * 9)} ${n(y - 8)}L${n(nx + d * 22)} ${n(y + 24)}" fill="none" stroke="${c.leather}" stroke-width="3"/>` + P(`M${n(nx + d * 13)} ${n(y + 1)}l${n(d * 5)} -1.2l1.4 5.4l${n(-d * 5)} 1.2Z`, '#8e8a82', ' stroke-width="1"') + `<path d="M${n(nx + d * 15.6)} ${n(y + 1.6)}v4" fill="none" stroke="${gl}" stroke-width="1"/>`;
+    else if (race === 'sylvan') for (let i = 0; i < 9; i++) { const d = i < 4.5 ? -1 : 1, k = i < 4.5 ? i : i - 4.5; s += leaf(nx + d * (8 + k * 4.4), y - 6 + k * 2.2, 9, 2.8, d * (100 + k * 10), k % 2 ? '#5e9a3a' : '#7fb24a'); }
+    else if (race === 'ash') { s += P(`M${n(L0 + 1)} ${n(y + 4)}Q${n(L0 + 4)} ${n(y - 7)} ${n(nx - 10)} ${n(y - 8)}L${n(nx - 8)} ${n(y - 2)}Q${n(L0 + 10)} ${n(y)} ${n(L0 + 1)} ${n(y + 4)}ZM${n(R0 - 1)} ${n(y + 4)}Q${n(R0 - 4)} ${n(y - 7)} ${n(nx + 10)} ${n(y - 8)}L${n(nx + 8)} ${n(y - 2)}Q${n(R0 - 10)} ${n(y)} ${n(R0 - 1)} ${n(y + 4)}Z`, '#7d6a58', ' stroke-width="1.4"'); for (let i = -4; i <= 4; i++) s += E(nx + i * 2.6, y - 2 + Math.abs(i) * -0.9 + 4, 1.1, 1.5, i % 2 ? (c.bone || '#e6dcc3') : '#b3261e', ' stroke-width="0.6"'); }
+    else if (race === 'tide') { for (const d of [-1, 1]) { const cx = d < 0 ? L0 + 9 : R0 - 9; s += P(`M${n(cx - 9)} ${n(y + 6)}Q${n(cx)} ${n(y - 10)} ${n(cx + 9)} ${n(y + 6)}Z`, grad(ctx, c.shell || '#efd6c4', 0.15), ' stroke-width="1.4"'); for (let k = -2; k <= 2; k++) s += `<path d="M${n(cx)} ${n(y + 5)}L${n(cx + k * 3.6)} ${n(y - 3 + Math.abs(k))}" fill="none" stroke="${c.coral || '#e0705a'}" stroke-width="0.8"/>`; } s += `<path d="M${n(nx - 12)} ${n(y - 6)}Q${n(nx)} ${n(y + 8)} ${n(nx + 12)} ${n(y - 6)}" fill="none" stroke="#fbf6ea" stroke-width="2.2" stroke-dasharray="0.1 2.6"/>`; }
+    else if (race === 'veil') s += P(`M${n(nx - 7)} ${n(y - 9)}Q${n(nx - 20)} ${n(y - 22)} ${n(nx - 17)} ${n(y - 34)}Q${n(nx - 12)} ${n(y - 22)} ${n(nx)} ${n(y - 12)}Q${n(nx + 12)} ${n(y - 22)} ${n(nx + 17)} ${n(y - 34)}Q${n(nx + 20)} ${n(y - 22)} ${n(nx + 7)} ${n(y - 9)}Z`, grad(ctx, mix(sc, '#f4f0ff', 0.55), 0.2), ' stroke-width="1.3" opacity=".92"');
+    else if (race === 'grave') { s += P(`M${n(L0 + 1)} ${n(y + 12)}Q${n(L0 + 2)} ${n(y - 7)} ${n(nx - 9)} ${n(y - 9)}Q${n(nx)} ${n(y - 3)} ${n(nx + 9)} ${n(y - 9)}Q${n(R0 - 2)} ${n(y - 7)} ${n(R0 - 1)} ${n(y + 12)}L${n(R0 - 5)} ${n(y + 8)}L${n(R0 - 9)} ${n(y + 13)}L${n(R0 - 13)} ${n(y + 7)}L${n(nx + 8)} ${n(y + 4)}Q${n(nx)} ${n(y + 7)} ${n(nx - 8)} ${n(y + 4)}L${n(L0 + 13)} ${n(y + 7)}L${n(L0 + 9)} ${n(y + 13)}L${n(L0 + 5)} ${n(y + 8)}Z`, grad(ctx, '#3a3c40', 0.2), ' stroke-width="1.4"'); s += `<path d="M${n(nx - 6)} ${n(y + 2)}h12M${n(nx - 5)} ${n(y + 5)}h10" fill="none" stroke="${c.bone}" stroke-width="1.6"/>`; }
+    else if (race === 'wind') for (let i = 0; i < 10; i++) { const d = i < 5 ? -1 : 1, k = i % 5; s += leaf(nx + d * (8 + k * 4.4), y - 7 + k * 2.4, 11, 2.6, d * (115 + k * 9), k % 2 ? (c.feather || '#f3efe4') : mix(sc, '#f3efe4', 0.4)); }
+    // the stole in the school's colour: undyed and rope-belted (era 0), dyed (1), embroidered glyphs (2), gold and glowing (3)
+    const stole = e === 0 ? mix(sc, '#8a7a62', 0.55) : sc;
+    const band = dx => `M${n(nx + dx * 6)} ${n(y - 8)}Q${n(nx + dx * 10)} ${n(y + 6)} ${n(nx + dx * 9)} 100H${n(nx + dx * 15)}Q${n(nx + dx * 16)} ${n(y + 4)} ${n(nx + dx * 12)} ${n(y - 9)}Z`;
+    s += P(band(-1), grad(ctx, stole, 0.25)) + P(band(1), grad(ctx, stole, 0.25));
+    if (e === 0) s += `<path d="M${n(nx - 16)} ${n(y + 16)}Q${n(nx)} ${n(y + 20)} ${n(nx + 16)} ${n(y + 16)}M${n(nx - 3)} ${n(y + 19)}l-2 7M${n(nx - 1)} ${n(y + 19)}l1 6" fill="none" stroke="#c8b48a" stroke-width="1.8"/>`;
+    if (e >= 1) for (const dx of [-1, 1]) for (const k of e >= 2 ? [0, 1] : [0]) s += sGlyph(ctx, ctx.school, nx + dx * 11.3, y + 10 + k * 9, 0.42, e === 3 ? gl : mix(sc, '#fffaf0', 0.65), 0.5);
+    if (e >= 2) s += `<path d="M${n(nx - 13.6)} ${n(y + 2)}V97M${n(nx + 13.6)} ${n(y + 2)}V97" fill="none" stroke="${e === 3 ? c.gold : mix(sc, '#fffaf0', 0.5)}" stroke-width="1" stroke-dasharray="${e === 3 ? '3 1.5' : '1.5 1.5'}"/>`;
+    if (e === 3) s += P(`M${n(nx - 12)} ${n(y - 9)}Q${n(nx)} ${n(y - 1)} ${n(nx + 12)} ${n(y - 9)}L${n(nx + 14)} ${n(y - 13)}Q${n(nx)} ${n(y - 4)} ${n(nx - 14)} ${n(y - 13)}Z`, c.gold, ' stroke-width="1.2"');
+    // a clasp: wood toggle (0), bronze (1), silver (2), a jewel in the school's colour (3); archmagi wear a medallion
+    const cy = y + 3;
+    if (g.magus.rank >= 5) s += `<path d="M${n(nx - 9)} ${n(y - 6)}Q${n(nx)} ${n(y + 12)} ${n(nx + 9)} ${n(y - 6)}" fill="none" stroke="${c.gold}" stroke-width="1.4" stroke-dasharray="2 1"/>` + C(nx, y + 9, 4.2, c.gold, ' stroke-width="1.2"') + sGlyph(ctx, ctx.school, nx, y + 9, 0.55, sc, 0.6);
+    else s += e === 3 ? C(nx, cy, 3.4, gg(ctx, sc), NS) + P(`M${n(nx)} ${n(cy - 2.6)}l2 2.6l-2 2.6l-2 -2.6Z`, gl, ' stroke-width="0.9"') : C(nx, cy, 2.2, e === 0 ? '#8a6a44' : e === 1 ? '#c08a4a' : '#d8dce4', ' stroke-width="1"');
+    return s;
+  };
+  // in front: glowing eyes (rank 4+) and the school's motes drifting round the magus (rank 3+)
+  const MOTES = [[16, 22], [24, 14], [14, 40], [27, 30], [12, 58], [64, 12], [30, 50]];
+  const magusFront = (ctx, g) => {
+    const r = g.magus.rank, sc = ctx.schoolCol || '#9b6ad3', gl = schoolGlow(ctx), sch = ctx.school;
+    let s = '';
+    if (r >= 4) { // eyes alight with the school's colour (positions as the face layer draws them)
+      const A = ctx.anat, H = A.head, lk = ctx.look || {}, ex = H.cx + 1, ey = A.brow + (ctx.race === 'delver' ? 4.5 : 4), es = H.rx * (ctx.race === 'veil' ? 0.44 : 0.4) + (lk.gap || 0) * 0.6;
+      const eg = gg(ctx, gl);
+      for (const d of [-1, 1]) { if (lk.patch && d === 1) continue; const x = ex + d * es; s += C(x, ey, r >= 5 ? 4.4 : 3.4, eg, ' stroke="none" opacity=".9"') + C(x, ey, 0.9, '#fff', NS); }
+    }
+    if (r >= 3) {
+      const rr = PORTRAIT.prng(PORTRAIT.hash(String(ctx.spec.seed ?? '') + ':' + sch + ':motes'));
+      const k = r >= 5 ? 6 : r >= 4 ? 5 : 4;
+      for (let i = 0; i < k; i++) {
+        const [x0, y0] = MOTES[i], x = x0 + (rr() - 0.5) * 5, y = y0 + (rr() - 0.5) * 5, sz = 0.85 + rr() * 0.5;
+        if (sch === 'songroot') s += leaf(x, y + 3, 6 * sz, 2 * sz, rr() * 360, i % 2 ? '#7fb24a' : '#5e9a3a');
+        else if (sch === 'bloodember' || sch === 'necromancy' || sch === 'tidestorm') {
+          const col = sch === 'bloodember' ? (i % 2 ? '#f2c040' : '#e0632a') : sch === 'necromancy' ? gl : mix(sc, '#ffffff', 0.55);
+          s += C(x, y, 3 * sz, gg(ctx, col), ' stroke="none" opacity=".75"') + (sch === 'tidestorm' ? P(`M${n(x)} ${n(y - 2.4 * sz)}Q${n(x + 1.8 * sz)} ${n(y + 0.4)} ${n(x)} ${n(y + 1.6 * sz)}Q${n(x - 1.8 * sz)} ${n(y + 0.4)} ${n(x)} ${n(y - 2.4 * sz)}Z`, col, ' stroke-width="0.6"') : C(x, y, 1 * sz, col, sch === 'necromancy' ? ' stroke-width="0.5"' : NS));
+        } else s += C(x, y, 3.2 * sz, gg(ctx, sc), ' stroke="none" opacity=".55"') + sGlyph(ctx, sch, x, y, 0.32 * sz, gl, 0.4);
+      }
+    }
+    return s;
+  };
+  // mage units: the people's school on their robes too (its glyphs on the stole from era 1)
+  const mageUnitExtras = (ctx, g) => {
+    const sc = ctx.schoolCol || '#9b6ad3', gl = schoolGlow(ctx), a = anat(ctx), y = a.sh.y, nx = a.neck.x;
+    let s = '';
+    if (g.era >= 1) for (const dx of [-1, 1]) s += sGlyph(ctx, ctx.school, nx + dx * 11.3, y + 12, 0.4, g.era === 3 ? gl : mix(sc, '#fffaf0', 0.6), 0.5);
+    return s;
+  };
+
+  // =====================================================================
   //  LAYERS
   // =====================================================================
   PORTRAIT.layers.frameBack.push(ctx => {
@@ -1093,6 +1261,7 @@
     if (g.whole) return '';
     const c = colorsOf(ctx);
     let s = '';
+    if (g.magus) s += magusAura(ctx, g);
     if (g.wings) s += wingsBack(ctx, c, g.wings);
     if (g.quiver) s += quiverBack(ctx, c);
     return flush(ctx, s);
@@ -1115,8 +1284,9 @@
     // worn things sit under the head layer (beards and chins fall over the armour), the beast over them
     let s = '';
     if (g.mantle) s += mantle(ctx, c);
-    if (g.armour && g.kind !== 'citizen') s += armour(ctx, c, g);
-    else if (ctx.role === 'mage' || g.weapon === 'staff' || (g.kind === 'advisor' && ctx.spec.role === 'priest')) s += robe(ctx, c, g);
+    if (g.magus) s += magusRobe(ctx, c, g);
+    else if (g.armour && g.kind !== 'citizen') s += armour(ctx, c, g);
+    else if (ctx.role === 'mage' || g.weapon === 'staff' || (g.kind === 'advisor' && ctx.spec.role === 'priest')) s += robe(ctx, c, g) + (g.kind === 'unit' && ctx.role === 'mage' ? mageUnitExtras(ctx, g) : '');
     return flush(ctx, s);
   });
   PORTRAIT.layers.headgear.push(ctx => {
@@ -1155,6 +1325,7 @@
     const g = plan(ctx), sp = ctx.spec;
     let s = '';
     const w = +sp.wounded || 0;
+    if (g.magus) s += magusFront(ctx, g);
     if (w > 0 && !g.whole) {
       const A = anat(ctx).head, q = Q(A);
       if (ctx.hideHair) s += `<g${T(A.cx + A.rx * 0.55, A.cy + A.ry * 0.35, 20)}><path d="M-4 -1.3H4V1.3H-4ZM-1.3 -4H1.3V4H-1.3Z" fill="#efe6d2" stroke-width="1"/></g>`;
@@ -1165,5 +1336,5 @@
   });
   PORTRAIT.layers.frame.push(frameLayer);
 
-  PORTRAIT.gear = { HEADGEAR, HERO_HELM, MAGE_HELM, WEAPONS, HERO_WEAPON, MOUNTS, MONSTERS, MONSTER_UNITS, HELM, WDRAW, SHIELDS, BEAST, plan, guessMount };
+  PORTRAIT.gear = { HEADGEAR, HERO_HELM, MAGE_HELM, MAGUS_HELM, FOCUS, SGLYPH, WEAPONS, HERO_WEAPON, MOUNTS, MONSTERS, MONSTER_UNITS, HELM, WDRAW, SHIELDS, BEAST, plan, guessMount };
 })();

@@ -918,27 +918,69 @@
     return H + 12;
   });
 
-  // ------------------------------------------------- magetower: storm spire with a lightning rod and a stormglass heart
+  // ------------------------------------------------- magetower: the stormcatcher (a floating stormglass crystal)
   def('magetower', ([x, y, w, d], L, band) => {
-    const cx = x + w / 2, cy = y + d / 2, H = 40 + band * 10 + Math.min(20, L);
-    const col = ERA >= 2 ? stoneC() : wallC();
-    A.cyl(cx, cy, 0.42, 0, 4, A.mix(A.STY.stone, ROCK, 0.4));
-    // slender tapering shaft with copper coil
-    const [x0, y0] = A.P(cx, cy, 4), rx = 0.3 * A.SQ2 * A.HW;
-    A.c.beginPath(); A.c.moveTo(x0 - rx, y0); A.c.lineTo(x0 - rx * 0.6, y0 - H * 0.8); A.c.lineTo(x0 + rx * 0.6, y0 - H * 0.8); A.c.lineTo(x0 + rx, y0); A.c.closePath(); A.gradFill(x0 - rx, x0 + rx, col);
-    A.twistLines(cx, cy, 6, H * 0.8, 0.24, '#c87a3a', 2.5 + band * 0.5, 0.7);
-    for (let v = 12; v < H * 0.75; v += 11) { A.lamp([[x0 - 1, y0 - v], [x0 + 1, y0 - v], [x0 + 1, y0 - v - 4], [x0 - 1, y0 - v - 4]], STORM_D, STORM_N); }
-    // open lantern-cage at the top holding the stormglass
-    const gz = H * 0.8 + 4;
-    A.cyl(cx, cy, 0.34, gz - 2, 2, woodC());
-    const [gx, gy] = A.P(cx, cy, gz);
-    for (const dx of [-6, -2, 2, 6]) A.line([gx + dx, gy], [gx + dx * 0.6, gy - 12], '#4a3a2a', 0.8);
-    storm(gx, gy - 6, 3 + band * 0.4);
-    A.cone(cx, cy, 0.3, gz + 12, 8, roofC());
-    const [rx2, ry2] = A.P(cx, cy, gz + 20); A.line([rx2, ry2 + 2], [rx2, ry2 - 10], '#c87a3a', 1.2); A.circ(rx2, ry2 - 10, 1.2, '#e0b440');
-    A.rec('magic', { x: gx, y: gy - 6, r: 6 + band * 2, n: 3 + band * 2, col: 'rgba(150,210,255,A)', seed: RN(), bolt: band >= 1 || ERA >= 2 });
-    if (band >= 2) perchArm(cx + 0.2, cy + 0.2, H * 0.5, 0.35, 0.1, true);
-    return gz + 32;
+    // the stormcatcher: a kite-mast flying a stormglass shard (1-4) → a lattice tower with a crystal floating
+    // free over its crown between copper rods (5-9) → copper rings turning round a bigger crystal, a storm cloud
+    // gathering and bolts crackling (10-14) → a whole crag of rock hovering over the tower, the great crystal
+    // hanging beneath it, rings and lightning all round (15+). Wood → stone → copper → white-and-gilt by era.
+    const M = CITYART.mage, cx = x + w / 2, cy = y + d / 2, k = Math.max(0, L - [1, 5, 10, 15][band]), c = A.c;
+    const COPPER = ERA >= 3 ? '#e0b440' : '#c87a3a', CRYS = '#8ac8f0';
+    const bigCrystal = (gx, gy, z, h, r) => { // a double-pointed stormglass crystal (upper point and a lower one)
+      const [bx, by] = A.P(gx, gy, z), rx = r * A.SQ2 * A.HW;
+      A.lamp([[bx - rx, by], [bx, by + h * 0.55], [bx, by + rx * 0.5]], A.shade(CRYS, -0.25), '#a8dcff');
+      A.lamp([[bx, by + rx * 0.5], [bx, by + h * 0.55], [bx + rx, by]], A.shade(CRYS, -0.4), '#8ccaff');
+      A.lamp([[bx - rx, by], [bx, by - h], [bx, by + rx * 0.5]], A.shade(CRYS, 0.25), '#e8f6ff');
+      A.lamp([[bx, by + rx * 0.5], [bx, by - h], [bx + rx, by]], A.shade(CRYS, -0.05), '#c8ecff');
+      A.poly([[bx - rx, by], [bx, by - h], [bx + rx, by], [bx, by + h * 0.55]], null, 'rgba(30,60,90,0.6)', 0.7);
+      if (!A.GLOW) A.line([bx - rx * 0.45, by - h * 0.3], [bx, by - h * 0.85], 'rgba(255,255,255,0.8)', 0.8);
+      M.pulse(A, bx, by - h * 0.2, 10 + h * 0.6, '#bfe6ff', 1.7);
+      return [bx, by - h * 0.2];
+    };
+    const rings = (gx, gy, z, r) => { const [ox, oy, rx, ry] = A.ell(gx, gy, z, r); for (const [kk, tilt] of [[1, 0.25], [0.8, -0.3]]) { c.beginPath(); c.ellipse(ox, oy, rx * kk, ry * kk * 1.5, tilt, 0, A.TAU); c.strokeStyle = A.GLOW ? '#ffd890' : COPPER; c.lineWidth = 1.1; c.stroke(); } };
+    if (band >= 2) M.groundCircle(A, cx, cy, 0.66, 'rgba(70,130,190,0.5)', STORM_N, 12);
+    A.cyl(cx, cy, 0.44, 0, 4, A.mix(A.STY.stone, ROCK, 0.4));
+    let top, orb;
+    if (band === 0) { // a kite-mast: a tall pole, guy-ropes, a windsock and a stormglass shard at the top
+      const h = 34 + k * 2, [bx, by] = A.P(cx, cy, 4);
+      for (const [dx, dy] of [[-0.4, 0.3], [0.35, 0.35], [0.3, -0.4]]) { const g = A.P(cx + dx, cy + dy); A.line(g, [bx, by - h * 0.7], '#8a7a5a', 0.6); }
+      A.line([bx, by], [bx, by - h], woodC(), 2); A.line([bx, by - h * 0.62], [bx + 8, by - h * 0.62 + 2], woodC(), 1.2);
+      A.rec('flags', { x: bx + 8, y: by - h * 0.62 + 2, col: A.STY.flag, len: 9, seed: RN() });
+      A.crystal(cx, cy, h + 2, 9, 0.07, CRYS); M.pulse(A, bx, by - h - 5, 10, '#bfe6ff', 2);
+      orb = [bx, by - h - 6]; top = h + 14;
+    } else {
+      const H = [0, 30, 40, 46][band] + Math.min(8, k * 1.5), s0 = 0.3, s1 = 0.2;
+      // the lattice tower: four legs with cross-braces (stone shaft at 10+)
+      if (ERA >= 1 || band >= 2) M.taper(A, cx, cy, s0, s1, 4, H, ERA >= 2 ? stoneC() : wallC(), A.shade(ERA >= 2 ? stoneC() : wallC(), -0.18));
+      const legs = [[-1, 1], [1, 1], [1, -1], [-1, -1]].map(([sx, sy]) => [A.P(cx + sx * s0, cy + sy * s0, 4), A.P(cx + sx * s1, cy + sy * s1, 4 + H)]);
+      for (const [i, [a, b]] of legs.entries()) { if (i === 3 && (ERA >= 1 || band >= 2)) continue; A.line(a, b, ERA >= 1 ? A.shade(woodC(), -0.2) : woodC(), 1.6); }
+      for (let q = 1; q < 4; q++) { const t = q / 4, l = legs.map(([a, b]) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); A.line(l[0], l[1], woodC(), 0.9); A.line(l[1], l[2], woodC(), 0.9); }
+      for (let v = 10; v < H - 4; v += 10) { const [wx, wy] = A.P(cx, cy + s0 - (s0 - s1) * v / H, 4 + v); A.lamp([[wx - 1, wy], [wx + 1, wy], [wx + 1, wy - 4], [wx - 1, wy - 4]], STORM_D, STORM_N); }
+      const zt = 4 + H;
+      A.cyl(cx, cy, s1 + 0.08, zt, 2, woodC());
+      // copper lightning rods at the crown
+      for (const [dx, dy] of [[-s1, s1], [s1, -s1], [s1, s1]]) { const a = A.P(cx + dx, cy + dy, zt + 2); A.line(a, [a[0], a[1] - 14 - band * 2], COPPER, 1.2); A.circ(a[0], a[1] - 14 - band * 2, 1, COPPER, null); }
+      if (band <= 2) { // the crystal floats free over the crown
+        const gap = 10 + band * 2, h = 14 + band * 4;
+        const [hx, hy] = A.P(cx, cy, zt + 2); c.beginPath(); c.ellipse(hx, hy - 1, 6, 2.4, 0, 0, A.TAU); c.strokeStyle = A.GLOW ? STORM_N : 'rgba(110,170,220,0.6)'; c.lineWidth = 0.8; c.stroke();
+        orb = bigCrystal(cx, cy, zt + 2 + gap, h, 0.1 + band * 0.02);
+        if (band === 2) { rings(cx, cy, zt + gap + 2, 0.32); M.ring(A, cx, cy, zt + gap + 2, 0.3, '#bfe6ff', 5, 1.0); M.cloud(A, orb[0], orb[1] - h - 12, 1, 'rgba(110,120,140,0.55)'); }
+        top = zt + 2 + gap + h + (band === 2 ? 22 : 6);
+      } else { // a crag hovering over the tower, the great crystal hung beneath it
+        const iz = zt + 40 + k, [ix, iy, irx, iry] = A.ell(cx, cy, iz, 0.62);
+        orb = bigCrystal(cx, cy, zt + 16, 20, 0.15);
+        rings(cx, cy, zt + 16, 0.4); M.ring(A, cx, cy, zt + 16, 0.38, '#bfe6ff', 6, 1.1);
+        c.beginPath(); c.moveTo(ix - irx, iy); c.lineTo(ix - irx * 0.4, iy + 14); c.lineTo(ix + irx * 0.1, iy + 22); c.lineTo(ix + irx * 0.5, iy + 12); c.lineTo(ix + irx, iy); c.ellipse(ix, iy, irx, iry, 0, 0, Math.PI, true); c.closePath(); A.gradFill(ix - irx, ix + irx, ROCK);
+        c.beginPath(); c.ellipse(ix, iy, irx, iry, 0, 0, A.TAU); c.fillStyle = A.F(X.snow ? '#eef2f4' : '#7aa05a'); c.fill(); c.strokeStyle = A.F(A.OUT); c.lineWidth = 0.8; c.stroke();
+        A.line([ix + irx * 0.1, iy + 20], [orb[0], orb[1] - 18], COPPER, 0.8);
+        const hz = A.P(cx - 0.12, cy - 0.05, iz); A.line([hz[0], hz[1]], [hz[0], hz[1] - 12], woodC(), 1); A.cone(cx - 0.12, cy - 0.05, 0.12, iz + 6, 7, roofC()); A.box(cx - 0.2, cy - 0.12, 0.16, 0.14, iz, 6, wallC());
+        M.cloud(A, ix + 10, iy - 22, 1.2, 'rgba(110,120,140,0.55)');
+        top = iz + 30;
+      }
+    }
+    A.rec('magic', { x: orb[0], y: orb[1], r: 7 + band * 3 + Math.min(6, L / 3), n: 3 + band * 2, col: 'rgba(150,210,255,A)', seed: RN(), bolt: band >= 2 || ERA >= 2 });
+    A.rec('lights', { x: orb[0], y: orb[1], r: 26 + band * 8, col: 'storm' });
+    return { top, noDress: ['stock'], hit: [[x + 0.2, y + 0.2, w - 0.4, d - 0.4, top]] };
   });
 
   // ------------------------------------------------- hideout: a weathered lookout under a rock overhang

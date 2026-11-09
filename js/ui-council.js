@@ -32,6 +32,7 @@
   .cn-gov input[type=number]{width:80px}
   .cn-gov label{display:inline-flex;gap:4px;align-items:center;font-size:12.5px}
   .cn-gov .cn-status{flex:1 1 100%;font-size:12px}
+  .cn-realm{color:var(--good)}
   .cn-log{flex:1 1 100%;font-size:12px;margin:0;padding-left:18px}
   .cn-cityrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:6px;font-size:12.5px}
   .cn-cityrow select{max-width:170px}
@@ -70,7 +71,12 @@
     if (!g || !g.on) return '<span class="muted">You choose every building.</span>';
     const last = g.log && g.log[0];
     const wait = g.wait && c.buildQueue.length < G.buildSlots(c) ? `Waiting: ${esc(g.wait.text)}.` : '';
-    return `<span class="muted">${DATA.govFocus[g.focus].desc}</span> ${wait ? `<span class="warn">${wait}</span>` : ''} ${last ? `<span class="muted">Last: ${esc(last.text)} (${ago(last.t)})</span>` : ''}`;
+    let realm = '';
+    if (g.realm !== false && G.govRealmNotes && G.citiesOf(S, 'p').length > 1) {
+      const notes = G.govRealmNotes(S, c);
+      if (notes.length) realm = `<span class="cn-realm" title="What the governor weighs for the realm">🌐 ${notes.map(n => esc(n[0].toUpperCase() + n.slice(1))).join(' · ')}.</span>`;
+    }
+    return `<span class="muted">${DATA.govFocus[g.focus].desc}</span> ${wait ? `<span class="warn">${wait}</span>` : ''} ${last ? `<span class="muted">Last: ${esc(last.text)} (${ago(last.t)})</span>` : ''}${realm ? '<br>' + realm : ''}`;
   };
   const govSpec = c => ({ race: S.empires.p.race, kind: 'governor', seed: c.id, color: S.empires.p.color, era: G.techEra(S, 'p') });
   const govRow = c => {
@@ -82,6 +88,7 @@
       ${focusSelect(c, g)}
       ${on ? `<label title="The governor never spends gold below this">keep 🪙 <input type="number" min="0" step="100" data-k="gov_res_${c.id}" value="${g.reserve || 0}"></label>` : ''}
       ${on && g.focus === 'military' ? `<label title="Defenders to keep trained here (0 = build only)">garrison <input type="number" min="0" step="5" data-k="gov_troops_${c.id}" value="${g.troops || 0}"></label>` : ''}
+      ${on && G.citiesOf(S, 'p').length > 1 ? `<label title="Think for the realm: lean on supply lines and sister cities instead of building for every local shortfall, raise works for what the realm lacks where the land suits them, and wait for caravans before buying. Off: this city fends for itself."><input type="checkbox" data-k="gov_realm_${c.id}" ${g.realm === false ? '' : 'checked'}> 🌐 think for the realm</label>` : ''}
       ${on && G.lvl(c, 'market') ? `<label title="Sell goods that would spill over; buy what the next building lacks (above the reserve)"><input type="checkbox" data-k="gov_mkt_${c.id}" ${g.market === false ? '' : 'checked'}> market</label>` : ''}
       ${on && g.log && g.log.length ? `<button class="small" data-act="cnLog" data-c="${c.id}">${open ? 'Hide log' : 'Log'}</button>` : ''}
       <div class="cn-status">${govStatus(c, g)}</div>
@@ -186,11 +193,12 @@
   document.addEventListener('change', ev => {
     const k = ev.target.dataset && ev.target.dataset.k;
     if (!S || !k || !k.startsWith('gov_')) return;
-    const m = k.match(/^gov_(focus|res|troops|mkt)_(.+)$/);
+    const m = k.match(/^gov_(focus|res|troops|mkt|realm)_(.+)$/);
     if (!m) return;
-    const cfg = m[1] === 'focus' ? { focus: ev.target.value } : m[1] === 'res' ? { reserve: ev.target.value } : m[1] === 'troops' ? { troops: ev.target.value } : { market: ev.target.checked };
+    const cfg = m[1] === 'focus' ? { focus: ev.target.value } : m[1] === 'res' ? { reserve: ev.target.value } : m[1] === 'troops' ? { troops: ev.target.value } : m[1] === 'realm' ? { realm: ev.target.checked } : { market: ev.target.checked };
     const err = G.setGovernor(S, m[2], cfg);
     if (err) toast(err);
+    else if (m[1] === 'realm') toast(ev.target.checked ? `${S.cities[m[2]].name}'s governor thinks for the realm` : `${S.cities[m[2]].name}'s governor looks after its own city only`);
     else if (m[1] === 'focus') toast(ev.target.value === 'off' ? `${S.cities[m[2]].name} is back in your hands` : `A ${DATA.govFocus[ev.target.value].name} governor takes over ${S.cities[m[2]].name}`);
     delete UI.form[k];
     ev.target.blur(); render(true);

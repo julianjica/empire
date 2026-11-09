@@ -55,9 +55,14 @@
   const LS = (s, owner) => {
     const all = s.logistics = s.logistics || {};
     const o = all[owner] = all[owner] || {};
-    if (o.on === undefined) o.on = false;
-    if (o.relief === undefined) o.relief = true;
     o.goods = o.goods || {};
+    // the player's cities balance each other automatically from the start: the recommended policy
+    // (about ten minutes of everything they use up), switchable off in the Ledger or the city header
+    if (o.on === undefined) {
+      o.on = owner === 'p' && !L.playerOffByDefault;
+      if (o.on) for (const [g, n] of Object.entries(AI_POLICY)) if (!o.goods[g] && DATA.goods[g] && movable(s, owner).includes(g)) o.goods[g] = { on: true, mode: 'min', n, export: null };
+    }
+    if (o.relief === undefined) o.relief = true;
     o.cities = o.cities || {};
     o.excl = o.excl || {};
     o.log = o.log || [];

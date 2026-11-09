@@ -310,17 +310,17 @@
   });
 
   def('cottage', ([x, y, w, d], L, band, ctx) => {
-    const i = ctx.i || 0, cx = x + w * 0.5, cy = y + d * 0.5, v = (i * 7 + 3) % 3;
+    const i = ctx.i || 0, cx = x + w * 0.5, cy = y + d * 0.5, v = (i * 7 + 3) % 3, wet = !!ctx.wet;   // wet: on a pile deck over the water — the home only, no free-standing trees
     if (band === 0) { // a woven bower; every third one a lean-to under a sapling
       const top = bower(cx, cy, 0.36 + (i % 2) * 0.04, 13 + (i % 3));
-      if (v === 2) { trunk(x + w * 0.85, y + d * 0.2, 0.06, 0, 12); crown(x + w * 0.85, y + d * 0.2, 18, 0.28); }
+      if (v === 2 && !wet) { trunk(x + w * 0.85, y + d * 0.2, 0.06, 0, 12); crown(x + w * 0.85, y + d * 0.2, 18, 0.28); }
       if (L >= 3 && i % 2 === 0) { const [lx, ly] = A.P(x + w * 0.2, y + d * 0.92); A.line([lx, ly], [lx, ly - 10], WOOD_D, 1); hang(lx + 3, ly - 6, 1.2); A.line([lx, ly - 10], [lx + 3, ly - 10], WOOD_D, 0.8); }
       return top;
     }
     if (band === 1 || v === 0 && band === 2) { // a living trunk-home under a curled spire
       const r = 0.3 + band * 0.02;
       const top = trunkHall(cx - 0.05, cy - 0.05, r, 13 + band * 2 + (i % 2) * 2, { rh: 19 + (i % 3) * 3, lean: (i % 2 ? -2 : 2), roof: A.mix(roofOf(), ['#3f8a5e', '#86683e', '#5a9a6a'][i % 3], 0.35) });
-      if (v === 1) { trunk(x + w * 0.85, y + d * 0.15, 0.07, 0, 16); crown(x + w * 0.85, y + d * 0.15, 24, 0.3, true); }
+      if (v === 1 && !wet) { trunk(x + w * 0.85, y + d * 0.15, 0.07, 0, 16); crown(x + w * 0.85, y + d * 0.15, 24, 0.3, true); }
       const [lx, ly] = Gp(cx - 0.05, cy - 0.05, -0.4, r + 0.05, 12); A.line([lx, ly], [lx + 4, ly], WOOD_D, 0.8); hang(lx + 4, ly + 4, 1.2);
       return top;
     }
@@ -920,19 +920,29 @@
   // everything is placed through the shore ctx (pt/at/depth), so one drawing fits any edge of the plot
   const swanWhite = () => era() >= 2 ? '#f2efe6' : era() >= 1 ? '#e8dcc0' : '#d8c8a0';
   // a swan-prowed hull lying along the shore normal: bow (neck) toward open water at d0, stern at d1
+  // winter: the water is frozen — a sheet of broken ice round the hull (shared with the stock iced boats' look)
+  function iceRing(sc, u, d0, d1, hw) {
+    const m = (d0 + d1) / 2, r = (d1 - d0) / 2 + 0.3, ring = [];
+    for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2; ring.push(A.P(...sc.pt(m + Math.cos(a) * r, u + Math.sin(a) * (hw + 0.28)))); }
+    A.poly(ring, '#eef5f9', '#a9c2d0', 0.6);
+    if (!A.GLOW) for (const k of [1, 6, 10, 13]) { const p = ring[k], q = A.P(...sc.pt(m + Math.cos(k / 16 * Math.PI * 2) * r * 0.6, u + Math.sin(k / 16 * Math.PI * 2) * (hw + 0.1))); A.line(p, q, '#c4d6e0', 0.5); }
+  }
   function swanBoat(sc, u, d0, d1, o = {}) {
     const big = !!o.big, hw = o.hw || (big ? 0.26 : 0.16), hh = big ? 8 : 5, len = d1 - d0;
-    const col = o.col || (era() >= 1 ? swanWhite() : BARK);
+    if (A.SNOW) { o = Object.assign({}, o, { sail: false }); if (!o.ashore) iceRing(sc, u, d0, d1, hw); }
+    const frost = c0 => A.SNOW ? A.mix(c0, '#b9cad4', 0.4) : c0;
+    const col = frost(o.col || (era() >= 1 ? swanWhite() : BARK));
     const G2 = (dd, du) => sc.pt(dd, u + du);
     // a smooth hull: the bow sweeps up into the neck, a rounded stern
     const nearS = (() => { const p = sc.pt(d0 + len / 2, u + hw), q = sc.pt(d0 + len / 2, u - hw); return p[0] + p[1] > q[0] + q[1] ? 1 : -1; })();
     const gp = (t, sg, z) => A.P(...G2(d0 + len * t, sg * hw), z);
     const bt = A.P(...G2(d0, 0), hh + 2.5), sp = A.P(...G2(d1, 0), hh + 2);
     A.c.beginPath(); A.c.moveTo(bt[0], bt[1]); A.c.bezierCurveTo(...gp(0.25, -nearS, hh + 1), ...gp(0.9, -nearS, hh + 1), sp[0], sp[1]); A.c.bezierCurveTo(...gp(0.9, nearS, hh), ...gp(0.25, nearS, hh), bt[0], bt[1]); A.c.closePath();
-    A.c.fillStyle = A.F(era() >= 1 ? A.shade(WOOD, -0.05) : A.shade(col, -0.2)); A.c.fill(); stroke(snowy(col), 1.6); stroke(A.OUT, 0.4);
+    A.c.fillStyle = A.F(frost(era() >= 1 ? A.shade(WOOD, -0.05) : A.shade(col, -0.2))); A.c.fill(); stroke(snowy(col), 1.6); stroke(A.OUT, 0.4);
     if (!A.GLOW) for (const t of [0.4, 0.65]) A.line(gp(t, -1, hh + 1), gp(t, 1, hh), WOOD_D, 0.8);
     A.c.beginPath(); A.c.moveTo(bt[0], bt[1]); A.c.bezierCurveTo(...gp(0.2, nearS * 1.1, hh - 0.5), ...gp(0.9, nearS * 1.15, hh - 0.5), sp[0], sp[1]); A.c.bezierCurveTo(...gp(0.85, nearS * 0.6, -2.5), ...gp(0.25, nearS * 0.5, -2.5), bt[0], bt[1]); A.c.closePath();
     A.c.fillStyle = A.F(snowy(col)); A.c.fill(); stroke(A.OUT, 0.7);
+    if (A.SNOW) { A.c.beginPath(); A.c.moveTo(bt[0], bt[1]); A.c.bezierCurveTo(...gp(0.2, nearS * 1.1, hh - 0.5), ...gp(0.9, nearS * 1.15, hh - 0.5), sp[0], sp[1]); stroke('#f6fafc', 1.8); }
     // folded wings: feather strokes along the near side
     if (!A.GLOW) for (let k = 1; k <= (big ? 4 : 2); k++) { const t = 0.3 + k * 0.13, p = gp(t, nearS * 0.95, hh - 1.5); A.line(p, [p[0] + 3, p[1] - 1.2], A.shade(col, -0.3), 0.6); }
     if (era() >= 3) { A.c.beginPath(); A.c.moveTo(...gp(0.15, nearS, hh)); A.c.bezierCurveTo(...gp(0.35, nearS * 1.1, hh - 0.7), ...gp(0.75, nearS * 1.1, hh - 0.7), ...gp(0.95, nearS * 0.8, hh + 1)); stroke(GOLD, 0.8); }
@@ -1023,13 +1033,13 @@
       else if (len > 0.9) S.add(...sc.pt(out + 0.4, u + side), () => swanBoat(sc, u + side, out + 0.1, out + Math.min(1.1, len * 0.6), { mast: band >= 1 && i % 2 === 0, sail: band >= 1 && L >= 8 && i % 2 === 0 }));
     });
     // moored at the quay: a little swan skiff drawn up on the shore
-    if (L >= 3) { const u = qa - 0.35, dd = sc.depth(u) - 0.3; if (u > sc.a + 0.4) S.add(...sc.pt(dd, u), () => swanBoat(sc, u, dd - 0.6, dd + 0.15, {})); }
+    if (L >= 3) { const u = qa - 0.35, dd = sc.depth(u) - 0.3; if (u > sc.a + 0.4) S.add(...sc.pt(dd, u), () => swanBoat(sc, u, dd - 0.6, dd + 0.15, { ashore: true })); }
     if (L >= 5) { const cu = u0 + 0.62; S.add(...sc.pt(sc.depth(cu) + 0.6, cu), () => hoistTree(sc, cu, band)); }
     if (L >= 8) { const bu = us[0] - 0.55 > sc.a + 0.5 ? us[0] - 0.55 : us[us.length - 1] + 0.55; S.add(...sc.pt(sc.depth(bu) - 0.2, bu), () => boathouse(sc, bu, 1)); }
     if (L >= 15) { const bu = us[us.length - 1] + 0.55; if (bu < sc.b - 0.5) S.add(...sc.pt(sc.depth(bu) - 0.2, bu), () => boathouse(sc, bu, 1.15)); }
     // a leaf banner at the root of the main jetty and fireflies over the water at night
     S.add(...sc.pt(sc.depth(u0) + 0.55, u0 - 0.38), () => leafBanner(...sc.pt(sc.depth(u0) + 0.55, u0 - 0.38), 20 + band * 3));
-    if (band >= 1) { const [fx, fy] = sc.pt(sc.depth(u0) - 1, u0); fireflies(fx, fy, 10, 24); }
+    if (band >= 1 && !A.SNOW) { const [fx, fy] = sc.pt(sc.depth(u0) - 1, u0); fireflies(fx, fy, 10, 24); }
     const top = S.run();
     return { top: Math.max(top, 24), noDress: true };
   }
@@ -1089,6 +1099,33 @@
       if (A.SEASON === 0 && !A.SNOW) A.circ(tx + 1, ty - 2, 1, '#f7c6d6');
       hang(tx, ty + 6, 1.4, 4);
       return h + 6;
+    }
+    if (!wide && band >= 2) { // the grown postern: two stout trunks on stone feet, a double leaf arch, leaf spires like the towers (band 3)
+      const r = 0.13 + (band - 2) * 0.02, z0 = W.st ? W.base : 0, h = W.top + 9 + (band - 2) * 5;
+      const ua = g0 - r * 0.8, ub = g1 + r * 0.8, lc = leaves();
+      const post = u => { if (W.st) A.cyl(...pt(u), r * 1.45, 0, z0 + 1, W.st, A.shade(W.st, 0.08)); trunk(...pt(u), r, z0, h - z0, { civic: true, noRoots: z0 > 0 }); if (band >= 3) roundWin(...pt(u), r, z0 + (h - z0) * 0.55, 0.8, 1.3); };
+      post(ua);
+      const a = at(g0 - r * 0.3, h - 13), b = at(g1 + r * 0.3, h - 13), apex = at(m, h - 1);
+      curve(a, [apex[0] - 7, apex[1] - 5], apex, bark(true), 4); curve(b, [apex[0] + 7, apex[1] - 5], apex, bark(true), 4);
+      curve(at(g0 - r * 0.3, h - 18), [apex[0] - 4, apex[1] + 3], [apex[0], apex[1] + 5], BARK_D, 1.4); curve(at(g1 + r * 0.3, h - 18), [apex[0] + 4, apex[1] + 3], [apex[0], apex[1] + 5], BARK_D, 1.4);
+      for (let k = 0; k <= 8; k++) { const t = k / 8, p = t < 0.5 ? [a[0] + (apex[0] - a[0]) * t * 2, a[1] + (apex[1] - a[1]) * Math.sqrt(t * 2) - 2] : [apex[0] + (b[0] - apex[0]) * (t - 0.5) * 2, apex[1] + (b[1] - apex[1]) * Math.pow((t - 0.5) * 2, 2) - 2]; A.circ(p[0], p[1] - 2, 3.9 - Math.abs(t - 0.5) * 1.6, lc[k % 2], A.OUT); if (k % 2 === 0) A.circ(p[0] + 1, p[1] - 4.5, 2.2, lc[2]); if (A.SNOW) A.circ(p[0] - 0.6, p[1] - 4, 1.9, '#f2f6f8'); else if (A.SEASON === 0 && k % 3 === 1) A.circ(p[0] + 1.5, p[1] - 3, 0.9, '#f7c6d6'); }
+      if (era() >= 2) A.lampDot(apex[0], apex[1] + 2, 1.6, '#9ad8e8', '#d8f8ff');
+      hang(apex[0], apex[1] + 10, 1.6, 5);
+      post(ub);
+      let top = h + 20;
+      for (const u of [ua, ub]) {
+        const [gx, gy] = pt(u);
+        { const [lx, ly] = Gp(gx, gy, 0.8, r + 0.02, z0 + (h - z0) * 0.35); hang(lx + 1, ly + 3, 1.3, 3); }
+        if (band >= 3) { // a railed lookout deck, a leafy collar and a leaf spire, as on the wall towers
+          deck(gx, gy, r + 0.13, h, r); rail(gx, gy, r + 0.13, h + 2.2, false);
+          trunk(gx, gy, r * 0.8, h + 2.2, 6, { civic: true, noRoots: true });
+          rail(gx, gy, r + 0.13, h + 2.2, true);
+          for (let k = 0; k < 6; k++) { const t = -Math.PI * 0.15 + k / 5 * Math.PI * 1.1, [x2, y2] = Gp(gx, gy, t, r * 1.1, h + 9); A.circ(x2, y2, 2.3, lc[k % 2], A.OUT); }
+          top = Math.max(top, spireRoof(gx, gy, r * 1.35, h + 8, 13 + band * 2));
+        } else { boughs(gx, gy, h, 0.25); top = Math.max(top, crown(gx, gy, h + 4, 0.26) + 4); }
+      }
+      if (band >= 3) { leafBanner(...pt(ub), 10, top - 3); fireflies(...pt(m), h, 14); top += 10; }
+      return top;
     }
     if (band === 1 || !wide) {
       const r = wide ? 0.15 : 0.11, h = W.top + (wide ? 8 : 4);

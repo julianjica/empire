@@ -363,9 +363,10 @@
   const aggregate = emp => {
     const list = trads(emp);
     const hit = CACHE.get(list);
+    // (same test as comparing the signature string length|last id, without building the string on every call)
+    if (hit && hit.len === list.length && hit.last === list[list.length - 1]) return hit;
     const sig = list.length + '|' + list[list.length - 1];
-    if (hit && hit.sig === sig) return hit;
-    const A = { sig, fx: {}, props: {}, season: [{}, {}, {}, {}], seasonHappy: [0, 0, 0, 0], ethos: ethosFrom(list), cers: [] };
+    const A = { sig, len: list.length, last: list[list.length - 1], fx: {}, props: {}, season: [{}, {}, {}, {}], seasonHappy: [0, 0, 0, 0], ethos: ethosFrom(list), cers: [] };
     for (const [p, c] of Object.entries(G.TRAD_PROPS)) A.props[p] = c === 'mul' ? 1 : 0;
     const take = src => {
       for (const [k, v] of Object.entries(src.fx || {})) A.fx[k] = (A.fx[k] || 1) * v;

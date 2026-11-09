@@ -377,3 +377,25 @@
     el.blur(); render(true);
   });
 })();
+
+// Auto-supply switch in the city header: the realm's cities balance each other's shortages by caravan.
+(() => {
+  CITY_EXTRAS.push(city => {
+    if (!city || city.owner !== 'p' || G.citiesOf(S, 'p').length < 2) return '';
+    const o = G.logistics(S, 'p'), carts = G.supplyInTransit(S, 'p');
+    const inbound = carts.filter(m => { const t = G.tileAt(S, m.x, m.y); return t && t.city === city.id; }).length;
+    const out = carts.filter(m => m.from === city.id).length;
+    return `<button class="pill ${o.on ? 'good' : ''}" data-act="autoSupply" title="${o.on ? 'Your cities send each other what they lack by caravan (set targets per good in the 📒 Ledger). Click to stop.' : 'Let your cities cover each other\'s shortages automatically by caravan.'}">🔄 Auto-supply ${o.on ? `on${inbound || out ? ` · ${inbound} coming, ${out} leaving` : ''}` : 'off'}</button>`;
+  });
+  Object.assign(act, {
+    autoSupply: () => {
+      const o = G.logistics(S, 'p');
+      if (o.on) { G.setSupplyRealm(S, 'p', { on: false }); toast('Auto-supply off: your cities keep what they make'); }
+      else {
+        if (!Object.values(o.goods).some(p => p.on)) G.supplyRecommend(S, 'p'); else G.setSupplyRealm(S, 'p', { on: true });
+        toast('🔄 Auto-supply on: surplus goods now travel to the cities that lack them');
+      }
+      render(true);
+    },
+  });
+})();

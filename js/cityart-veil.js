@@ -181,10 +181,20 @@
   const flyMoth = (gx, gy, z) => { const [x, y] = P(gx, gy, z); A.rec('sparks', { x, y, kind: 'fey', seed: A.R() }); };
   // a hanging moth-lantern on a crook post
   function mothPost(gx, gy, h = 13) {
-    const [x, y] = P(gx, gy);
-    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - h); c.quadraticCurveTo(x, y - h - 4, x + 4, y - h - 3); stroke(E.wood2, 1.1);
-    A.lampDot(x + 4, y - h + 1, 1.7, E.accent, E.ng); light(x + 4, y - h + 1, 14);
-    return [x + 4, y - h + 1];
+    const [x, y] = P(gx, gy), post = '#5e4e74', lx = x + 4.5, ly = y - h + 2.5;
+    // a dark twisted post on a pale footing stone, its crook ending in a little caged moth-lantern
+    c.beginPath(); c.ellipse(x, y, 2.4, 1.1, 0, 0, TAU); fill(sn(E.stone)); stroke(A.OUT, 0.5, A.F(A.OUT));
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - h); c.quadraticCurveTo(x, y - h - 4, lx, y - h - 3); stroke(A.OUT, 2.6, A.F(A.OUT)); stroke(post, 1.5);
+    if (!A.GLOW) for (let k = 3; k < h - 2; k += 4) A.line([x - 0.7, y - k], [x + 0.7, y - k - 1.6], A.shade(post, 0.3), 0.5);
+    A.line([lx, y - h - 3], [lx, ly - 3], E.metal, 0.6);
+    if (A.GLOW) { c.beginPath(); c.arc(lx, ly, 5, 0, TAU); c.fillStyle = 'rgba(255,240,200,0.28)'; c.fill(); }
+    c.beginPath(); c.moveTo(lx, ly - 3.6); c.lineTo(lx + 2.2, ly - 1.4); c.lineTo(lx + 1.6, ly + 2.4); c.lineTo(lx - 1.6, ly + 2.4); c.lineTo(lx - 2.2, ly - 1.4); c.closePath();
+    fill(A.mix(E.glass, '#ffffff', 0.15), '#fff0c8'); stroke('#3e3450', 0.7, A.F('#3e3450'));
+    A.lampDot(lx, ly + 0.2, 1.6, '#f6dc8a', '#fff6d0');
+    A.poly([[lx - 2.8, ly - 1.6], [lx, ly - 4.6], [lx + 2.8, ly - 1.6]], sn(E.roof), A.OUT, 0.4);
+    moth(x + 1.2, y - h - 3.4, 0.55);
+    light(lx, ly, 20);
+    return [lx, ly];
   }
   // pale silver-barked tree with a lilac/teal crown
   function paleTree(gx, gy, s = 1) {
@@ -295,7 +305,7 @@
       // a fey ring of bough posts strung with glowing silk garlands round the dais (front half)
       const ring = [];
       for (let j = 0; j < 7; j++) { const a = -0.2 + j / 6 * Math.PI * 0.95; ring.push(P(cx + Math.cos(a) * 1.05, cy + Math.sin(a) * 1.05)); }
-      ring.forEach(([px, py], j) => { if (j === 3) return; A.line([px, py], [px, py - 13], E.wood2, 1.2); A.lampDot(px, py - 14, 1.2, E.accent, E.ng); });
+      ring.forEach(([px, py], j) => { if (j === 3) return; A.line([px, py], [px, py - 13], A.OUT, 2.4); A.line([px, py], [px, py - 13], '#5e4e74', 1.4); A.circ(px, py - 14.5, 2.2, A.mix(E.glass, '#ffffff', 0.15), A.OUT); A.lampDot(px, py - 14.5, 1.5, '#f6dc8a', '#fff6d0'); light(px, py - 14.5, 12); });
       for (let j = 0; j < ring.length - 1; j++) if (j !== 2 && j !== 3) thread([ring[j][0], ring[j][1] - 12], [ring[j + 1][0], ring[j + 1][1] - 12], 4);
       briar([x + 1.75, y + 2.35], [x + 2.35, y + 1.75], 16 + k, {});
       mothPost(x + 0.5, y + 2.0); flyMoth(x + 1.0, y + 2.2, 20);
@@ -349,7 +359,7 @@
 
   // ----- cottages: three kinds of Veilborn home -----
   ART.cottage = ([x, y], L, band, ctx) => {
-    const i = ctx.i || 0, v = i % 3, s = [0.95, 1.05, 1.15, 1.2][band];
+    const i = ctx.i || 0, v = i % 3, wet = !!ctx.wet, s = wet ? [0.95, 1.0, 1.0, 1.0][band] : [0.95, 1.05, 1.15, 1.2][band];   // wet: on a pile deck over the water — no garden shrooms
     const cx = x + s / 2, cy = y + s / 2;
     let top;
     if (v === 0) { // round woven bower
@@ -386,7 +396,7 @@
       if (band >= 1) { const [mx, my] = P(cx + r * 1.4, cy + r * 1.4, h * 0.55); moth(mx, my - 2, 0.8); }
     }
     if (band >= 1 && i % 2 === 0) mothPost(x + s * 0.95, y + s * 0.95, 10);
-    if (i % 4 === 3) tinyShroom(x + 0.08, y + s * 0.85, 0.45);
+    if (i % 4 === 3 && !wet) tinyShroom(x + 0.08, y + s * 0.85, 0.45);
     flyMoth(cx, cy, top + 4);
     return top + 2;
   };
@@ -1083,21 +1093,31 @@
   // ---------------------------------------------------------------
   const glassFill = () => A.GLOW ? 'rgba(150,130,230,0.55)' : 'rgba(214,232,255,0.62)';
   // a crescent-hulled skiff along the shore normal: prow toward open water at d0, stern at d1
+  // winter: the water is frozen — a sheet of broken ice round the hull
+  function iceRing(sc, u, d0, d1, hw) {
+    const m = (d0 + d1) / 2, r = (d1 - d0) / 2 + 0.3, ring = [];
+    for (let k = 0; k < 16; k++) { const a = k / 16 * TAU; ring.push(P(...sc.pt(m + Math.cos(a) * r, u + Math.sin(a) * (hw + 0.28)))); }
+    A.poly(ring, '#eef5f9', '#a9c2d0', 0.6);
+    if (!A.GLOW) for (const k of [1, 6, 10, 13]) { const a = k / 16 * TAU; A.line(ring[k], P(...sc.pt(m + Math.cos(a) * r * 0.6, u + Math.sin(a) * (hw + 0.1))), '#c4d6e0', 0.5); }
+  }
   function moonSkiff(sc, u, d0, d1, o = {}) {
     const big = !!o.big, hw = o.hw || (big ? 0.25 : 0.15), hh = big ? 7.5 : 5, len = d1 - d0;
-    const col = o.col || (era >= 1 ? A.mix(E.metal, '#ffffff', 0.45) : E.wood);
+    if (A.SNOW) { o = Object.assign({}, o, { sail: false }); iceRing(sc, u, d0, d1, hw); }
+    const col = A.SNOW ? A.mix(o.col || (era >= 1 ? A.mix(E.metal, '#ffffff', 0.45) : E.wood), '#b9cad4', 0.4) : o.col || (era >= 1 ? A.mix(E.metal, '#ffffff', 0.45) : E.wood);
     const G2 = (dd, du) => sc.pt(dd, u + du);
     // a smooth crescent hull: both ends sweep up like the horns of the moon
     const m = (d0 + d1) / 2, nearS = (() => { const a = sc.pt(m, u + hw), b = sc.pt(m, u - hw); return a[0] + a[1] > b[0] + b[1] ? 1 : -1; })();
     const horn = big ? 8 : 5.5, bt = P(...G2(d0, 0), hh + horn), st2 = P(...G2(d1, 0), hh + horn * 0.8);
     const gp = (t, sg, z) => P(...G2(d0 + len * t, sg * hw), z);
     c.beginPath(); c.moveTo(bt[0], bt[1]); c.bezierCurveTo(...gp(0.2, -nearS, hh + 1), ...gp(0.8, -nearS, hh + 1), st2[0], st2[1]); c.bezierCurveTo(...gp(0.8, nearS, hh), ...gp(0.2, nearS, hh), bt[0], bt[1]); c.closePath();
-    fill(A.shade(E.wood2, -0.05)); stroke(sn(col), 1.6); stroke(A.OUT, 0.4, A.F(A.OUT));
+    fill(A.SNOW ? A.mix(E.wood2, '#b9cad4', 0.4) : A.shade(E.wood2, -0.05)); stroke(sn(col), 1.6); stroke(A.OUT, 0.4, A.F(A.OUT));
     if (!A.GLOW) for (const t of [0.38, 0.62]) A.line(gp(t, -1, hh + 1), gp(t, 1, hh), A.shade(E.wood2, -0.3), 0.7);
     c.beginPath(); c.moveTo(bt[0], bt[1]); c.bezierCurveTo(...gp(0.18, nearS * 1.1, hh - 0.5), ...gp(0.82, nearS * 1.1, hh - 0.5), st2[0], st2[1]); c.bezierCurveTo(...gp(0.75, nearS * 0.55, -2.5), ...gp(0.25, nearS * 0.55, -2.5), bt[0], bt[1]); c.closePath();
     fill(sn(col)); stroke(A.OUT, 0.7, A.F(A.OUT));
-    // a glowing rune line along the gunwale
-    c.beginPath(); c.moveTo(...gp(0.12, nearS * 0.95, hh + 1.2)); c.bezierCurveTo(...gp(0.3, nearS * 1.1, hh - 1.4), ...gp(0.7, nearS * 1.1, hh - 1.4), ...gp(0.88, nearS * 0.95, hh + 0.8)); stroke(E.accent, 0.9, E.ng);
+    // a glowing rune line along the gunwale (rimed over in winter)
+    c.beginPath(); c.moveTo(...gp(0.12, nearS * 0.95, hh + 1.2)); c.bezierCurveTo(...gp(0.3, nearS * 1.1, hh - 1.4), ...gp(0.7, nearS * 1.1, hh - 1.4), ...gp(0.88, nearS * 0.95, hh + 0.8));
+    if (A.SNOW) { stroke('#f6fafc', 1.8); c.beginPath(); c.moveTo(...gp(0.12, nearS * 0.95, hh + 1.2)); c.bezierCurveTo(...gp(0.3, nearS * 1.1, hh - 1.4), ...gp(0.7, nearS * 1.1, hh - 1.4), ...gp(0.88, nearS * 0.95, hh + 0.8)); }
+    stroke(E.accent, 0.9, E.ng);
     const gun = [[G2(d0, 0), hh + horn]];
     const prow = P(...gun[0][0], gun[0][1]);
     if (era >= 3) A.circ(prow[0], prow[1], 1.2, GOLD);
@@ -1255,7 +1275,7 @@
       if (wide) mothPost(...pt(g0 + 0.1), 19);
       briar(pt(g0), pt(g1), wide ? 30 : 22, { moon: wide, lw: wide ? 3.4 : 2.6 });
       if (wide) mothPost(...pt(g1 - 0.1), 19);
-      else { const t = at(m, 21); A.lampDot(t[0], t[1] + 4, 1.2, E.accent, E.ng); light(t[0], t[1] + 4, 10); }
+      else { const t = at(m, 21); A.line([t[0], t[1]], [t[0], t[1] + 3], E.metal, 0.6); A.circ(t[0], t[1] + 5.4, 2.3, A.mix(E.glass, '#ffffff', 0.15), A.OUT); A.lampDot(t[0], t[1] + 5.4, 1.5, '#f6dc8a', '#fff6d0'); moth(t[0] + 3.2, t[1] + 1.5, 0.5); light(t[0], t[1] + 5.4, 14); }
       return (wide ? 30 : 22) + 8;
     }
     if (band === 1 || !wide) {
@@ -1310,7 +1330,7 @@
     const [lx, ly] = lanternRoom(gx, gy, r * 0.95, zl, lh);
     c.beginPath(); c.ellipse(lx, ly, 7, 7, 0, 0, TAU); c.fillStyle = A.GLOW ? 'rgba(240,232,255,0.85)' : 'rgba(240,232,255,0.4)'; c.fill();
     crescent(lx - 1, ly, 3.4, '#f4f0ff', '#ffffff');
-    A.rec('beams', { x: lx, y: ly });
+    A.rec('beams', { x: lx, y: ly, col: 'violet' });
     light(lx, ly, 44);
     A.cyl(gx, gy, r * 1.15, zl + lh, 1.4, era >= 3 ? GOLD : E.metal);
     const zt = ogee(gx, gy, r * 1.15, zl + lh + 1.4, 16 + band * 2, E.roof);

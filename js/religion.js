@@ -173,7 +173,7 @@
       if (e.faithId === undefined) e.faithId = null;
       e.miracleUses = e.miracleUses || {};
     }
-    for (const c of Object.values(s.cities)) ensureCity(c);
+    for (const c of G.allCities ? G.allCities(s) : Object.values(s.cities)) ensureCity(c);
   };
   G.ensureReligion = ensure;
   const baseFoundCity = G.foundCity;
@@ -236,14 +236,15 @@
   G.holySiteHolder = (s, t) => {
     if (t.oasis) { const c = t.oasis.owner && s.cities[t.oasis.owner]; return c || null; }
     let best = null, bd = 1e9;
-    for (const c of Object.values(s.cities)) {
+    for (const c of G.allCities ? G.allCities(s) : Object.values(s.cities)) {
       const d = G.dist(c, t);
       if (d <= G.cityReach(s, c) + 1.5 && d < bd) { bd = d; best = c; }
     }
     return best;
   };
   G.holySitesOf = (s, owner) => G.holySites(s).filter(t => { const c = G.holySiteHolder(s, t); return c && c.owner === owner; });
-  const holyCity = (s, city) => G.holySites(s).some(t => G.holySiteHolder(s, t) === city);
+  // (a ruin's holder is the nearest city in reach, so a city out of reach of a ruin cannot hold it: skip the full scan then)
+  const holyCity = (s, city) => G.holySites(s).some(t => (t.oasis || G.dist(city, t) <= G.cityReach(s, city) + 1.5) && G.holySiteHolder(s, t) === city);
 
   // -------------------------------------------------------------------
   // Faith points
@@ -680,6 +681,7 @@
   };
   const checkFaithVictory = s => {
     if (s.settings.mode !== 'conquest' || s.victory || s.gameOver) return;
+    if (!(s.time >= R.victoryMinHours * 3600 * G.pace(s).time)) return;     // no faith can win this early (faithProgress' timeOk)
     for (const fid of Object.keys(s.faiths)) {
       const pr = G.faithProgress(s, fid);
       if (!pr.met || !pr.timeOk) continue;

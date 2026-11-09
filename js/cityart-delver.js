@@ -272,8 +272,12 @@
   //  COTTAGE — a burrow-home dug into the slope, stone front, turf/slate/bronze roof
   // =====================================================================
   reg('cottage', ([x, y], L, band, ctx) => {
-    const i = ctx.i || 0, s = sub(L, band), v = i % 3;
-    berm(x + 0.1, y + 0.08, 1.05, 0.85, 11 + band * 5 + (i % 2) * 3);
+    // ctx.wet: a fisher home on a pile deck over the water (slot ~1.1 x 1.0) — no earth berm or yard, a net-float and creel instead
+    const wet = !!ctx.wet;
+    if (wet) { x -= band >= 2 ? 0.12 : 0.1; y -= band >= 2 ? 0.16 : 0.18; }
+    const i = ctx.i || 0, s = wet ? 0 : sub(L, band), v = wet ? -1 : i % 3;
+    if (!wet) berm(x + 0.1, y + 0.08, 1.05, 0.85, 11 + band * 5 + (i % 2) * 3);
+    const fishy = () => { if (!wet) return; A.barrel(x + 0.3, y + 1.06); const [rx, ry] = P(x + 0.95, y + 1.08); A.c.beginPath(); A.c.ellipse(rx, ry - 1, 2.6, 1.3, 0, 0, Math.PI * 2); A.c.strokeStyle = A.F('#b8a880'); A.c.lineWidth = 1.1; A.c.stroke(); circ(rx + 3.5, ry - 2, 1.3, '#c0603a', A.OUT); };
     let top;
     if (band === 0) {
       const b = box(x + 0.3, y + 0.32, 0.8, 0.6, 0, 8, stone(-0.04)); ashlar(b, 3);
@@ -284,6 +288,7 @@
       if (s >= 1) A.barrel(x + 1.18, y + 1.02);
       if (s >= 2) { const [cx, cy] = P(x + 0.2, y + 1.05); circ(cx, cy - 2, 2.6, '#6b4b30', A.OUT); line([cx - 1, cy - 4], [cx + 2, cy - 8], '#4a3a2a', 1); }
       if (s >= 3) { const [lx, ly] = P(x + 0.28, y + 0.95); line([lx, ly], [lx, ly - 11], IRON, 1); A.lantern(lx + 2, ly - 9, 1.2); line([lx, ly - 11], [lx + 2, ly - 11], IRON, 0.8); }
+      fishy();
       return top;
     }
     if (band === 1) {
@@ -292,8 +297,9 @@
       ironDoor(b, 'L', 0.3, 0.24, 7.5); deepWin(b, 'L', 0.68, 3, 0.12, 3.5); deepWin(b, 'R', 0.35, 3, 0.12, 3.5);
       top = slabRoof(b, 8);
       A.chimney(b.x + 0.62, b.y + 0.08, 10 + 2, 9, 'house', '#7a746c');
-      if (v === 0) oreCart(x + 1.15, y + 1.0, s >= 2); else if (v === 1) { A.barrel(x + 1.15, y + 0.98); if (s >= 2) A.barrel(x + 1.2, y + 0.8); } else { cog(...P(x + 1.15, y + 1.0, 4), 3.4, '#5a5450', 7); }
+      if (v === 0) oreCart(x + 1.15, y + 1.0, s >= 2); else if (v === 1) { A.barrel(x + 1.15, y + 0.98); if (s >= 2) A.barrel(x + 1.2, y + 0.8); } else if (v === 2) { cog(...P(x + 1.15, y + 1.0, 4), 3.4, '#5a5450', 7); }
       if (s >= 3) { const [lx, ly] = P(x + 0.22, y + 1.02); line([lx, ly], [lx, ly - 11], IRON, 1); A.lantern(lx + 2, ly - 9, 1.2); line([lx, ly - 11], [lx + 2, ly - 11], IRON, 0.8); }
+      fishy();
       return top;
     }
     // band 2+: terraced into the slope — a front storey and a set-back upper storey; band 3 adds a turret
@@ -305,14 +311,15 @@
     top = slabRoof(up, 7);
     A.chimney(up.x + 0.55, up.y + 0.06, 17, 8, 'house', '#7a746c');
     if (band >= 3) {
-      const tx = x + 1.05, ty = y + 0.35;
+      const tx = x + (wet ? 0.98 : 1.05), ty = y + 0.35;
       A.cyl(tx, ty, 0.17, 0, 21, stone(0.08));
       const [wx, wy] = P(tx + 0.1, ty + 0.12, 13); A.lampDot(wx, wy, 1.3, '#3a3c44', A.nightGlass());
       top = Math.max(top, A.cone(tx, ty, 0.22, 21, 10, roofCol()));
       if (X.era >= 3) { const [gx, gy] = P(tx, ty, 31); circ(gx, gy, 1.4, GOLD, A.OUT); }
     }
-    if (v === 0) oreCart(x + 1.12, y + 1.08, true); else if (v === 1) stoneBanner(x + 1.16, y + 1.05, 12); else { A.barrel(x + 1.12, y + 1.06); A.barrel(x + 1.2, y + 0.88); }
-    if (s >= 2 || band >= 3) { const [lx, ly] = P(x + 0.12, y + 1.08); line([lx, ly], [lx, ly - 12], IRON, 1); A.lantern(lx + 2, ly - 10, 1.2); line([lx, ly - 12], [lx + 2, ly - 12], IRON, 0.8); }
+    if (v === 0) oreCart(x + 1.12, y + 1.08, true); else if (v === 1) stoneBanner(x + 1.16, y + 1.05, 12); else if (v === 2) { A.barrel(x + 1.12, y + 1.06); A.barrel(x + 1.2, y + 0.88); }
+    fishy();
+    if (!wet && (s >= 2 || band >= 3)) { const [lx, ly] = P(x + 0.12, y + 1.08); line([lx, ly], [lx, ly - 12], IRON, 1); A.lantern(lx + 2, ly - 10, 1.2); line([lx, ly - 12], [lx + 2, ly - 12], IRON, 0.8); }
     return top;
   });
 
@@ -1124,8 +1131,15 @@
   function bollard(K, dd, u) { const [x, y] = K.at(dd, u, 3); line([x, y], [x, y - 3], IRON, 2.2); circ(x, y - 3.3, 1.3, IRON, null); }
   // an iron-banded barge with a cargo of ore or cut blocks, a little stern cabin
   function barge(K, ctx, u, d0, d1, cargo, big) {
-    const hw = big ? 0.24 : 0.19, hull = '#5e4a3a';
-    const b = K.lbox(d0, d1, u - hw, u + hw, -1, 5, hull, { top: '#7a6450' });
+    const hw = big ? 0.24 : 0.19, ice = A.SNOW, hull = ice ? A.mix('#5e4a3a', '#b9cad4', 0.4) : '#5e4a3a';
+    if (ice) { // the water is frozen: iced in, a sheet of broken ice round the hull
+      const m = (d0 + d1) / 2, r = (d1 - d0) / 2 + 0.3, ring = [];
+      for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2; ring.push(K.at(m + Math.cos(a) * r, u + Math.sin(a) * (hw + 0.28), 0)); }
+      poly(ring, '#eef5f9', '#a9c2d0', 0.6);
+      if (!A.GLOW) for (const k of [1, 6, 10, 13]) { const a = k / 16 * Math.PI * 2; line(ring[k], K.at(m + Math.cos(a) * r * 0.6, u + Math.sin(a) * (hw + 0.1), 0), '#c4d6e0', 0.5); }
+    }
+    const b = K.lbox(d0, d1, u - hw, u + hw, -1, 5, hull, { top: ice ? '#eef4f8' : '#7a6450' });
+    if (ice) for (const s of [-1, 1]) line(K.at(d0, u + s * hw, 4), K.at(d1, u + s * hw, 4), '#f6fafc', 1.6);   // rime on the gunwales
     for (let k = 1; k < 5; k++) { const dd = d0 + (d1 - d0) * k / 5; line(K.at(dd, u - hw, -1), K.at(dd, u - hw, 4), IRON, 1.1); line(K.at(dd, u + hw, -1), K.at(dd, u + hw, 4), IRON, 1.1); line(K.at(dd, u - hw, 4), K.at(dd, u + hw, 4), IRON, 0.6); }
     line(K.at(d0, u - hw, 3.5), K.at(d1, u - hw, 3.5), X.era >= 2 ? BRONZE : IRON, 0.8); line(K.at(d0, u + hw, 3.5), K.at(d1, u + hw, 3.5), X.era >= 2 ? BRONZE : IRON, 0.8);
     void b;
@@ -1207,7 +1221,7 @@
     for (const f of flat) f();
     items.sort((p, q) => p[0] - q[0]);
     for (const [, f] of items) f();
-    { const [x2, y2] = K.at(Math.max(0.5, dep(u0) * 0.4), u0 + 1.4); A.rec('sparks', { x: x2, y: y2, kind: 'water', rx: 26, ry: 10 }); }
+    if (!A.SNOW) { const [x2, y2] = K.at(Math.max(0.5, dep(u0) * 0.4), u0 + 1.4); A.rec('sparks', { x: x2, y: y2, kind: 'water', rx: 26, ry: 10 }); }
     return { top: 40 + band * 6, noDress: true };
   });
   // the lighthouse: a squat runed stone tower on the rocks, a carved face, a forge-fire brazier in an iron cage

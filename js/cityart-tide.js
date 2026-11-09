@@ -200,8 +200,14 @@
   function boat(gx, gy, len = 0.6, alongX = true, col = '#a86a44', z = 0) {
     const a = alongX ? P(gx - len / 2, gy, z) : P(gx, gy - len / 2, z), b = alongX ? P(gx + len / 2, gy, z) : P(gx, gy + len / 2, z);
     const m = lerp(a, b, 0.5), nx = (b[1] - a[1]) * 0.18, ny = -(b[0] - a[0]) * 0.18;
+    if (A.SNOW) { // the water is frozen: iced in, a ring of broken ice, a frosted hull, rime on the gunwale
+      const rx = Math.hypot(b[0] - a[0], b[1] - a[1]) / 2 + 5;
+      c.beginPath(); c.ellipse(m[0], m[1] + 0.5, rx, rx * 0.4, 0, 0, TAU); fill('#eef5f9'); stroke('#a9c2d0', 0.6);
+      if (!A.GLOW) for (const t of [0.7, 2.2, 3.6, 5.1]) A.line([m[0] + Math.cos(t) * rx, m[1] + 0.5 + Math.sin(t) * rx * 0.4], [m[0] + Math.cos(t) * rx * 0.6, m[1] + 0.5 + Math.sin(t) * rx * 0.24], '#c4d6e0', 0.5);
+      col = A.mix(col, '#b9cad4', 0.4);
+    }
     A.poly([[a[0], a[1] - 2.5], [m[0] - nx * 0.4, m[1] - ny * 0.4 + 1.2], [b[0], b[1] - 2.5], [m[0] + nx * 0.3, m[1] + ny * 0.3 - 2.4]], col);
-    A.line([a[0], a[1] - 2.5], [b[0], b[1] - 2.5], '#f4ece0', 0.7);
+    A.line([a[0], a[1] - 2.5], [b[0], b[1] - 2.5], A.SNOW ? '#f6fafc' : '#f4ece0', A.SNOW ? 1.8 : 0.7);
   }
   // a gull standing on a ridge
   function gull(x, y) { if (A.GLOW) return; A.circ(x, y - 1.5, 1.4, '#fbfbf8', 'rgba(60,60,60,0.5)'); A.line([x + 1.2, y - 1.8], [x + 2.4, y - 1.6], '#e8a03a', 0.7); A.line([x - 1.4, y - 1.4], [x - 2.6, y - 2.2], '#6a6e76', 0.9); }
@@ -249,7 +255,7 @@
     }
     const top = []; for (let i = 0; i <= 10; i++) { const t = i / 10, u = t * len, sh = Math.sin(t * Math.PI); top.push(P2(u, beam * 0.5 * sh, z + hh)); }
     const topB = []; for (let i = 10; i >= 0; i--) { const t = i / 10, u = t * len, sh = Math.sin(t * Math.PI); topB.push(P2(u, -beam * 0.5 * sh, z + hh)); }
-    A.poly(top.concat(topB), A.shade(col, 0.25));
+    A.poly(top.concat(topB), A.SNOW ? '#f2f7fa' : A.shade(col, 0.25));
     const bot = []; for (let i = 0; i <= 10; i++) { const t = i / 10, u = t * len, sh = Math.sin(t * Math.PI); bot.push(P2(u, beam * 0.25 * sh, z + hh - hh * 0.95 * Math.pow(sh, 0.6))); }
     A.poly(top.concat(bot.reverse()), col);
     if (!A.SNOW) for (let k = 1; k < 3; k++) { c.beginPath(); for (let i = 0; i <= 10; i++) { const t = i / 10, sh = Math.sin(t * Math.PI), p = P2(t * len, beam * 0.5 * sh - beam * 0.12 * k * sh, z + hh - hh * 0.3 * k * Math.pow(sh, 0.6)); if (i) c.lineTo(...p); else c.moveTo(...p); } stroke(A.shade(col, -0.3), 0.5); }
@@ -1151,7 +1157,7 @@
     A.line([px, py + 4], [px, py], '#d9b44a', 1.4);
     A.lampDot(px, py - pr, pr, '#f4eef6', '#fff6e0');
     if (!A.GLOW) { A.circ(px - pr * 0.35, py - pr * 1.35, pr * 0.3, '#ffffff'); c.beginPath(); c.arc(px, py - pr, pr, 0, TAU); stroke('rgba(180,150,200,0.7)', 0.7); }
-    A.rec('beams', { x: px, y: py - pr }); A.rec('lights', { x: px, y: py - pr, r: 40 }); A.rec('sparks', { x: px, y: py - pr, kind: 'star' });
+    A.rec('beams', { x: px, y: py - pr, col: 'pearl' }); A.rec('lights', { x: px, y: py - pr, r: 40 }); A.rec('sparks', { x: px, y: py - pr, kind: 'star' });
     A.rock(cx + 0.35, cy + 0.3, 0.9, A.SNOW ? '#d8dcde' : '#9aa49e');
     gulls(px, py - 18, 26, 3);
     return t + 6 + pr * 2;
@@ -1252,9 +1258,10 @@
   function pearlBoat(dd, u, len, col, sail, z = 0) {
     const S = X, [gx, gy] = S.pt(dd, u);
     boat(gx, gy, len, S.edge === 'N' || S.edge === 'S', col, z);
-    if (!A.GLOW) { const [bx, by] = P(gx, gy, z); A.line([bx - 5, by + 1.5], [bx + 5, by + 1.5], 'rgba(255,255,255,0.5)', 0.7); }
+    if (!A.GLOW && !A.SNOW) { const [bx, by] = P(gx, gy, z); A.line([bx - 5, by + 1.5], [bx + 5, by + 1.5], 'rgba(255,255,255,0.5)', 0.7); }
     if (!sail) return z + 4;
     const [mx, my] = S.at(dd, u, z + 1.5), h = 10 + len * 7;
+    if (A.SNOW) { A.line([mx, my], [mx, my - h * 0.8], PILE, 1); A.line([mx - 0.5, my - h * 0.6], [mx + 4.5, my - h * 0.55], SHELL, 2.2); A.line([mx - 0.5, my - h * 0.8 - 0.5], [mx + 0.5, my - h * 0.8 - 0.5], '#f6fafc', 1.4); return z + h * 0.8 + 2; }   // sail furled in the ice
     A.line([mx, my], [mx, my - h], PILE, 1);
     const sc = era >= 3 ? '#f4eef6' : sail === true ? SHELL : sail;
     c.beginPath(); c.moveTo(mx + 0.5, my - 3); for (let k = 0; k <= 10; k++) { const a = -Math.PI * 0.95 + k / 10 * Math.PI * 0.62, rr = h * 0.72 * (1 + 0.06 * (k % 2)); c.lineTo(mx + 0.5 + Math.cos(a) * rr * 0.75 + h * 0.42, my - 3 + Math.sin(a) * rr); } c.closePath(); fill(sc); stroke(A.OUT, 0.6);
@@ -1265,7 +1272,13 @@
   function tideShip(d0, d1, u, big) {
     const S = X, p0 = S.pt(d0, u), p1 = S.pt(d1, u), alongX = S.edge === 'N' || S.edge === 'S';
     const gx = Math.min(p0[0], p1[0]), gy = Math.min(p0[1], p1[1]), len = Math.abs(d1 - d0);
-    const hh = big ? 7 : 5, top = shipHull(gx, gy, len, big ? 0.46 : 0.36, -1, hh, alongX, era >= 3 ? '#7a5a6a' : era >= 2 ? '#3f6a7a' : '#8a5a3a');
+    const hull0 = era >= 3 ? '#7a5a6a' : era >= 2 ? '#3f6a7a' : '#8a5a3a';
+    if (A.SNOW) { // iced in at the pier: a sheet of broken ice round the hull
+      const m = (d0 + d1) / 2, r = len / 2 + 0.35, hw = (big ? 0.46 : 0.36) / 2 + 0.3, ring = [];
+      for (let k = 0; k < 16; k++) { const a = k / 16 * TAU; ring.push(P(...S.pt(m + Math.cos(a) * r, u + Math.sin(a) * hw))); }
+      A.poly(ring, '#eef5f9', '#a9c2d0', 0.6);
+    }
+    const hh = big ? 7 : 5, top = shipHull(gx, gy, len, big ? 0.46 : 0.36, -1, hh, alongX, A.SNOW ? A.mix(hull0, '#b9cad4', 0.4) : hull0);
     let zt = top;
     const masts = big ? [0.32, 0.68] : [0.5];
     for (const f of masts) {
@@ -1274,6 +1287,7 @@
       for (const [v, w] of [[H * 0.45, 8], [H * 0.78, 6]]) {
         const y0 = by - v - 7, q = [[bx - w, y0], [bx + w, y0], [bx + w * 1.05, y0 + 9], [bx - w * 1.05, y0 + 9]];
         A.line([bx - w - 1, y0], [bx + w + 1, y0], '#4a3a2a', 0.9);
+        if (A.SNOW) { A.line([bx - w, y0 + 1], [bx + w, y0 + 1], '#e8dcc0', 2.2); A.line([bx - w, y0 - 0.4], [bx + w, y0 - 0.4], '#f6fafc', 1); continue; }   // sails furled on the yards
         A.poly(q, era >= 3 ? '#f6f0f2' : '#f2ead6', A.OUT, 0.5);
         if (!A.GLOW) A.poly([[bx - w * 0.33, y0], [bx + w * 0.33, y0], [bx + w * 0.35, y0 + 9], [bx - w * 0.35, y0 + 9]], era >= 2 ? E.accent : CORAL[0], null);
       }
@@ -1314,12 +1328,26 @@
       const out = Math.max(0.45, dd0 - reach); outs.push([u, out, dd0, main]);
       J((out + dd0) / 2, u, () => {
         if (main && stone) {
-          const hw = 0.26 + band * 0.02;
-          prism([S.pt(dd0 + 0.2, u - hw), S.pt(dd0 + 0.2, u + hw), S.pt(out + 0.3, u + hw), S.pt(out + 0.3, u - hw)], -2, 4, molC);
-          // round mole head
-          const hr = hw + 0.14, oc = []; for (let k = 0; k < 8; k++) { const a = k / 8 * TAU + Math.PI / 8; oc.push(S.pt(out + 0.3 + Math.cos(a) * hr, u + Math.sin(a) * hr)); }
-          prism(oc, -2, 4.6, molC);
-          if (!A.GLOW && !A.SNOW) for (let dd = out + 0.6; dd < dd0; dd += 0.45) { const p = S.at(dd, u + (dd * 7 % 2 ? 0.12 : -0.1), 4); A.circ(p[0], p[1], 0.7, (dd * 3 | 0) % 2 ? SHELL : CORAL[(dd * 5 | 0) % 3]); }
+          // a low mole of tumbled coral rubble: three uneven runs stepping out to a rough head, dark and weedy at the waterline
+          const hw = 0.19 + band * 0.015, mc = A.mix(molC, '#8e8676', 0.35), d1 = dd0 + 0.2, d2 = out + 0.3, sp = (d1 - d2) / 3;
+          const sum = g => g[0] + g[1], near = sum(S.pt((d1 + d2) / 2, u + 1)) > sum(S.pt((d1 + d2) / 2, u - 1)) ? 1 : -1;
+          const runs = [[hw + 0.02, 3.3], [hw - 0.025, 2.8], [hw + 0.01, 3.1]].map(([w, z], k) => [d1 - sp * k + 0.02, d1 - sp * (k + 1), w, z]);
+          runs.sort((p, q) => sum(S.pt(p[0], u)) - sum(S.pt(q[0], u)));
+          for (const [da, db, w, z] of runs) {
+            prism([S.pt(da, u - w), S.pt(da, u + w), S.pt(db, u + w * 0.9), S.pt(db, u - w * 0.9)], -2, z, mc, { top: sn(A.mix(mc, '#a49a86', 0.3)) });
+            if (!A.GLOW && !A.SNOW) for (let dd = db + 0.06, k = 0; dd < da - 0.04; dd += 0.11, k++) { const p = S.at(dd, u + near * w * 0.97, 1.2 + (k * 7 % 3) * 0.7); c.beginPath(); c.ellipse(p[0], p[1], 2 + (k % 3) * 0.5, 1.2, 0, 0, TAU); fill(A.shade(mc, k % 2 ? -0.16 : 0.06)); if (k % 4 === 1) A.circ(p[0] + 1.4, p[1] - 0.8, 0.7, k % 8 === 1 ? CORAL[0] : SHELL); }
+            // broken rubble along both top edges
+            for (const sd of [-near, near]) for (let dd = db + 0.1, k = 0; dd < da - 0.05; dd += 0.17, k++) { const p = S.at(dd, u + sd * w * 0.85, z + 0.4); c.beginPath(); c.ellipse(p[0], p[1], 1.6 + (k % 2) * 0.6, 1.1, 0, 0, TAU); fill(sn(A.shade(mc, (k % 3 - 1) * 0.1))); stroke(A.OUT, 0.35); }
+            if (!A.SNOW) { A.line(S.at(da, u + near * w, 0.5), S.at(db, u + near * w * 0.9, 0.5), '#3f5a44', 2.2); A.line(S.at(da, u + near * w, -0.6), S.at(db, u + near * w * 0.9, -0.6), '#2c3c3a', 1.4); }
+          }
+          // a rough, lower head of heaped blocks, with tumbled stones in the water round it
+          const hr = hw + 0.1, oc = [], rf = [1, 0.9, 1.06, 0.88, 1, 0.93, 1.08, 0.9];
+          for (let k = 0; k < 8; k++) { const a = k / 8 * TAU + Math.PI / 8; oc.push(S.pt(d2 + Math.cos(a) * hr * rf[k], u + Math.sin(a) * hr * rf[k])); }
+          const rocks = () => { for (const du of [-0.3, 0.26]) A.rock(...S.pt(d2 - 0.12, u + du), 0.3, sn('#7e786c')); }, seaFront = sum(S.pt(d2 - 0.4, u)) > sum(S.pt(d2, u));
+          if (!seaFront) rocks();
+          prism(oc, -2, 3.6, mc, { top: sn(A.mix(mc, '#a49a86', 0.3)) });
+          if (seaFront) rocks();
+          if (!A.GLOW && !A.SNOW) { for (let k = 0; k < 4; k++) { const p = S.at(d2 + Math.cos(k * 1.7) * hr * 0.5, u + Math.sin(k * 1.7) * hr * 0.5, 3.8); A.circ(p[0], p[1], 0.8, k % 2 ? SHELL : CORAL[k % 3]); } for (let dd = out + 0.6; dd < dd0; dd += 0.45) { const p = S.at(dd, u + (dd * 7 % 2 ? 0.08 : -0.07), 3.2); A.circ(p[0], p[1], 0.7, (dd * 3 | 0) % 2 ? SHELL : CORAL[(dd * 5 | 0) % 3]); } }
         } else {
           const hw = main ? 0.24 : 0.19, z = 3;
           for (let dd = out + 0.1; dd < dd0; dd += 0.55) for (const du of [-hw + 0.02, hw - 0.02]) { const a = S.at(dd, u + du, -3), b = S.at(dd, u + du, z); A.line(a, b, PILE, 1.4); if (!A.GLOW) A.line(a, S.at(dd, u + du, -0.8), '#4f7a46', 1.6); }
@@ -1338,7 +1366,7 @@
       if (len > 1.4 && (band >= 1 || main)) { const du = i % 2 ? 0.48 : -0.48, dd = out + len * 0.72; J(dd, u + du, () => pearlBoat(dd, u + du, 0.48, '#a86a44', band >= 1 && i % 3 === 1 ? '#f0c0b0' : false)); }
       // buoys and a lantern post at each pier head
       J(out - 0.25, u + 0.3, () => { buoy(...S.pt(Math.max(0.15, out - 0.25), u + 0.3), i % 2 ? '#f0c050' : '#d8503a'); });
-      J(out + 0.06, u - 0.2, () => { const p = S.at(out + 0.08, u - 0.2, main && stone ? 4.6 : 3); A.line(p, [p[0], p[1] - 9], PILE, 1); A.lantern(p[0], p[1] - 6, 1.3); }, 0.01);
+      J(out + 0.06, u - 0.2, () => { const p = S.at(out + 0.08, u - 0.2, main && stone ? 3.6 : 3); A.line(p, [p[0], p[1] - 9], PILE, 1); A.lantern(p[0], p[1] - 6, 1.3); }, 0.01);
     });
     // the diving platform over the pearl-beds, off the main mole (band 1+)
     if (band >= 1) {
@@ -1350,7 +1378,7 @@
         deck(p[0] - s - 0.04, p[1] - s - 0.04, 2 * s + 0.08, 2 * s + 0.08, z, 1.2);
         const tip = S.pt(dd - 0.55, u + du); A.poly([P(p[0], p[1] - 0.06, z + 1.2), P(p[0], p[1] + 0.06, z + 1.2), P(tip[0], tip[1] + 0.06, z + 1.2), P(tip[0], tip[1] - 0.06, z + 1.2)], E.trim, A.OUT, 0.5);
         const [wx, wy, wrx, wry] = A.ell(...S.pt(Math.max(0.3, dd - 0.6), u + du), 0, 0.5);
-        A.rec('divers', { x: wx, y: wy, rx: wrx, ry: wry, seed: A.R() });
+        if (!A.SNOW) A.rec('divers', { x: wx, y: wy, rx: wrx, ry: wry, seed: A.R() });
         const [hx, hy] = P(p[0], p[1], z + 1.2); A.circ(hx, hy - 6, 1.5, '#c89a7a', A.OUT); A.line([hx, hy - 4.5], [hx, hy], '#3f8a9a', 1.6);
         if (band >= 2) { A.line([hx + 4, hy], [hx + 4, hy - 13], PILE, 0.9); scallop(hx + 4, hy - 15, 0.7, era >= 3 ? '#f0e8f4' : SHELL); }
         top = Math.max(top, z + 20);
@@ -1401,7 +1429,7 @@
     if (band >= 3) {
       const o = outs.find(q => q[3]) || outs[0], [u, out] = o;
       J(out + 0.3, u, () => {
-        const [gx, gy] = S.pt(out + 0.3, u), t = spiralTower(gx, gy, 0.13, stone ? 4.6 : 3, 20, { gallery: false, capH: 6, col: era >= 3 ? '#f6f0f4' : undefined });
+        const [gx, gy] = S.pt(out + 0.3, u), t = spiralTower(gx, gy, 0.13, stone ? 3.6 : 3, 20, { gallery: false, capH: 6, col: era >= 3 ? '#f6f0f4' : undefined });
         const [px, py] = P(gx, gy, t); A.lampDot(px, py - 3, 2.2, '#f4eef6', '#fff6e0'); A.rec('lights', { x: px, y: py - 3, r: 26 }); A.rec('sparks', { x: px, y: py - 3, kind: 'star' });
         top = Math.max(top, t + 6);
       }, 0.02);
@@ -1450,7 +1478,7 @@
     z += 2 + cageH;
     const tip = conchCap(gx, gy, 0.32, z, 14 + band * 2, false);
     const [tx, ty] = P(gx, gy, tip); pearlTip(tx, ty, 1.6);
-    A.rec('beams', { x: lx, y: ly - cageH / 2 }); A.rec('lights', { x: lx, y: ly - cageH / 2, r: 40 + band * 6 }); A.rec('sparks', { x: lx, y: ly - cageH / 2, kind: 'star' });
+    A.rec('beams', { x: lx, y: ly - cageH / 2, col: 'pearl' }); A.rec('lights', { x: lx, y: ly - cageH / 2, r: 40 + band * 6 }); A.rec('sparks', { x: lx, y: ly - cageH / 2, kind: 'star' });
     gulls(lx, ly - 30, 26, 2);
     return { top: tip + 8, hit: [[gx - 0.4, gy - 0.4, 0.8, 0.8, tip + 8]] };
   });

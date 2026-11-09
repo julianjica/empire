@@ -52,25 +52,30 @@ button, select, .mapctl button { touch-action: manipulation; }   /* no double-ta
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body { overflow-x: hidden; }
 
-  /* header: controls row on top, gold / renown / season clock row below it. The bar is sticky with a negative
-     offset, so on scroll the controls slide under the top edge and only the gold / renown / clock row stays pinned. */
-  .top-1 { flex-wrap: wrap; row-gap: 0; padding: 6px 10px; font-size: 13px; top: -44px; }
+  /* header: a row of chips and controls on top (the chips scroll sideways when they don't fit), then the
+     gold / renown / clock row. The bar is sticky with a negative offset (pinPhoneHeader in ui-core.js), so on
+     scroll the controls slide under the top edge and only the gold / renown / clock row stays pinned. */
+  .top-1 { flex-wrap: wrap; row-gap: 0; column-gap: 6px; padding: 5px 10px; font-size: 13px; top: -46px; }
   .top-1 > * { order: 1; }
-  .top-1 > .spacer { order: 2; flex: 0 0 100%; height: 6px; }
-  .top-1 > span[title^="Gold"] { order: 3; }
-  .top-1 > span[title^="Renown"] { order: 4; }
-  .top-1 > span.muted[title] { order: 5; margin-left: auto; }
-  .top-1 .brand, .top-1 > .pill { display: none; }
-  .top-1 > span[title^="Gold"] > .muted, .top-1 > span[title^="Renown"] > .muted { display: none; }
-  .top-1 > span[title^="Gold"] b, .top-1 > span[title^="Renown"] b { font-size: 15px; }
-  .top-1 > span.muted[title] { font-size: 12px; white-space: nowrap; }   /* season clock */
-  .top-1 > label { font-size: 0; }                                      /* hide the "Speed" word, keep the select */
-  .top-1 > label select { font-size: 16px; min-height: 36px; padding: 2px 4px; }
-  .top-1 > button, .top-1 > label { min-height: 36px; }
-  .top-1 > button.small { min-height: 36px; min-width: 40px; padding: 0 8px; }
-  .top-1 > button[data-act="save"], .top-1 > button[data-act="newgame"] { font-size: 0; }
-  .top-1 > button[data-act="save"]::before { content: "💾"; font-size: 16px; }
-  .top-1 > button[data-act="newgame"]::before { content: "↺"; font-size: 18px; }
+  .top-1 .brand, .top-1 > .top-realm { display: none; }
+  .top-1 > .top-extras { order: 1; flex: 1 1 0; min-width: 0; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; padding: 2px 0; mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent); }
+  .top-1 > .top-extras::-webkit-scrollbar { display: none; }
+  .top-1 > .top-extras > *, .top-1 > .top-extras button { flex: 0 0 auto; white-space: nowrap; }
+  .top-1 > .top-extras > span { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+  .top-1 > .top-ctl { order: 1; flex: 0 0 auto; flex-wrap: nowrap; gap: 5px; }
+  .top-1 > .spacer { order: 2; flex: 0 0 100%; height: 4px; }
+  .top-1 > .res-gold { order: 3; }
+  .top-1 > .top-renown { order: 4; }
+  .top-1 > .top-clock { order: 5; margin-left: auto; font-size: 12px; white-space: nowrap; }
+  .top-1 > .top-stat > .muted { display: none; }
+  .top-1 > .top-stat b { font-size: 15px; }
+  .top-1 > .top-stat { min-height: 34px; display: inline-flex; align-items: center; gap: 4px; }
+  .top-speed { font-size: 0; }                                         /* hide the "Speed" word, keep the select */
+  .top-speed select { font-size: 16px; min-height: 40px; padding: 2px 2px; }
+  .top-1 button.small { min-height: 40px; min-width: 40px; padding: 0 8px; }
+  .top-ctl .top-save, .top-ctl .top-new, .top-ctl .top-keys { display: none; }   /* in 🎛️ Options on phones */
+  .tut-q-l { display: none; }
 
   /* resource strip: compact grid, no horizontal scroll */
   .res-bar {
@@ -95,61 +100,70 @@ button, select, .mapctl button { touch-action: manipulation; }   /* no double-ta
   h2 { font-size: 1.2rem; overflow-wrap: anywhere; }
   .log { max-height: 40vh; }
 
-  /* bottom tab bar: fixed, the five main tabs fill the screen, the rest scroll in from the right */
-  .nav {
+  /* navigation: a fixed bottom bar (four main tabs + More) and a "More" sheet with every group */
+  .nav { display: none; }
+  .nav-bar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-    display: flex; flex-wrap: nowrap; gap: 0; align-items: stretch;
-    overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch;
-    scroll-snap-type: x proximity; scrollbar-width: none;
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px;
     padding: 4px max(4px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
-    background: var(--panel); border-top: 1px solid var(--line);
-    box-shadow: 0 -2px 10px rgba(60, 40, 10, .12);
+    background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -2px 10px rgba(60, 40, 10, .12);
   }
-  .nav::-webkit-scrollbar { display: none; }
-  .nav button {
-    position: relative; order: 10;
-    flex: 0 0 calc((100vw - 30px) / 6); width: auto; min-width: 52px; min-height: 52px; margin: 0;
-    display: block; padding: 4px 1px; border-radius: 9px;
-    font-size: 10.5px; line-height: 1.15; letter-spacing: -.25px; text-align: center; white-space: normal;
-    word-spacing: 100vw;                     /* icon on its own line, label below */
-    overflow: hidden; scroll-snap-align: start;
+  .nav-bar button {
+    position: relative; min-width: 0; min-height: 52px; margin: 0; padding: 4px 1px; border-radius: 9px; border-color: transparent; background: none;
+    font-size: 11px; line-height: 1.15; text-align: center; white-space: normal; word-spacing: 100vw; overflow: hidden;
   }
-  .nav button::first-line { font-size: 19px; line-height: 1.25; }
-  .nav button[data-t="help"] { word-spacing: normal; }
-  .nav button[data-t="moves"], .nav button[data-t="diplomacy"] { letter-spacing: -.6px; padding-left: 0; padding-right: 0; }
-  .nav button.on { box-shadow: none; background: color-mix(in srgb, var(--accent) 14%, var(--panel)); border-color: transparent; color: var(--accent); }
-  .nav button[data-t="city"] { order: 1; }
-  .nav button[data-t="military"] { order: 2; }
-  .nav button[data-t="world"] { order: 3; }
-  .nav button[data-t="hero"] { order: 4; }
-  .nav button[data-t="reports"] { order: 5; }
-  .nav button.has-badge { order: 7; }  /* tabs with alerts come forward, right after the pinned ones */
-  .nav button.on { order: 6; }   /* an active "more" tab takes the sixth slot so it is always on screen */
-  .nav button.on[data-t="city"] { order: 1; } .nav button.on[data-t="military"] { order: 2; } .nav button.on[data-t="world"] { order: 3; }
-  .nav button.on[data-t="hero"] { order: 4; } .nav button.on[data-t="reports"] { order: 5; }
-  .nav .badge { float: none; position: absolute; top: 2px; right: 4px; min-width: 16px; line-height: 16px; padding: 0 4px; font-size: 10px; word-spacing: normal; }
-  /* "more" hint pinned to the right edge of the bar */
-  .nav::after {
-    content: "›"; order: 99; position: sticky; right: 0; flex: 0 0 22px; margin-left: -22px;
-    display: flex; align-items: center; justify-content: flex-end; padding-right: 2px;
-    font-size: 22px; color: var(--muted); pointer-events: none;
-    background: linear-gradient(to right, transparent, var(--panel) 70%);
+  .nav-bar button::first-line { font-size: 20px; line-height: 1.25; }
+  .nav-bar button.on { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--accent); font-weight: 600; }
+  .nav-bar button.nav-more.open { background: var(--panel2); }
+  .nav-bar .nav-more { word-spacing: normal; }
+  .nav-bar .nav-more::first-line { font-size: inherit; }
+  .nav-more .nb-i { display: block; font-size: 20px; line-height: 1.25; }
+  .nav-more .nb-l { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .help-toc { display: none; }
+  .seg { gap: 4px; }
+  .seg button { min-width: 40px; padding: 6px 4px; }
+  .st-grid { grid-template-columns: minmax(0, 1fr); }
+  .st-begin { width: 100%; }
+  .nav-bar .badge, .nav-sheet .badge { float: none; position: absolute; top: 2px; right: 4px; min-width: 16px; line-height: 16px; padding: 0 4px; font-size: 10px; word-spacing: normal; background: var(--bad); color: #fff; border-radius: 99px; }
+  .nav-sheet-veil { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(20, 14, 8, .35); }
+  .nav-sheet {
+    display: block; position: fixed; left: 0; right: 0; bottom: calc(61px + env(safe-area-inset-bottom)); z-index: 32; max-height: calc(100dvh - 140px); overflow-y: auto; overscroll-behavior: contain;
+    background: var(--panel); border-radius: 16px 16px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, .3);
+    padding: 8px max(12px, env(safe-area-inset-right)) 12px max(12px, env(safe-area-inset-left));
   }
+  body:has(.nav-sheet) :is(.tut-coach, .tut-spot) { display: none !important; }
+  .nav-sheet-hd { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 6px; font-family: var(--font); font-size: 16px; }
+  .nav-sg { margin: 6px 0 10px; }
+  .nav-sgh { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 5px; }
+  .nav-sgl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .nav-sgl button { position: relative; min-height: 56px; padding: 5px 2px; border-radius: 10px; font-size: 12px; line-height: 1.2; text-align: center; word-spacing: 100vw; white-space: normal; }
+  .nav-sgl button::first-line { font-size: 20px; }
+  .nav-sgl button.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); font-weight: 600; }
+  .nav-sgl button[data-t="help"] { word-spacing: normal; }
+  .tab-head { margin-bottom: -2px; }
+  .tab-help { min-width: 40px; }
+  button.small { min-height: 40px; }
+  main :is(.fc-actions, .dp-actions, .dp-btns) button { min-height: 40px; }   /* module styles that ask for less */
+  main button.link, .help-term button.link { min-height: 40px; padding: 0 2px; }
+  .mapctl button.wide { height: 40px; min-height: 40px; border-radius: 20px; }
 
   .side { gap: 10px; }
   /* city switcher: compact wrapping chips instead of a full-height card above every tab */
   .citylist { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; }
   .citylist h4 { display: none; }
+  .citylist.one { display: none; }          /* one city: its name is in the city header already */
   .citylist button { width: auto; flex: 1 1 140px; margin: 0; padding: 5px 10px; min-height: 44px; }
   .citylist button small { font-size: 11.5px; }
   #toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
   /* tutorial bottom sheet (tutorial.css) sits above the tab bar so tabs it points at stay tappable */
-  .tut-coach { bottom: calc(67px + env(safe-area-inset-bottom)); max-height: 38vh; padding-bottom: 10px; }
-  .tut-coach.min { bottom: calc(79px + env(safe-area-inset-bottom)); }
+  .tut-coach { bottom: calc(61px + env(safe-area-inset-bottom)); max-height: 40vh; padding-bottom: 10px; }
+  .tut-coach.min { bottom: calc(70px + env(safe-area-inset-bottom)); right: 10px; }
+  #ecResPop.sheet { bottom: calc(70px + env(safe-area-inset-bottom)) !important; max-height: 55vh; }
 
   /* world map: tile panel goes below the map (single column) */
   .mapwrap { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .maphost { min-height: 220px; border-radius: 10px; }
+  .maphost { min-height: 220px; height: calc(100dvh - 190px - env(safe-area-inset-bottom)); max-height: 640px; border-radius: 10px; }
+  .tt-host, .tw-host { height: calc(100dvh - 210px); min-height: 320px; }
   .mapctl { top: 10px; right: 10px; gap: 8px; }
   .mapchip { top: 10px; left: 10px; font-size: 12px; }
   .maplegend { font-size: 11.5px; gap: 6px 10px; }
@@ -172,7 +186,7 @@ button, select, .mapctl button { touch-action: manipulation; }   /* no double-ta
 
 /* very narrow phones */
 @media (max-width: 360px) {
-  .nav button { min-width: 0; font-size: 9.5px; }
+  .nav-bar button { font-size: 10px; }
   .res-bar { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
 }
 
@@ -187,9 +201,7 @@ button, select, .mapctl button { touch-action: manipulation; }   /* no double-ta
 
 /* ---------- quality-of-life controls on phones ---------- */
 @media (max-width: 700px) {
-  .top-1 > button[data-act="popKeys"] { display: none; }        /* no keyboard on a phone */
   #ecPop { left: 8px !important; right: 8px; top: auto !important; bottom: calc(92px + env(safe-area-inset-bottom)); width: auto; max-height: 60vh; }
-  .top-1 > button.ec-pause { min-width: 40px; }
-  .top-1 > button.ec-pause.on { font-size: 0; }
-  .top-1 > button.ec-pause.on::before { content: "▶️"; font-size: 16px; }
+  .top-ctl > button.ec-pause.on { font-size: 0; }
+  .top-ctl > button.ec-pause.on::before { content: "▶️"; font-size: 16px; }
 }

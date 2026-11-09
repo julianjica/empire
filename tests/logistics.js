@@ -6,6 +6,10 @@ const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/for
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra!==undefined?' '+extra:'')); };
+// the player's supply lines start ON with the recommended policy; check that, then test the planner from a blank policy
+{ const s0=G.newGame({name:'T',race:'hearth',rivals:3}); const o0=G.logistics(s0,'p');
+  ok('player supply lines are on by default with the recommended policy', o0.on && o0.goods.grain && o0.goods.grain.on && o0.goods.timber && o0.goods.timber.on && o0.goods.tools && o0.goods.tools.on); }
+G.LOGI.playerOffByDefault=true;
 const quiet=s=>{ s.settings.hostility=0; s.calamityAt=1e12; s.eventAt=1e12; G.aiPressure=()=>0; for(const k of Object.keys(s.camps)){ G.tileAt(s,s.camps[k].x,s.camps[k].y).camp=null; delete s.camps[k]; } s.campTarget=0; s.routes=[]; };
 const fresh=(race='hearth')=>{ const s=G.newGame({name:'T',race}); quiet(s); const c=G.capital(s,'p'); c.buildings.warehouse=10; c.buildings.market=4; return s; };
 const near=(s,c,lo=4,hi=7)=>G.freeTile(s,x=>G.dist(x,c)>=lo&&G.dist(x,c)<=hi&&G.landReachable(s,c,x));

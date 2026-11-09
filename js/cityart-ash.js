@@ -343,7 +343,7 @@
   });
 
   def('cottage', ([x, y, w, d], L, band, ctx) => {
-    const i = ctx.i || 0, cx = x + w / 2, cy = y + d / 2, v = i % 3, base = ringBase();
+    const i = ctx.i || 0, cx = x + w / 2, cy = y + d / 2, v = i % 3, base = ringBase(), wet = !!ctx.wet;   // wet: on a pile deck over the water — the home and a drying rack, no totems, fires or steps
     if (band === 0) {
       if (v === 1) return boneTent(cx, cy, 0.4, 20 + L, { skull: L >= 3 });
       const t = yurt(cx, cy, 0.38, 8 + L * 0.5, { base, smoke: i % 2 === 0 });
@@ -353,7 +353,7 @@
     if (band === 1) {
       if (v === 1) { const t = boneTent(cx - 0.1, cy - 0.1, 0.46, 24, { skull: true }); yurt(x + w - 0.25, y + d - 0.2, 0.2, 6, {}); return t; }
       const t = yurt(cx - 0.05, cy - 0.05, 0.5, 10, { base, straps: 2, smoke: true });
-      if (v === 2) meatRack(x + 0.02, y + d - 0.02, true); else skullPole(x + w - 0.12, y + d - 0.15, 16);
+      if (v === 2) meatRack(x + 0.02, y + d - 0.02, true); else if (!wet) skullPole(x + w - 0.12, y + d - 0.15, 16);
       return t;
     }
     const m = matOf(band);
@@ -369,8 +369,9 @@
         const zt = A.cone(cx, cy, 0.62, z0 + 11, 16, roofHide()); const ap = A.P(cx, cy, zt); horns(ap[0], ap[1] + 3, 0.7); smoke(cx, cy, zt, 'house');
         return zt + 5;
       }
-      if (v === 1) return longhall(x + 0.12, y + 0.18, 1.05, 0.8, 10, m, { axis: 'x', rk: 13, smoke: 'house' });
+      if (v === 1) return longhall(x + (wet ? 0.04 : 0.12), y + (wet ? 0.1 : 0.18), wet ? 1.0 : 1.05, 0.8, 10, m, { axis: 'x', rk: 13, smoke: 'house' });
       // yurt raised on a timber deck with steps
+      if (wet) return yurt(cx, cy - 0.02, 0.44, 10, { straps: 2, smoke: true });
       const deck = A.box(x + 0.12, y + 0.12, 1.05, 0.95, 0, 4, m === 'obs' ? OBS : m === 'stone' ? BASALT : WOOD); void deck;
       const t = yurt(cx, cy - 0.02, 0.44, 10, { z: 4, straps: 2, smoke: true });
       for (let k = 0; k < 3; k++) A.box(x + 0.2 + k * 0.0, y + 1.07 + k * 0.0, 0.3, 0.06 + k * 0.03, 0, 4 - k * 1.3, WOOD);
@@ -393,7 +394,7 @@
     const zt = A.cone(cx, cy, 0.62, 15, 17, m === 'obs' ? '#2e262c' : '#4a3a34');
     const ap = A.P(cx, cy, zt); horns(ap[0], ap[1] + 3, 0.8);
     if (!A.GLOW) { const hx = ex - rx * 0.35; A.poly([[hx - 3.4, dy - 9.5], [hx + 3.4, dy - 9.5], [hx + 2.6, dy - 12], [hx - 2.6, dy - 12]], RED, null); }
-    if (v === 2) brazier(x + w - 0.2, y + d - 0.2, 0, 0.7, true); else smoke(cx, cy, zt, 'house');
+    if (v === 2 && !wet) brazier(x + w - 0.2, y + d - 0.2, 0, 0.7, true); else smoke(cx, cy, zt, 'house');
 
     return zt + 6;
   });
@@ -1315,8 +1316,10 @@
     const coracle = (dd, u, beached) => add(dd, u, () => {
       const [x, y] = at(dd, u), c = A.c;
       if (beached) { c.beginPath(); c.ellipse(x, y - 1, 5.4, 3, 0, Math.PI, A.TAU); c.closePath(); c.fillStyle = A.F('#7a5236'); c.fill(); c.strokeStyle = A.F(A.OUT); c.lineWidth = 0.7; c.stroke(); if (!A.GLOW) { arc(x, y - 1, 5.4, 3, Math.PI * 1.15, Math.PI * 1.85, '#c9a874', 0.6); A.line([x - 3, y - 3.5], [x + 3, y - 3.5], '#5a3a26', 0.5); } return 4; }
-      c.beginPath(); c.ellipse(x, y - 1.5, 5.5, 2.8, 0, 0, Math.PI); c.lineTo(x - 5.5, y - 1.5); c.closePath(); c.fillStyle = A.F('#7a5236'); c.fill(); c.strokeStyle = A.F(A.OUT); c.lineWidth = 0.7; c.stroke();
-      arc(x, y - 1.5, 5.5, 2.4, Math.PI, A.TAU, A.shade('#7a5236', -0.3), 0.7); arc(x, y - 1.5, 5.5, 2.4, 0, Math.PI, '#c9a874', 0.9); A.line([x + 2, y - 7], [x - 1.5, y + 0.5], WOOD_D, 0.9); A.circ(x - 0.5, y - 3, 1.3, '#3a2a20');
+      const hide = A.SNOW ? A.mix('#7a5236', '#b9cad4', 0.4) : '#7a5236';
+      if (A.SNOW) { c.beginPath(); c.ellipse(x, y - 0.5, 9.5, 3.8, 0, 0, A.TAU); c.fillStyle = A.F('#eef5f9'); c.fill(); c.strokeStyle = A.F('#a9c2d0'); c.lineWidth = 0.6; c.stroke(); if (!A.GLOW) for (const t of [0.6, 2.4, 3.8, 5.2]) A.line([x + Math.cos(t) * 9.5, y - 0.5 + Math.sin(t) * 3.8], [x + Math.cos(t) * 6.5, y - 0.5 + Math.sin(t) * 2.6], '#c4d6e0', 0.5); }   // iced in
+      c.beginPath(); c.ellipse(x, y - 1.5, 5.5, 2.8, 0, 0, Math.PI); c.lineTo(x - 5.5, y - 1.5); c.closePath(); c.fillStyle = A.F(hide); c.fill(); c.strokeStyle = A.F(A.OUT); c.lineWidth = 0.7; c.stroke();
+      arc(x, y - 1.5, 5.5, 2.4, Math.PI, A.TAU, A.shade(hide, -0.3), 0.7); arc(x, y - 1.5, 5.5, 2.4, 0, Math.PI, A.SNOW ? '#f6fafc' : '#c9a874', A.SNOW ? 1.6 : 0.9); A.line([x + 2, y - 7], [x - 1.5, y + 0.5], WOOD_D, 0.9); A.circ(x - 0.5, y - 3, 1.3, '#3a2a20');
       return 4;
     });
     const hullAlong = (u, d0, d1, big, sail) => { // a longship moored along a pier, a horned skull on its prow
@@ -1324,7 +1327,7 @@
       add(dm, u, () => {
         A.shipHull(e, u, d0, d1, big, sail);
         const hh = big ? 7 : 5;
-        if (!A.GLOW) { // the hide sail's painted stripes
+        if (!A.GLOW && !A.SNOW) { // the hide sail's painted stripes (furled in winter)
           const m = (d0 + d1) / 2, hw = big ? 0.3 : 0.22, zs = hh + (big ? 30 : 19), sh0 = big ? 18 : 12;
           for (const t of [-0.55, 0, 0.55]) { const a = at(m, u + hw * 1.6 * t - hw * 0.18, zs), b = at(m, u + hw * 1.6 * t + hw * 0.18, zs); A.poly([a, b, [b[0], b[1] + sh0], [a[0], a[1] + sh0]], t ? (sail === RED ? '#e2d6bb' : RED) : A.shade(sail, -0.25), null); }
         }

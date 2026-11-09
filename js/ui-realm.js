@@ -78,38 +78,148 @@ const renderResearch = city => {
 };
 
 // ---------------------------------------------------------------------
-// Diplomacy
+// Diplomacy: realm cards (treaties, opinion, war score), the negotiation
+// table (deal builder with the live willingness meter), treaty history
 // ---------------------------------------------------------------------
+// UI.deal = { ai, give: [], take: [], both: [], pid?, msg?, counter? }  — lives in UI so the per-second render keeps it
+const DIP_SIDES = { give: 'You offer', both: 'Both sides agree', take: 'You ask for' };
+const dipLeft = t => t.until ? fmtTime(realSecs(Math.max(0, t.until - S.time))) : '∞';
+const dipTreatyIcons = (a, b) => {
+  const ts = G.treatiesOf(S, a, b);
+  if (!ts.length) return '';
+  return `<div class="dp-treaties">${ts.map(t => {
+    const K = DATA.treatyKinds[t.kind];
+    const dir = t.kind === 'tribute' ? ` (${t.a === 'p' ? 'you pay' : t.b === 'p' ? 'they pay' : esc(S.empires[t.a].name) + ' pays'} ${Math.round(t.n || 0)}/h)` : t.kind === 'vassal' ? ` (${t.a === 'p' ? 'you serve them' : t.b === 'p' ? 'your vassal' : esc(S.empires[t.a].name) + ' serves'})` : '';
+    return `<span class="dp-treaty dp-k-${t.kind}" title="${esc(K.name + dir + ' — ' + K.desc + (t.until ? ` ${dipLeft(t)} left.` : ''))}" aria-label="${esc(K.name + dir)}">${K.icon}<small>${t.until ? dipLeft(t) : '∞'}</small></span>`;
+  }).join('')}</div>`;
+};
+const dipBar = (v, lo, hi, cls) => `<div class="bar dp-bar ${cls || ''}"><i style="width:${pct(v - lo, hi - lo)}%;background:${v >= (lo + hi) / 2 ? 'var(--good)' : 'var(--bad)'}"></i></div>`;
+const dipOpinionHtml = (e, r) => {
+  const op = G.opinionParts(S, e.id);
+  return `<div class="dp-op">Opinion of you: <b>${G.opinionWord(r.opinion)}</b> (${Math.round(r.opinion)})${dipBar(r.opinion, -100, 100, 'opinion')}
+    <details class="dp-why" data-dpopen="why_${e.id}" ${UI.dpOpenSet && UI.dpOpenSet['why_' + e.id] ? 'open' : ''}><summary>Why?</summary><ul>${op.parts.map(p => `<li><span>${esc(p.label)}</span><b class="${p.v >= 0 ? 'good' : 'bad'}">${p.v > 0 ? '+' : ''}${p.v}</b></li>`).join('')}</ul>
+    <div class="muted">Opinion drifts toward ${Math.round(op.target)}; gifts, deeds and grievances fade with time.</div></details></div>`;
+};
+const dipWarHtml = (e) => {
+  const w = G.warInfo(S, 'p', e.id);
+  if (!w) return '';
+  const ws = Math.round(G.warScore(S, 'p', e.id));
+  return `<div class="dp-war"><span>⚔️ War score <b class="${ws >= 0 ? 'good' : 'bad'}">${ws > 0 ? '+' : ''}${ws}</b></span><span class="muted">${w.battles} battle${w.battles === 1 ? '' : 's'} · ${w.cities} cit${w.cities === 1 ? 'y' : 'ies'} taken · ${fmtTime(realSecs(S.time - w.start))}</span>
+    <div class="dp-ws"><i style="left:${(ws + 100) / 2}%"></i></div><div class="muted dp-hint">Winning battles and taking cities raises the score; a high score lets you demand cities or reparations for peace.</div></div>`;
+};
+const dipVassalHtml = e => {
+  const t = G.treatiesOf(S, 'p', e.id).find(x => x.kind === 'vassal');
+  if (!t) return '';
+  if (t.a === 'p') return `<div class="dp-vassal warn">👑 You are the vassal of the ${esc(e.name)}: you pay ${Math.round(t.n || 0)} gold an hour. Declaring war on them is a rebellion.</div>`;
+  const an = G.diplo.annexStatus(S, e.id);
+  return `<div class="dp-vassal">👑 Your vassal · tribute ${Math.round(t.n || 0)} gold/h · loyalty ${Math.round(t.loyalty || 0)}${dipBar(t.loyalty || 0, 0, 100)}
+    <div class="row"><button class="small" data-act="dpVassal" data-a="release" data-e="${e.id}">Release</button><button class="small ${an.ok ? 'primary' : ''}" data-act="dpVassal" data-a="annex" data-e="${e.id}" ${an.ok ? '' : 'disabled'} title="${esc(an.ok ? 'Fold their cities into your realm' : an.reason)}">Annex peacefully</button>${an.ok ? '' : `<span class="muted dp-hint">${esc(an.reason)}</span>`}</div></div>`;
+};
+const dipRealmCard = (e, pPow) => {
+  const r = G.rel(S, e.id);
+  const si = DATA.statusInfo[r.status];
+  if (e.dead) return `<div class="card dp-realm dead"><div class="row">${ptHtml({ ...rulerSpec(e), dead: true }, 44, 'pt-card', `Ruler of ${e.name}`)}<h3 style="margin:0">${esc(e.name)}</h3><span class="pill">Fallen</span></div><p class="muted">This realm has fallen.${S.settings.mode === 'endless' ? ' A new dynasty may rise in time.' : ''}</p></div>`;
+  const ratio = G.power(S, e.id) / Math.max(1, pPow);
+  const comp = ratio > 2 ? 'far stronger than you' : ratio > 1.2 ? 'stronger than you' : ratio > 0.8 ? 'about as strong as you' : ratio > 0.5 ? 'weaker than you' : 'far weaker than you';
+  const trust = G.trustOf(S, e.id), liege = G.liegeOf(S, e.id);
+  const k = 'gift_' + e.id;
+  return `<div class="card dp-realm" style="--realm:${e.color}"><div class="dp-head">${ptHtml({ ...rulerSpec(e), dead: false }, 56, 'pt-card', `Ruler of ${e.name}`)}
+      <div class="dp-title"><h3>${esc(e.name)}</h3><div class="dp-tags"><span class="pill">${DATA.races[e.race].name}</span><span class="pill ${si.color}">${si.name}</span><span class="pill" title="How well they keep their word">${G.trustWord(trust)}</span>${liege ? `<span class="pill warn">${liege === 'p' ? 'Your vassal' : 'Vassal of ' + esc(S.empires[liege].name)}</span>` : ''}</div>
+      <div class="muted dp-hint">${G.citiesOf(S, e.id).length} cit${G.citiesOf(S, e.id).length === 1 ? 'y' : 'ies'} · ${comp}</div></div></div>
+    ${dipTreatyIcons('p', e.id)}
+    ${extras(REALM_EXTRAS, e)}
+    ${dipOpinionHtml(e, r)}
+    ${dipWarHtml(e)}
+    ${dipVassalHtml(e)}
+    <div class="row dp-actions">
+      <button class="small primary" data-act="dpOpen" data-e="${e.id}">🤝 Negotiate</button>
+      <span class="dp-gift"><input type="number" min="0" step="50" data-k="${k}" value="${esc(UI.form[k] || 100)}" aria-label="Gold to send"><button class="small" data-act="diplo" data-a="gift" data-e="${e.id}">🎁 Send gold</button></span>
+      ${r.status !== 'alliance' && liege !== 'p' ? `<button class="small" data-act="diplo" data-a="tribute" data-e="${e.id}" title="Demand gold by threat (no treaty)">💰 Demand</button>` : ''}
+      ${r.status !== 'war' ? `<button class="small dp-war-btn" data-act="dpWar" data-e="${e.id}">⚔️ ${G.liegeOf(S, 'p') === e.id ? 'Rise against them' : 'Declare war'}</button>` : ''}
+    </div></div>`;
+};
+
+// ---- the negotiation table ----
+const dipDurs = cur => [...new Set([...G.TREATY.durations, +cur || 60])].sort((a, b) => a - b);
+const dipItemHtml = (it, side, idx) => {
+  const ic = G.dealItemIcon(it);
+  const ctl = [];
+  const f = (field, val, attrs) => `<input type="number" ${attrs || ''} value="${esc(val)}" data-dealf="${side}|${idx}|${field}" aria-label="${field}">`;
+  if (it.t === 'gold') ctl.push(f('n', it.n, `min="0" step="10" ${it.max != null ? `max="${it.max}"` : ''}`) + ' gold');
+  else if (it.t === 'goods') ctl.push(f('n', it.n, 'min="0" step="10"') + ' ' + esc(DATA.goods[it.g].name.toLowerCase()));
+  else if (it.t === 'gph') ctl.push(f('n', it.n, 'min="0" step="5"') + ' gold/h for ' + `<select data-dealf="${side}|${idx}|mins">${dipDurs(it.mins).map(m => `<option value="${m}" ${+it.mins === m ? 'selected' : ''}>${m} min</option>`).join('')}</select>`);
+  else if (it.t === 'treaty' && DATA.treatyKinds[it.kind].dur) ctl.push(esc(G.dealItemLabel(S, it)) + ` <select data-dealf="${side}|${idx}|mins">${dipDurs(it.mins).map(m => `<option value="${m}" ${+it.mins === m ? 'selected' : ''}>${m} min</option>`).join('')}</select>`);
+  else ctl.push(esc(G.dealItemLabel(S, it)));
+  return `<div class="dp-item on" draggable="true" data-drag="${side}|${idx}|on"><span class="dp-ic">${ic}</span><span class="dp-lab">${ctl.join('')}</span><button class="small dp-x" data-act="dpDel" data-s="${side}" data-i="${idx}" aria-label="Remove ${esc(G.dealItemLabel(S, it))}">✕</button></div>`;
+};
+const dipAvailHtml = (it, side) => {
+  const K = it.t === 'treaty' ? DATA.treatyKinds[it.kind] : null;
+  const tip = K ? K.desc + (it.active ? ' (active: proposing renews it)' : '') : '';
+  return `<button class="dp-item avail" draggable="true" data-drag="${side}|${G.dealKey(it)}|avail" data-act="dpAdd" data-s="${side}" data-key="${esc(G.dealKey(it))}" title="${esc(tip)}"><span class="dp-ic">${G.dealItemIcon(it)}</span>${esc(it.t === 'treaty' ? K.name : it.t === 'gold' ? 'Gold' : it.t === 'gph' ? 'Gold every hour' : G.dealItemLabel(S, it))}${it.active ? ' <small class="good">(active)</small>' : ''}</button>`;
+};
+const dipDealOpts = () => G.dealOptions(S, UI.deal.ai);
+const dipInDeal = (side, it) => (UI.deal[side] || []).some(x => G.dealKey(x) === G.dealKey(it));
+const renderDeal = () => {
+  const D = UI.deal, e = S.empires[D.ai];
+  if (!e || e.dead) { UI.deal = null; return ''; }
+  const opts = dipDealOpts();
+  const deal = { ai: D.ai, give: D.give, take: D.take, both: D.both };
+  const ev = G.evalDeal(S, deal);
+  const cols = ['give', 'both', 'take'].map(side => {
+    const on = (D[side] || []).map((it, i) => dipItemHtml(it, side, i)).join('');
+    const av = (opts[side] || []).filter(it => !dipInDeal(side, it)).map(it => dipAvailHtml(it, side)).join('');
+    const who = side === 'give' ? esc(S.empires.p.name) : side === 'take' ? esc(e.name) : '';
+    return `<div class="dp-col" data-drop="${side}"><h4>${DIP_SIDES[side]}${who ? ` <small class="muted">${who}</small>` : ''}</h4>
+      <div class="dp-table">${on || '<div class="muted dp-empty">Nothing yet. Tap or drag items here.</div>'}</div>
+      ${av ? `<div class="dp-avail">${av}</div>` : ''}</div>`;
+  }).join('');
+  const meter = ev.meter;
+  const parts = ev.parts.filter(p => p.key !== 'base').sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  return `<div class="card dp-deal" id="dpDeal"><div class="dp-head">${ptHtml({ ...rulerSpec(e), dead: false }, 56, 'pt-card', `Ruler of ${e.name}`)}
+      <div class="dp-title"><h3>Negotiating with the ${esc(e.name)}</h3><div class="muted dp-hint">${DATA.statusInfo[G.rel(S, D.ai).status].name} · opinion ${Math.round(G.rel(S, D.ai).opinion)} · your reputation: ${G.trustWord(G.trustOf(S, 'p'))} (${Math.round(G.trustOf(S, 'p'))})${D.pid ? ' · answering their proposal' : ''}</div></div>
+      <span class="spacer"></span><button class="small" data-act="dpClose" aria-label="Close the negotiation">✕</button></div>
+    <div class="dp-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(meter)}" aria-label="Their willingness">
+      <div class="dp-meter-bar"><i class="${ev.accept ? 'yes' : meter >= 35 ? 'maybe' : 'no'}" style="width:${meter}%"></i><b class="dp-mark" title="They accept above this line"></b></div>
+      <div class="dp-say"><b>${ev.accept ? '✔' : ev.err ? '⚠' : '✘'}</b> <q>${esc(ev.text)}</q></div>
+      ${parts.length ? `<div class="dp-parts">${parts.map(p => `<span class="dp-part ${p.v >= 0 ? 'good' : 'bad'}" title="${esc(p.why || '')}">${esc(p.label)} ${p.v > 0 ? '+' : ''}${p.v}</span>`).join('')}</div>` : ''}
+    </div>
+    <div class="dp-cols">${cols}</div>
+    ${D.msg ? `<div class="dp-msg ${D.msgKind || ''}">${esc(D.msg)}</div>` : ''}
+    ${D.counter ? `<div class="dp-counter"><b>Their counter-offer:</b> ${esc(G.describeDeal(S, D.counter.deal))}. <span class="muted">${esc(D.counter.text)}</span> <button class="small primary" data-act="dpTakeCounter">Accept their terms</button> <button class="small" data-act="dpLoadCounter">Edit it</button></div>` : ''}
+    <div class="row dp-btns"><button class="primary" data-act="dpPropose" ${ev.err ? 'disabled' : ''}>📜 Propose</button><button data-act="dpAsk" title="Ask what they would want">❓ What would you want?</button><button data-act="dpClear">Clear</button>${D.pid ? '<button data-act="dpDecline">Decline their proposal</button>' : ''}</div>
+  </div>`;
+};
+
+const dipHistoryHtml = () => {
+  const h = (S.dip && S.dip.hist) || [];
+  if (!h.length) return '';
+  const who = id => id === 'p' ? 'you' : S.empires[id] ? esc(S.empires[id].name) : '?';
+  const ev = { signed: 'signed', renewed: 'renewed', expired: 'expired', broken: 'broken', ended: 'ended', annexed: 'annexed', peace: 'war ended' };
+  return `<div class="card"><details class="dp-hist" data-dpopen="hist" ${UI.dpOpenSet && UI.dpOpenSet.hist ? 'open' : ''}><summary><h3 style="display:inline">📜 Treaty history</h3> <span class="muted">(${h.length})</span></summary><ul>${h.slice(0, 40).map(x => {
+    const K = DATA.treatyKinds[x.kind];
+    const name = x.kind === 'war' ? '⚔️ War' : K ? `${K.icon} ${K.name}` : x.kind;
+    const mine = x.a === 'p' || x.b === 'p';
+    const cls = x.ev === 'broken' ? 'bad' : x.ev === 'signed' || x.ev === 'peace' ? 'good' : 'muted';
+    return `<li class="${mine ? '' : 'dp-other'}"><time>${clock(x.t).replace(/^Day /, 'D')}</time> ${name}, ${who(x.a)} & ${who(x.b)}: <span class="${cls}">${ev[x.ev] || x.ev}</span>${x.by && x.ev === 'broken' ? ` by ${who(x.by)}` : ''}${x.note ? ` <span class="muted">(${esc(x.note)})</span>` : ''}</li>`;
+  }).join('')}</ul></details></div>`;
+};
+
 const renderDiplomacy = city => {
   const pPow = G.power(S, 'p');
   const realms = Object.values(S.empires).filter(e => e.id !== 'p');
   const offers = (S.offers || []).filter(o => o.expires > S.time);
-  return `<div class="card"><h3>🐪 Foreign merchants</h3>
-    ${offers.length ? `<p class="muted" style="font-size:12.5px">Deals are paid from and delivered to <b>${esc(city.name)}</b>. Friendlier realms offer better terms.</p><table><tr><th>From</th><th>They give</th><th>They want</th><th>Leaves in</th><th></th></tr>${offers.map(o => `<tr><td>${esc(S.empires[o.ai].name)}</td><td class="good">${goodsHtml(o.give)}</td><td>${goodsHtml(o.want)}</td><td class="muted">${fmtTime(realSecs(o.expires - S.time))}</td><td><button class="small primary" data-act="offer" data-o="${o.id}" ${G.canAfford(S, city, o.want) ? '' : 'disabled'}>Accept</button></td></tr>`).join('')}</table>` : '<p class="muted">No merchants in town right now. Realms that are not at war with you send caravans now and then.</p>'}
+  const deals = (S.pending || []).filter(p => p.kind === 'deal' || p.kind === 'callToArms');
+  return `${UI.deal ? renderDeal() : ''}
+  ${deals.length && !UI.deal ? `<div class="card dp-props"><h3>📨 Envoys waiting</h3>${deals.map(p => `<div class="dp-prop"><b>${esc(p.title)}</b><div class="muted">${esc(p.text)}</div><div class="row">${p.options.map((o, i) => `<button class="small ${i === 0 ? 'primary' : ''}" data-act="decide" data-p="${p.id}" data-k="${o.key}">${esc(o.label)}</button>`).join('')}<span class="muted dp-hint">${fmtTime(realSecs(p.expires - S.time))}</span></div></div>`).join('')}</div>` : ''}
+  <div class="dp-realms">${realms.map(e => dipRealmCard(e, pPow)).join('')}</div>
+  <div class="card"><h3>🐪 Foreign merchants</h3>
+    ${offers.length ? `<p class="muted" style="font-size:12.5px">Deals are paid from and delivered to <b>${esc(city.name)}</b>. Friendlier realms (and trade partners) offer better terms.</p><div class="dp-scroll"><table><tr><th>From</th><th>They give</th><th>They want</th><th>Leaves in</th><th></th></tr>${offers.map(o => `<tr><td>${esc(S.empires[o.ai].name)}</td><td class="good">${goodsHtml(o.give)}</td><td>${goodsHtml(o.want)}</td><td class="muted">${fmtTime(realSecs(o.expires - S.time))}</td><td><button class="small primary" data-act="offer" data-o="${o.id}" ${G.canAfford(S, city, o.want) ? '' : 'disabled'}>Accept</button></td></tr>`).join('')}</table></div>` : '<p class="muted">No merchants in town right now. Realms that are not at war with you send caravans now and then.</p>'}
   </div>
-  ${realms.map(e => {
-    const r = G.rel(S, e.id);
-    const si = DATA.statusInfo[r.status];
-    const ratio = G.power(S, e.id) / Math.max(1, pPow);
-    const comp = e.dead ? '' : ratio > 2 ? 'far stronger than you' : ratio > 1.2 ? 'stronger than you' : ratio > 0.8 ? 'about as strong as you' : ratio > 0.5 ? 'weaker than you' : 'far weaker than you';
-    const k = 'gift_' + e.id;
-    return `<div class="card"><div class="row">${ptHtml({ ...rulerSpec(e), dead: !!e.dead }, 52, 'pt-card', `Ruler of ${e.name}`)}<span class="dot" style="background:${e.color};width:14px;height:14px;border-radius:50%;display:inline-block"></span><h3 style="margin:0">${esc(e.name)}</h3><span class="pill">${DATA.races[e.race].name}</span><span class="pill ${si.color}">${e.dead ? 'Fallen' : si.name}</span><span class="spacer"></span>${e.dead ? '' : `<span class="muted">${G.citiesOf(S, e.id).length} cities · ${comp}</span>`}</div>
-      ${e.dead ? '<p class="muted">This realm has fallen.' + (S.settings.mode === 'endless' ? ' A new dynasty may rise in time.' : '') + '</p>' : `
-      ${extras(REALM_EXTRAS, e)}
-      <div style="margin:8px 0">Opinion of you: <b>${G.opinionWord(r.opinion)}</b> (${Math.round(r.opinion)})<div class="bar opinion"><i style="width:${(r.opinion + 100) / 2}%;background:${r.opinion >= 0 ? 'var(--good)' : 'var(--bad)'}"></i></div></div>
-      <div class="row">
-        <input type="number" min="0" step="50" data-k="${k}" value="${esc(UI.form[k] || 100)}"><button class="small" data-act="diplo" data-a="gift" data-e="${e.id}">🎁 Send gold</button>
-        ${r.status === 'war' || r.status === 'neutral' ? `<button class="small" data-act="diplo" data-a="peace" data-e="${e.id}">🕊️ Propose peace</button>` : ''}
-        ${r.status === 'peace' ? `<button class="small" data-act="diplo" data-a="alliance" data-e="${e.id}">🤝 Propose alliance</button>` : ''}
-        ${r.status !== 'alliance' ? `<button class="small" data-act="diplo" data-a="tribute" data-e="${e.id}">💰 Demand tribute</button>` : ''}
-        ${r.status !== 'war' ? `<button class="small" data-act="diplo" data-a="war" data-e="${e.id}">⚔️ Declare war</button>` : ''}
-      </div>`}
-    </div>`;
-  }).join('')}
   ${(() => { const al = realms.filter(e => !e.dead); const rows = [];
-      for (let i = 0; i < al.length; i++) for (let j = i + 1; j < al.length; j++) { const r = G.aiRel(S, al[i].id, al[j].id); rows.push(`<tr><td>${esc(al[i].name)}</td><td>${esc(al[j].name)}</td><td class="${DATA.statusInfo[r.status].color}">${DATA.statusInfo[r.status].name}</td></tr>`); }
-      return rows.length ? `<div class="card"><h3>Relations among your rivals</h3><table>${rows.join('')}</table>${S.leader && S.leader !== 'p' ? `<p class="warn" style="font-size:12.5px">The ${esc(S.empires[S.leader].name)} towers over the others; the rest are banding together against it.</p>` : S.leader === 'p' ? '<p class="warn" style="font-size:12.5px">Your power towers over the others — they are banding together against you.</p>' : ''}</div>` : ''; })()}
-  <div class="card muted" style="font-size:12.5px">At peace or allied, a realm will not attack you; allies turn on whoever attacks you. Attacking, raiding or getting caught scouting lowers opinion; breaking a treaty angers every realm. Strong realms may demand tribute from you — and you from the weak.</div>`;
+      for (let i = 0; i < al.length; i++) for (let j = i + 1; j < al.length; j++) { const r = G.aiRel(S, al[i].id, al[j].id); const ws = r.status === 'war' ? Math.round(G.warScore(S, al[i].id, al[j].id)) : null; rows.push(`<tr><td>${esc(al[i].name)}</td><td>${esc(al[j].name)}</td><td class="${DATA.statusInfo[r.status].color}">${DATA.statusInfo[r.status].name}${ws != null ? ` <small class="muted">(${ws > 0 ? '+' : ''}${ws})</small>` : ''}</td><td>${dipTreatyIcons(al[i].id, al[j].id) || '<span class="muted">—</span>'}</td></tr>`); }
+      return rows.length ? `<div class="card"><h3>Relations among your rivals</h3><div class="dp-scroll"><table><tr><th colspan="2">Realms</th><th>Status</th><th>Treaties</th></tr>${rows.join('')}</table></div>${S.leader && S.leader !== 'p' ? `<p class="warn" style="font-size:12.5px">The ${esc(S.empires[S.leader].name)} towers over the others; the rest are banding together against it.</p>` : S.leader === 'p' ? '<p class="warn" style="font-size:12.5px">Your power towers over the others — they are banding together against you.</p>' : ''}</div>` : ''; })()}
+  ${dipHistoryHtml()}
+  <div class="card muted" style="font-size:12.5px">Treaties are agreements with terms and a duration: 🤚 non-aggression, 🚪 open borders, ⚖️ trade, 📚 research, 🛡️ defensive and 🤝 full alliances, 💍 royal marriages, 💰 tribute and 👑 vassalage. Open the <b>Negotiate</b> table to build a deal from both sides; their willingness shows live, and they explain themselves. Breaking a treaty (attacking a partner, declaring war on them) costs your reputation with every court. Winning battles and taking cities raises your war score, which decides the price of peace.</div>`;
 };
 
 // ---------------------------------------------------------------------
@@ -152,3 +262,102 @@ Object.assign(act, {
   decide: d => { toast(G.resolvePending(S, d.p, d.k)); render(true); },
   claim: d => { toast(G.claimQuest(S, d.q) || 'Reward delivered to your capital'); render(true); },
 });
+
+// ---------------------------------------------------------------------
+// diplomacy actions: the negotiation table, war, vassals, counter-offers
+// ---------------------------------------------------------------------
+const dipClone = d => ({ ai: d.ai, give: (d.give || []).map(i => ({ ...i })), take: (d.take || []).map(i => ({ ...i })), both: (d.both || []).map(i => ({ ...i })) });
+const dipDeal = () => ({ ai: UI.deal.ai, give: UI.deal.give, take: UI.deal.take, both: UI.deal.both });
+const dipTop = () => { const el = document.getElementById('dpDeal'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); else window.scrollTo(0, 0); };
+const dipBaseDecide = act.decide;
+Object.assign(act, {
+  dpOpen: d => { UI.deal = { ai: d.e, give: [], take: [], both: [] }; render(true); dipTop(); },
+  dpClose: () => { UI.deal = null; render(true); },
+  dpAdd: d => {
+    if (!UI.deal) return;
+    const it = (G.dealOptions(S, UI.deal.ai)[d.s] || []).find(x => G.dealKey(x) === d.key);
+    if (it && !dipInDeal(d.s, it)) { const c = { ...it }; delete c.active; UI.deal[d.s].push(c); }
+    UI.deal.msg = null; UI.deal.counter = null; render(true);
+  },
+  dpDel: d => { if (!UI.deal) return; UI.deal[d.s].splice(+d.i, 1); UI.deal.msg = null; UI.deal.counter = null; render(true); },
+  dpClear: () => { if (!UI.deal) return; UI.deal.give = []; UI.deal.take = []; UI.deal.both = []; UI.deal.msg = null; UI.deal.counter = null; render(true); },
+  dpPropose: () => {
+    if (!UI.deal) return;
+    const res = G.negotiate(S, dipDeal(), { pid: UI.deal.pid });
+    if (res.ok) { toast(res.text); UI.deal = null; }
+    else { UI.deal.msg = res.text; UI.deal.msgKind = 'bad'; UI.deal.counter = res.counter || null; }
+    render(true);
+  },
+  dpAsk: () => {
+    if (!UI.deal) return;
+    const ev = G.evalDeal(S, dipDeal());
+    const c = ev.err ? null : G.counterDeal(S, dipDeal());
+    UI.deal.counter = c;
+    UI.deal.msg = ev.err ? ev.err : ev.accept ? 'They would accept this as it stands.' : c ? '' : 'They see nothing you could add that would win them over.';
+    UI.deal.msgKind = ev.accept ? 'good' : '';
+    if (c) S.rel[UI.deal.ai].counter = G.dealSig(c.deal);
+    render(true);
+  },
+  dpLoadCounter: () => { if (!UI.deal || !UI.deal.counter) return; Object.assign(UI.deal, dipClone(UI.deal.counter.deal), { counter: null, msg: null }); render(true); },
+  dpTakeCounter: () => { if (!UI.deal || !UI.deal.counter) return; Object.assign(UI.deal, dipClone(UI.deal.counter.deal), { counter: null, msg: null }); act.dpPropose(); },
+  dpDecline: () => { if (UI.deal && UI.deal.pid) { const m = G.resolvePending(S, UI.deal.pid, 'decline'); if (m) toast(m); } UI.deal = null; render(true); },
+  dpWar: d => {
+    const ts = G.treatiesOf(S, 'p', d.e);
+    if (ts.length && !confirm(`Declare war on the ${S.empires[d.e].name}? This breaks your treaties with them (${ts.map(G.treatyName).join(', ')}) and costs your reputation with every court.`)) return;
+    act.diplo({ a: 'war', e: d.e });
+  },
+  dpVassal: d => { const msg = G.diplo[d.a](S, d.e); toast(msg); if (msg) G.log(S, 'p', '👑 ' + msg); render(true); },
+  decide: d => {
+    const p = (S.pending || []).find(x => x.id === d.p);
+    if (p && p.kind === 'deal' && d.k === 'counter') {
+      UI.deal = { ...dipClone(p.data.deal), pid: p.id, msg: 'Their proposal is on the table: change it and propose your counter.', msgKind: '' };
+      UI.tab = 'diplomacy'; render(true); dipTop(); return;
+    }
+    dipBaseDecide(d);
+  },
+});
+if (typeof TABS !== 'undefined' && TABS.diplomacy) TABS.diplomacy.badge = () => (S.offers || []).length + (S.pending || []).filter(p => p.kind === 'deal' || p.kind === 'callToArms').length;
+// amounts and durations on the table
+document.addEventListener('change', ev => {
+  const f = ev.target.dataset && ev.target.dataset.dealf;
+  if (!f || !UI.deal) return;
+  const [side, i, field] = f.split('|');
+  const it = (UI.deal[side] || [])[+i];
+  if (!it) return;
+  let v = Math.max(0, Math.floor(+ev.target.value || 0));
+  if (field === 'n' && it.max != null) v = Math.min(v, it.max);
+  it[field] = v; UI.deal.msg = null; UI.deal.counter = null;
+  ev.target.blur(); render(true);
+});
+// drag items onto (or off) the table
+document.addEventListener('dragstart', ev => {
+  const el = ev.target.closest && ev.target.closest('[data-drag]');
+  if (!el || !ev.dataTransfer) return;
+  ev.dataTransfer.setData('text/plain', el.dataset.drag); ev.dataTransfer.effectAllowed = 'move';
+});
+document.addEventListener('dragover', ev => {
+  const z = ev.target.closest && ev.target.closest('[data-drop]');
+  if (!z || !UI.deal) return;
+  ev.preventDefault();
+  document.querySelectorAll('.dp-over').forEach(x => { if (x !== z) x.classList.remove('dp-over'); });
+  z.classList.add('dp-over');
+});
+document.addEventListener('dragend', () => { document.querySelectorAll('.dp-over').forEach(x => x.classList.remove('dp-over')); UI.holding = false; });
+document.addEventListener('drop', ev => {
+  const z = ev.target.closest && ev.target.closest('[data-drop]');
+  if (!z || !UI.deal || !ev.dataTransfer) return;
+  ev.preventDefault(); z.classList.remove('dp-over');
+  const [side, key, where] = (ev.dataTransfer.getData('text/plain') || '').split('|');
+  if (!side) return;
+  if (side !== z.dataset.drop) { toast('That belongs in the other column'); return; }
+  const onAvail = !!(ev.target.closest && ev.target.closest('.dp-avail'));
+  if (where === 'avail' && !onAvail) act.dpAdd({ s: side, key });
+  else if (where === 'on' && onAvail) act.dpDel({ s: side, i: key });
+});
+// keep "Why?" and the history open across the per-second render
+document.addEventListener('toggle', ev => {
+  const k = ev.target && ev.target.dataset && ev.target.dataset.dpopen;
+  if (!k) return;
+  UI.dpOpenSet = UI.dpOpenSet || {};
+  UI.dpOpenSet[k] = ev.target.open;
+}, true);

@@ -93,7 +93,7 @@
     if (th) add('Traditions', th);
     if (G.ceremonyHappy) { const ch = G.ceremonyHappy(s, city); if (ch.value) add(ch.label || 'Ceremonies', ch.value); }
     // pressures
-    const e = G.econ(s, city);
+    const e = (G.econLean || G.econ)(s, city);
     const ratio = city.pop / Math.max(1, e.civCap);
     if (ratio > 0.95) add('Crowding', -Math.min(C.crowdMax * 1.5, C.crowdMax * (ratio - 0.95) / 0.05) * tFx(emp, 'crowd'));
     const share = e.soldiers / Math.max(1, city.pop + e.soldiers);

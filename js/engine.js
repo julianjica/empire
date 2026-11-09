@@ -39,7 +39,38 @@ G.lvl = (city, b) => (city && city.buildings[b]) || 0;
 G.raceOf = (s, city) => DATA.races[s.empires[city.owner].race];
 G.tileAt = (s, x, y) => (x < 0 || y < 0 || x >= s.map || y >= s.map) ? null : s.tiles[y * s.map + x];
 G.tileIdx = (s, t) => t.y * s.map + t.x;
-G.citiesOf = (s, owner) => Object.values(s.cities).filter(c => c.owner === owner);
+// Inside G.step the owner -> cities lists come from an index that is re-checked on every call
+// (each city still in s.cities under the same owner, no new id issued since), so it can never go stale;
+// outside a step (UI, tests that edit s.cities by hand) the lists are built afresh.
+let CITY_IDX = null;
+const EMPTY_LIST = [];
+const cityIndex = s => {
+  const x = CITY_IDX;
+  if (x && x.s === s && x.obj === s.cities && x.nextId === s.nextId) {
+    const all = x.all, own = x.owners, cs = s.cities;
+    let ok = true;
+    for (let i = 0; i < all.length; i++) { const c = all[i]; if (c.owner !== own[i] || cs[c.id] !== c) { ok = false; break; } }
+    if (ok) return x;
+  }
+  const all = Object.values(s.cities), owners = new Array(all.length), by = new Map();
+  for (let i = 0; i < all.length; i++) {
+    const c = all[i], o = c.owner;
+    owners[i] = o;
+    const l = by.get(o);
+    if (l) l.push(c); else by.set(o, [c]);
+  }
+  return (CITY_IDX = { s, obj: s.cities, nextId: s.nextId, all, owners, by });
+};
+G.citiesOf = (s, owner) => G._modCache ? (cityIndex(s).by.get(owner) || EMPTY_LIST).slice() : Object.values(s.cities).filter(c => c.owner === owner);
+// every city, in s.cities order; inside a step this is the index's own array, so callers must only read it
+G.allCities = s => G._modCache ? cityIndex(s).all : Object.values(s.cities);
+// how many cities a realm holds (no array handed out)
+G.cityCount = (s, owner) => {
+  if (G._modCache) { const l = cityIndex(s).by.get(owner); return l ? l.length : 0; }
+  let n = 0;
+  for (const id in s.cities) if (s.cities[id].owner === owner) n++;
+  return n;
+};
 G.pace = s => DATA.pace[s.settings.pace] || DATA.pace.standard;
 G.grace = s => G.pace(s).grace;
 G.capital = (s, owner) => G.citiesOf(s, owner).sort((a, b) => (a.founded || 0) - (b.founded || 0))[0];
@@ -63,9 +94,14 @@ G._modCache = null;
 G.mod = (s, owner, city, key) => {
   const mc = G._modCache;
   if (mc) {
-    const k = owner + '|' + (city ? city.id : '') + '|' + key;
-    let v = mc.get(k);
-    if (v === undefined) { v = modRaw(s, owner, city, key); mc.set(k, v); }
+    // nested maps owner -> city id -> key (same entries as an 'owner|city|key' string key, without building the string)
+    let mo = mc.get(owner);
+    if (mo === undefined) { mo = new Map(); mc.set(owner, mo); }
+    const cid = city ? city.id : '';
+    let mk = mo.get(cid);
+    if (mk === undefined) { mk = new Map(); mo.set(cid, mk); }
+    let v = mk.get(key);
+    if (v === undefined) { v = modRaw(s, owner, city, key); mk.set(key, v); }
     return v;
   }
   return modRaw(s, owner, city, key);
@@ -123,9 +159,10 @@ G.popCap = (s, city) => {
 
 G.workersReq = city => {
   let w = 0;
-  for (const [t, L] of Object.entries(city.buildings)) {
+  const bl = city.buildings;
+  for (const t in bl) {
     const b = DATA.buildings[t];
-    if (b && b.workers && !(city.refineOff && city.refineOff[t])) w += b.workers * L;
+    if (b && b.workers && !(city.refineOff && city.refineOff[t])) w += b.workers * bl[t];
   }
   return w;
 };
@@ -206,40 +243,57 @@ G.coldSite = city => G.SINK.coldSite[city.terrain] || 1;
 // Full economic picture of a city (nominal rates per minute).
 //   raw/refiners/net as before; rawParts[g] = production lines; sinks[g] = upkeep & wear lines (negative amounts);
 //   use[g] = upkeep & wear stepCity takes; wages = gold upkeep. G.econParts(s, city, e) gives the full breakdown.
+// G.econLean: the same numbers as G.econ, without the labelled breakdowns that only the UI and advice read
+// (e.rawParts and e.sinks come back empty). For stepCity, the AI and happiness. The flag is taken (and cleared)
+// on entry to the base G.econ, so wrappers that call the base first pass it through and nested calls never see it.
+let ECON_LEAN = false;
+G.econLean = (s, city, awayUnits) => { ECON_LEAN = true; try { return G.econ(s, city, awayUnits); } finally { ECON_LEAN = false; } };
+const UNIT_ARMOURED = new Map(), UNIT_UNDEAD = new Map();
+const armouredU = u => { let v = UNIT_ARMOURED.get(u); if (v === undefined) { v = isArmoured(u); UNIT_ARMOURED.set(u, v); } return v; };
+const undeadU = u => { let v = UNIT_UNDEAD.get(u); if (v === undefined) { v = isUndead(u); UNIT_UNDEAD.set(u, v); } return v; };
 G.econ = (s, city, awayUnits) => {
+  const lean = ECON_LEAN;
+  ECON_LEAN = false;
   const emp = s.empires[city.owner];
+  const owner = city.owner;
   const cap = G.storageCap(s, city);
   const popCap = G.popCap(s, city);
   const workersReq = G.workersReq(city);
   const eff = workersReq > 0 ? Math.min(1, city.pop / workersReq) : 1;
-  const rawParts = {};
+  const rawParts = lean ? null : {};
   const addRaw = (g, label, v, type) => { if (v > 1e-9) (rawParts[g] = rawParts[g] || []).push({ label, amount: v, type }); };
 
   // every settlement's commons yield a little of each raw good, independent of buildings
   const raw = {};
-  for (const [g, v] of Object.entries(BASE_YIELD)) { raw[g] = v * G.mod(s, city.owner, city, g); addRaw(g, 'Commons', raw[g]); }
-  for (const [t, L] of Object.entries(city.buildings)) {
+  for (const g in BASE_YIELD) { raw[g] = BASE_YIELD[g] * G.mod(s, owner, city, g); if (!lean) addRaw(g, 'Commons', raw[g]); }
+  const blds = city.buildings;
+  for (const t in blds) {
+    const L = blds[t];
     const b = DATA.buildings[t];
     if (!b || !b.prod || L <= 0) continue;
-    for (const [g, base] of Object.entries(b.prod)) {
-      const v = base * L * Math.pow(1.12, L - 1) * eff * G.mod(s, city.owner, city, g);
+    const prod = b.prod;
+    for (const g in prod) {
+      const v = prod[g] * L * Math.pow(1.12, L - 1) * eff * G.mod(s, owner, city, g);
       raw[g] = (raw[g] || 0) + v;
-      addRaw(g, `${b.name} ${L}`, v, t);
+      if (!lean) addRaw(g, `${b.name} ${L}`, v, t);
     }
   }
 
-  const before = { ...raw };
-  for (const h of G.econHooks) h(s, city, raw, eff);
-  for (const g of Object.keys(raw)) {
-    const d = raw[g] - (before[g] || 0);
-    if (d > 1e-9) addRaw(g, g === 'mana' ? (G.lvl(city, 'magetower') ? 'The land, ley & Mage Tower' : 'The land & ley lines') : 'Other sources', d, g === 'mana' && G.lvl(city, 'magetower') ? 'magetower' : undefined);
+  if (lean) { for (const h of G.econHooks) h(s, city, raw, eff); }
+  else {
+    const before = { ...raw };
+    for (const h of G.econHooks) h(s, city, raw, eff);
+    for (const g of Object.keys(raw)) {
+      const d = raw[g] - (before[g] || 0);
+      if (d > 1e-9) addRaw(g, g === 'mana' ? (G.lvl(city, 'magetower') ? 'The land, ley & Mage Tower' : 'The land & ley lines') : 'Other sources', d, g === 'mana' && G.lvl(city, 'magetower') ? 'magetower' : undefined);
+    }
   }
   // harbor fishing: more open water nearby, more fish; the 'fishing' key (Tidekin, traditions, wonders) scales the catch
   const hb = G.lvl(city, 'harbor');
-  const fishing = hb ? 5 * hb * Math.pow(1.12, hb - 1) * Math.min(4, G.site(s, city).water || 0) / 2 * eff * G.mod(s, city.owner, city, 'grain') * G.mod(s, city.owner, city, 'fishing') : 0;
-  if (fishing) { raw.grain = (raw.grain || 0) + fishing; addRaw('grain', `Harbor fishing ${hb}`, fishing, 'harbor'); }
+  const fishing = hb ? 5 * hb * Math.pow(1.12, hb - 1) * Math.min(4, G.site(s, city).water || 0) / 2 * eff * G.mod(s, owner, city, 'grain') * G.mod(s, owner, city, 'fishing') : 0;
+  if (fishing) { raw.grain = (raw.grain || 0) + fishing; if (!lean) addRaw('grain', `Harbor fishing ${hb}`, fishing, 'harbor'); }
   const refiners = [];
-  const refMod = G.mod(s, city.owner, city, 'refine');
+  const refMod = G.mod(s, owner, city, 'refine');
   for (const t of REFINE_ORDER) {
     const L = G.lvl(city, t);
     if (!L) continue;
@@ -255,20 +309,21 @@ G.econ = (s, city, awayUnits) => {
   }
 
   let upkeep = 0;
-  const countUp = units => { for (const [u, n] of Object.entries(units || {})) upkeep += (DATA.units[u].upkeep || 0) * n; };
+  const countUp = units => { if (units) for (const u in units) upkeep += (DATA.units[u].upkeep || 0) * units[u]; };
   countUp(city.units);
   if (awayUnits && awayUnits[city.id]) countUp(awayUnits[city.id]);
-  upkeep *= G.mod(s, city.owner, city, 'upkeep');
+  upkeep *= G.mod(s, owner, city, 'upkeep');
 
   const popFood = city.pop * 0.12;
   const idle = Math.max(0, city.pop - workersReq);
-  const tax = ((city.pop * 0.15 + idle * 0.35) + 1) * G.mod(s, city.owner, city, 'tax');
+  const tax = ((city.pop * 0.15 + idle * 0.35) + 1) * G.mod(s, owner, city, 'tax');
 
   const net = {};
   for (const g of DATA.goodOrder) net[g] = raw[g] || 0;
   for (const r of refiners) {
-    for (const [g, v] of Object.entries(r.in)) net[g] -= v;
-    for (const [g, v] of Object.entries(r.out)) net[g] += v;
+    const ri = r.in, ro = r.out;
+    for (const g in ri) net[g] -= ri[g];
+    for (const g in ro) net[g] += ro[g];
   }
   let grainFood = popFood, breadFood = 0;
   if (emp.race === 'hearth' && (city.res.bread || 0) > 1) { breadFood = popFood / 3; net.bread -= breadFood; grainFood = 0; }
@@ -277,10 +332,11 @@ G.econ = (s, city, awayUnits) => {
   // ---- upkeep and wear ----
   const K = G.SINK, P = G.pace(s).prod;
   const sinks = {}, use = {};
+  let wages = 0;
   const sink = (g, label, v, ext) => {
     if (!(v > 1e-9)) return;
-    (sinks[g] = sinks[g] || []).push({ label, amount: -v, ext: !!ext });
-    if (g === 'gold') return;
+    if (g === 'gold') { wages = wages - -v; if (!lean) (sinks.gold = sinks.gold || []).push({ label, amount: -v, ext: !!ext }); return; }
+    if (!lean) (sinks[g] = sinks[g] || []).push({ label, amount: -v, ext: !!ext });
     net[g] = (net[g] || 0) - v;
     if (!ext) use[g] = (use[g] || 0) + v;
   };
@@ -289,19 +345,22 @@ G.econ = (s, city, awayUnits) => {
   if (!awayUnits) { for (const m of s.moves) if (m.from === city.id && m.owner === city.owner && G.unitsCount(m.units)) away = G.addUnits(away || {}, m.units); }
   let armoured = 0, kitHome = 0, kitAway = 0, undead = 0, mages = 0;
   const tally = (units, out) => {
-    for (const [u, n] of Object.entries(units || {})) {
+    if (!units) return;
+    for (const u in units) {
+      const n = units[u];
       const d = DATA.units[u];
       if (!d || !(n > 0)) continue;
-      if (isArmoured(u)) armoured += n;
+      if (armouredU(u)) armoured += n;
       const w = (d.cost && d.cost.weapons) || 0;
       if (w) { if (out) kitAway += w * n; else kitHome += w * n; }
-      if (isUndead(u)) undead += n;
+      if (undeadU(u)) undead += n;
       if (d.mage) mages += n;
     }
   };
   tally(city.units, false); tally(away, true);
   let levels = 0, grand = 0;
-  for (const [t, L] of Object.entries(city.buildings)) {
+  for (const t in blds) {
+    const L = blds[t];
     const b = DATA.buildings[t];
     if (!b || b.wonder || !(L > 0)) continue;
     if (t !== 'wall') levels += L;
@@ -309,38 +368,38 @@ G.econ = (s, city, awayUnits) => {
   }
   const wallL = G.lvl(city, 'wall');
   const seasonF = G.firewoodSeason(s, city.owner), coldF = G.coldSite(city);
-  sink('timber', `Firewood (${Math.floor(city.pop)} people${Math.abs(seasonF - 1) > 0.01 ? ', season ×' + seasonF.toFixed(1) : ''}${coldF > 1 ? ', cold site ×' + coldF : ''})`, K.firewood * city.pop * seasonF * coldF * P);
-  sink('timber', `Repairs (${levels} building levels)`, K.repairTimber * levels * P);
-  sink('stone', `Repairs (${levels} building levels)`, K.repairStone * levels * P);
-  if (wallL) sink('stone', `Wall upkeep (level ${wallL})`, K.wallStone * Math.pow(wallL, 1.3) * P);
-  sink('iron', `Armour repair (${armoured} armoured soldiers)`, K.armour * armoured * P);
-  if (grand) { sink('iron', `Grand buildings (${grand} levels above ${K.grandFrom})`, K.grandIron * grand * P); }
+  sink('timber', lean ? '' : `Firewood (${Math.floor(city.pop)} people${Math.abs(seasonF - 1) > 0.01 ? ', season ×' + seasonF.toFixed(1) : ''}${coldF > 1 ? ', cold site ×' + coldF : ''})`, K.firewood * city.pop * seasonF * coldF * P);
+  sink('timber', lean ? '' : `Repairs (${levels} building levels)`, K.repairTimber * levels * P);
+  sink('stone', lean ? '' : `Repairs (${levels} building levels)`, K.repairStone * levels * P);
+  if (wallL) sink('stone', lean ? '' : `Wall upkeep (level ${wallL})`, K.wallStone * Math.pow(wallL, 1.3) * P);
+  sink('iron', lean ? '' : `Armour repair (${armoured} armoured soldiers)`, K.armour * armoured * P);
+  if (grand) { sink('iron', lean ? '' : `Grand buildings (${grand} levels above ${K.grandFrom})`, K.grandIron * grand * P); }
   const employed = Math.min(city.pop, workersReq);
-  if (G.lvl(city, 'townhall') >= K.toolsTh || G.lvl(city, 'smithy')) sink('tools', `Worn by ${Math.floor(employed)} workers (first ${K.toolsFree} free)`, K.tools * Math.max(0, employed - K.toolsFree) * P);
+  if (G.lvl(city, 'townhall') >= K.toolsTh || G.lvl(city, 'smithy')) sink('tools', lean ? '' : `Worn by ${Math.floor(employed)} workers (first ${K.toolsFree} free)`, K.tools * Math.max(0, employed - K.toolsFree) * P);
   if (G.lvl(city, 'townhall') >= K.toolsTh || G.lvl(city, 'armory')) {
     sink('weapons', 'Soldiers\' kit wear', K.weapons * kitHome * P);
     sink('weapons', 'Kit wear on campaign (×' + K.campaign + ')', K.weapons * K.campaign * kitAway * P);
   }
   const tower = G.lvl(city, 'magetower');
   if (tower) {      // only where a tower draws mana, so upkeep never outruns the land's own trickle
-    sink('mana', `Mage Tower upkeep (level ${tower})`, K.towerMana * tower * P);
-    sink('mana', `Battle mages (${mages})`, K.mageMana * mages * P);
+    sink('mana', lean ? '' : `Mage Tower upkeep (level ${tower})`, K.towerMana * tower * P);
+    sink('mana', lean ? '' : `Battle mages (${mages})`, K.mageMana * mages * P);
     if ((city.ward || 0) > s.time) sink('mana', 'Ward of Weaving', K.wardMana * P);
   }
-  if (emp.race === 'grave') sink('bonedust', `Binding the dead (${undead} undead)`, K.binding * undead * P);
-  for (const [g, L] of Object.entries(G.LUXURY)) if (emp.race === L.race) sink(g, `${L.label} (${Math.floor(city.pop)} people)`, K.luxury * city.pop * P);
-  if (emp.race === 'tide' && (city.res.pearls || 0) > 0) sink('pearls', `Worn & traded (${Math.floor(city.pop)} people)`, city.pop * (G.RACES2 ? G.RACES2.pearlEat : 0.01), true);
+  if (emp.race === 'grave') sink('bonedust', lean ? '' : `Binding the dead (${undead} undead)`, K.binding * undead * P);
+  const LUX = G.LUXURY;
+  for (const g in LUX) { const L = LUX[g]; if (emp.race === L.race) sink(g, lean ? '' : `${L.label} (${Math.floor(city.pop)} people)`, K.luxury * city.pop * P); }
+  if (emp.race === 'tide' && (city.res.pearls || 0) > 0) sink('pearls', lean ? '' : `Worn & traded (${Math.floor(city.pop)} people)`, city.pop * (G.RACES2 ? G.RACES2.pearlEat : 0.01), true);
   const soldiers = G.soldiers(s, city, awayUnits);
-  sink('gold', `Soldiers' wages (${soldiers})`, K.wages * soldiers * P);
-  if (grand) sink('gold', `Grand buildings (${grand} levels above ${K.grandFrom})`, K.grandGold * grand * P);
-  const wages = (sinks.gold || []).reduce((a, l) => a - l.amount, 0);
+  sink('gold', lean ? '' : `Soldiers' wages (${soldiers})`, K.wages * soldiers * P);
+  if (grand) sink('gold', lean ? '' : `Grand buildings (${grand} levels above ${K.grandFrom})`, K.grandGold * grand * P);
 
-  const protect = cap * (0.1 + (G.mod(s, city.owner, city, 'protect') - 1));
+  const protect = cap * (0.1 + (G.mod(s, owner, city, 'protect') - 1));
   // soldiers are enrolled citizens: they take housing (beyond barracks quarters) away from civilians
   const quarters = G.quarters(city);
   const civCap = Math.max(5, popCap - Math.max(0, soldiers - quarters));
   return { cap, protect, popCap, civCap, soldiers, quarters, workersReq, eff, raw, refiners, popFood, upkeep, tax, net, idle, fishing,
-    grainFood, breadFood, rawParts, sinks, use, wages };
+    grainFood, breadFood, rawParts: rawParts || {}, sinks, use, wages };
 };
 
 // The full breakdown of a city's goods: parts[g] = [{label, amount, kind}] (kind 'prod' | 'use'), summing to e.net[g].
@@ -462,9 +521,15 @@ G.unitStats = (s, owner, u) => {
   const d = DATA.units[u];
   const up = owner && s.empires[owner] && s.empires[owner].upgrades && s.empires[owner].upgrades[u];
   if (!up) return d;
+  // the upgraded stats are remembered per upgrade record while its levels stay the same (callers only read them, as they do DATA.units)
+  const memo = typeof up === 'object' ? STAT_MEMO.get(up) : undefined;
+  if (memo && memo.d === d && memo.a === up.a && memo.df === up.d) return memo.out;
   const a = 1 + 0.04 * (up.a || 0), df = 1 + 0.04 * (up.d || 0);
-  return { ...d, atk: d.atk * a, defI: d.defI * df, defC: d.defC * df };
+  const out = { ...d, atk: d.atk * a, defI: d.defI * df, defC: d.defC * df };
+  if (typeof up === 'object') STAT_MEMO.set(up, { d, a: up.a, df: up.d, out });
+  return out;
 };
+const STAT_MEMO = new WeakMap();
 // battle mages lend their spells to the army they march with (or the garrison they stand in)
 G.mageBoost = (s, owner, units) => {
   let n = 0;
@@ -473,10 +538,10 @@ G.mageBoost = (s, owner, units) => {
 };
 G.wallBreak = units => Object.entries(units || {}).reduce((a, [u, n]) => a + (DATA.units[u].wallBreak || 0) * n, 0);
 G.wreckPower = units => Object.entries(units || {}).reduce((a, [u, n]) => a + (DATA.units[u].wreck || 0) * n, 0);
-G.unitsCount = units => Object.values(units || {}).reduce((a, b) => a + b, 0);
-G.addUnits = (into, from) => { for (const [u, n] of Object.entries(from || {})) if (n > 0) into[u] = (into[u] || 0) + n; return into; };
-G.atkPower = (s, owner, units) => Object.entries(units).reduce((a, [u, n]) => a + G.unitStats(s, owner, u).atk * n, 0);
-G.defPower = (s, owner, units) => Object.entries(units).reduce((a, [u, n]) => { const d = G.unitStats(s, owner, u); return a + (d.defI + d.defC) / 2 * n; }, 0);
+G.unitsCount = units => { let a = 0; if (units) for (const u in units) a = a + units[u]; return a; };
+G.addUnits = (into, from) => { if (from) for (const u in from) { const n = from[u]; if (n > 0) into[u] = (into[u] || 0) + n; } return into; };
+G.atkPower = (s, owner, units) => { let a = 0; for (const u in units) a = a + G.unitStats(s, owner, u).atk * units[u]; return a; };
+G.defPower = (s, owner, units) => { let a = 0; for (const u in units) { const d = G.unitStats(s, owner, u); a = a + (d.defI + d.defC) / 2 * units[u]; } return a; };
 G.slowest = (s, owner, units) => Math.min(...Object.entries(units).filter(([, n]) => n > 0).map(([u]) => G.unitStats(s, owner, u).spd));
 // ---- paths: armies walk around water; ships sail on it --------------------
 const PATHS = new WeakMap();
@@ -650,7 +715,7 @@ G.trainTime = (s, city, unit) => {
 
 // people each unit takes from the population (heroes and wild creatures take none)
 G.unitPop = u => { const d = DATA.units[u]; if (!d || !d.at) return 0; if (d.pop !== undefined) return d.pop; return u === 'settlers' ? 5 : u === 'herald' ? 2 : d.type === 'siege' ? 3 : d.type === 'cav' ? 2 : d.req >= 10 ? 2 : 1; };
-G.popOf = units => Object.entries(units || {}).reduce((a, [u, n]) => a + G.unitPop(u) * n, 0);
+G.popOf = units => { let a = 0; if (units) for (const u in units) a = a + G.unitPop(u) * units[u]; return a; };
 G.soldiers = (s, city, away) => {
   let n = G.popOf(city.units);
   if (away && away[city.id]) n += G.popOf(away[city.id]);
@@ -827,7 +892,7 @@ G.caravanCap = (s, city) => Math.round(G.lvl(city, 'market') * 500 * G.mod(s, ci
 // ---------------------------------------------------------------------
 G.renown = (s, owner) => {
   let r = 0;
-  for (const c of G.citiesOf(s, owner)) for (const L of Object.values(c.buildings)) r += L;
+  for (const c of G.citiesOf(s, owner)) { const bl = c.buildings; for (const t in bl) r += bl[t]; }
   const e = s.empires[owner];
   return r + G.winRenown(e.wins || 0) + (e.conquests || 0) * 25 + (e.renownBonus || 0);
 };
@@ -836,7 +901,8 @@ G.winRenown = w => Math.round(w <= 25 ? w * 3 : 75 + (w - 25) * 1.5);
 G.power = (s, owner) => {
   let p = 0;
   for (const c of G.citiesOf(s, owner)) {
-    for (const L of Object.values(c.buildings)) p += L * 8;
+    const bl = c.buildings;
+    for (const t in bl) p += bl[t] * 8;
     p += G.defPower(s, owner, c.units) * 0.5 + G.atkPower(s, owner, c.units) * 0.5;
   }
   for (const m of s.moves) if (m.owner === owner) p += G.atkPower(s, owner, m.units) * 0.5;
@@ -1032,10 +1098,16 @@ G.DAY = 2400;
 G.SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
 G.dayPhase = s => (s.time % G.DAY) / G.DAY;                    // 0 = midnight, 0.5 = noon
 G.daylight = s => { const p = G.dayPhase(s); return clamp(0.5 - 0.5 * Math.cos(p * Math.PI * 2), 0, 1); }; // 0 night .. 1 noon
+// inside a step the same answer is handed out for the same game time (modifier sources ask for it again and again)
+let SEASON_MEMO = null;
 G.season = s => {
   const len = 7200 * G.pace(s).time;
+  const m = SEASON_MEMO;
+  if (m && G._modCache && m.s === s && m.t === s.time && m.len === len) return m.v;
   const n = s.time / len;
-  return { index: Math.floor(n) % 4, name: G.SEASONS[Math.floor(n) % 4], progress: n % 1, year: Math.floor(n / 4) + 1 };
+  const v = { index: Math.floor(n) % 4, name: G.SEASONS[Math.floor(n) % 4], progress: n % 1, year: Math.floor(n / 4) + 1 };
+  if (G._modCache) SEASON_MEMO = { s, t: s.time, len, v };
+  return v;
 };
 
 // Rivers: lists of tile indices, flowing from high ground to a lake or the map edge
@@ -1797,20 +1869,22 @@ G.modSources.push((s, owner, city, key) => (city && city.short && city.short.too
 
 const stepCity = (s, city, dt, away) => {
   const emp = s.empires[city.owner];
-  const e = G.econ(s, city, away);
+  const e = G.econLean(s, city, away);
   const k = dt / 60;
   const cap = e.cap;
 
-  for (const [g, r] of Object.entries(e.raw)) city.res[g] = Math.min(Math.max(cap, city.res[g] || 0), (city.res[g] || 0) + r * k);
+  const eraw = e.raw, cres = city.res;
+  for (const g in eraw) cres[g] = Math.min(Math.max(cap, cres[g] || 0), (cres[g] || 0) + eraw[g] * k);
 
   city.refineEff = city.refineEff || {};
   for (const ref of e.refiners) {
     let f = 1;
-    for (const [g, v] of Object.entries(ref.in)) { const need = v * k; if (need > 0) f = Math.min(f, (city.res[g] || 0) / need); }
-    for (const [g, v] of Object.entries(ref.out)) { const out = v * k; if (out > 0) f = Math.min(f, Math.max(0, cap - (city.res[g] || 0)) / out); }
+    const rin = ref.in, rout = ref.out;
+    for (const g in rin) { const need = rin[g] * k; if (need > 0) f = Math.min(f, (city.res[g] || 0) / need); }
+    for (const g in rout) { const out = rout[g] * k; if (out > 0) f = Math.min(f, Math.max(0, cap - (city.res[g] || 0)) / out); }
     f = clamp(f, 0, 1);
-    for (const [g, v] of Object.entries(ref.in)) city.res[g] -= v * k * f;
-    for (const [g, v] of Object.entries(ref.out)) city.res[g] = (city.res[g] || 0) + v * k * f;
+    for (const g in rin) city.res[g] -= rin[g] * k * f;
+    for (const g in rout) city.res[g] = (city.res[g] || 0) + rout[g] * k * f;
     city.refineEff[ref.type] = f;
   }
 
@@ -1846,7 +1920,7 @@ const stepCity = (s, city, dt, away) => {
 
   emp.gold += e.tax * k;
   payUpkeep(s, city, e, k);
-  city.loyalty = Math.min(100, (city.loyalty ?? 100) + 0.4 * (1 + 0.25 * Math.max(0, (s.maxCities || 1) - G.citiesOf(s, city.owner).length)) * k);
+  city.loyalty = Math.min(100, (city.loyalty ?? 100) + 0.4 * (1 + 0.25 * Math.max(0, (s.maxCities || 1) - G.cityCount(s, city.owner))) * k);
   if (city.mods && city.mods.length) city.mods = city.mods.filter(md => md.until > s.time);
 
   while (city.buildQueue.length && city.buildQueue[0].end <= s.time) {
@@ -1943,7 +2017,7 @@ G.aiPressure = s => {
 };
 
 const aiBuildChoice = (s, city) => {
-  const e = G.econ(s, city);
+  const e = G.econLean(s, city);
   const th = G.lvl(city, 'townhall');
   const emp = s.empires[city.owner];
   const cands = [];
@@ -2038,7 +2112,7 @@ const aiTrain = (s, city) => {
   const emp = s.empires[city.owner];
   const race = DATA.races[emp.race];
   if (G.lvl(city, 'barracks') < 1) return;
-  const e = G.econ(s, city);
+  const e = G.econLean(s, city);
   if (e.net.grain < 3 || city.starving || (emp.saving && emp.gold < 900) || (city.res.grain || 0) < Math.min(400, e.cap * 0.2)) return;
   const late = G.aiPressure(s) > 0.7;
   if (late && G.lvl(city, 'townhall') >= 8 && (city.units.herald || 0) < 2 && !(city.train.townhall || []).length && emp.gold > 2500 && Math.random() < 0.15) {
@@ -2083,7 +2157,7 @@ const aiMarket = (s, city) => {
   const sh = city.short || {};
   const need = ['tools', 'weapons', 'iron', 'bonedust', 'timber', 'stone'].filter(g => sh[g] || ((city.res[g] || 0) < 3 && G.SINK.grace[g] && (city.wear || {})[g] > 0));
   if (need.length && emp.gold > (emp.saving ? 800 : 300)) {
-    const e = G.econ(s, city);
+    const e = G.econLean(s, city);
     for (const g of need) {
       const n = Math.ceil(Math.min(cap * 0.2, Math.max(10, (e.use[g] || 0) * 30), emp.gold / 6 / G.marketRates(s, city, g).buy));
       if (n > 0) G.trade(s, city.id, g, n, 'buy');
@@ -2229,7 +2303,7 @@ const aiNaval = (s, empId) => {
     return;
   }
   if (s.time < (emp.navyAt || 0)) return;           // one keel at a time: the player is not swamped by fleets
-  const e = G.econ(s, port);
+  const e = G.econLean(s, port);
   if (e.net.grain < 3 || port.starving || (emp.saving && emp.gold < 900) || (port.train.harbor || []).length) return;
   const afloat = u => (port.units[u] || 0) + s.moves.filter(m => m.owner === empId && m.from === port.id).reduce((a, m) => a + (m.units[u] || 0), 0);
   let want = wantSettle ? 1 : 0;
@@ -2296,16 +2370,17 @@ const aiWar = (s, empId) => {
       const r = G.battle(s, empId, off, 1, defOwner, units, mult, flat, { mode, x, y, labels });
       return r.D * A / Math.max(1, r.A);
     };
+    // Camps and oases only make the list if the tactical estimate allows (a camp failing the rough check never does),
+    // and their scores don't depend on it: so they are listed as candidates and estimated only when the pick below
+    // reaches them (the estimate is a pure battle preview, and a stable sort orders the kept ones exactly as before).
     for (const camp of Object.values(s.camps)) {
-      let d = G.defPower(s, null, camp.units) + 5 * camp.tier;
-      if (A > d * 1.2) d = est(camp.x, camp.y, null, camp.units, 1, 5 * camp.tier, 'raid');
-      if (A > d * 1.5) targets.push({ x: camp.x, y: camp.y, score: dist(c, camp) - 2, type: 'raid', d: d * 1.15 });
+      const d = G.defPower(s, null, camp.units) + 5 * camp.tier;
+      if (A > d * 1.2) targets.push({ x: camp.x, y: camp.y, score: dist(c, camp) - 2, type: 'raid', lazy: () => { const e = est(camp.x, camp.y, null, camp.units, 1, 5 * camp.tier, 'raid'); return A > e * 1.5 ? e * 1.15 : null; } });
     }
     for (const t of s.special) {
       if (t.oasis && !t.oasis.owner && dist(c, t) <= G.cityReach(s, c) + 1.5 && (c.oases || []).length < G.oasisSlots(c)) {
-        let d = G.defPower(s, null, t.oasis.units) + 5 * t.oasis.tier;
-        if (A > d * 1.25) d = est(t.x, t.y, null, t.oasis.units, 1, 5 * t.oasis.tier, 'attack');
-        if (A > d * 1.6) targets.push({ x: t.x, y: t.y, score: dist(c, t) - 3, type: 'attack', d: d * 1.2 });
+        const o = t.oasis, d = G.defPower(s, null, o.units) + 5 * o.tier;
+        if (A > d * 1.25) targets.push({ x: t.x, y: t.y, score: dist(c, t) - 3, type: 'attack', lazy: () => { const e = est(t.x, t.y, null, o.units, 1, 5 * o.tier, 'attack'); return A > e * 1.6 ? e * 1.2 : null; } });
       }
     }
     for (const o of Object.values(s.cities)) {
@@ -2328,7 +2403,10 @@ const aiWar = (s, empId) => {
     targets.sort((a, b) => a.score - b.score);
     // the best target this city can actually reach (overland, by air, or by sea)
     let t = null, strike = null;
-    for (const cand of targets) { strike = aiStrike(s, c, off, cand, cand.type === 'conquer'); if (strike) { t = cand; break; } }
+    for (const cand of targets) {
+      if (cand.lazy) { const d = cand.lazy(); cand.lazy = null; if (d === null) continue; cand.d = d; }
+      strike = aiStrike(s, c, off, cand, cand.type === 'conquer'); if (strike) { t = cand; break; }
+    }
     if (!t) continue;
     if (dist(c, t) > (t.far || 13) + (strike.naval || strike.air ? 3 : 0)) continue;
     if (!G.sendArmy(s, c.id, t.x, t.y, strike.type, strike.units)) {
@@ -2355,14 +2433,19 @@ const aiThink = (s, dtMin) => {
     aiDefend(s, emp.id);
     emp.warClock = (emp.warClock || 0) + dtMin;
     if (emp.warClock > 1.5 * G.pace(s).time) { emp.warClock = 0; aiWar(s, emp.id); }
-    for (const h of G.aiHooks) h(s, emp, dtMin);
+    for (const h of G.aiHooks) { h(s, emp, dtMin); G._epoch++; }
   }
 };
 
 // ---------------------------------------------------------------------
 // Tick
 // ---------------------------------------------------------------------
+// G._epoch: a counter for short-lived memos inside a step (G.techFx); it moves on at every step, after every hook
+// and every resolved move, and wherever a memoized input changes (G.bumpEpoch()).
+G._epoch = 0;
+G.bumpEpoch = () => { G._epoch++; };
 G.step = (s, dt) => {
+  G._epoch++;
   G._modCache = new Map();
   try { stepInner(s, dt); } finally { G._modCache = null; }
 };
@@ -2370,25 +2453,25 @@ const stepInner = (s, dt) => {
   s.time += dt;
   const away = {};
   for (const m of s.moves) if (G.unitsCount(m.units)) away[m.from] = G.addUnits(away[m.from] || {}, m.units);
-  for (const city of Object.values(s.cities)) stepCity(s, city, dt, away);
+  for (const city of G.allCities(s)) stepCity(s, city, dt, away);
   stepNeutrals(s, dt);
-  for (const h of G.stepHooks) h(s, dt);
+  for (const h of G.stepHooks) { h(s, dt); G._epoch++; }
   s.moves.sort((a, b) => a.arrive - b.arrive);
   while (s.moves.length && s.moves[0].arrive <= s.time) {
     const m = s.moves.shift();
     G._field = { owner: m.owner, units: m.units, x: m.x, y: m.y, path: m.path, naval: m.naval };
-    try { G.resolveMove(s, m); } finally { G._field = null; G._lastTac = null; }
+    try { G.resolveMove(s, m); } finally { G._field = null; G._lastTac = null; G._epoch++; }
   }
   s.slowClock = (s.slowClock || 0) + dt;
   if (s.slowClock >= 10) {
     const dtMin = s.slowClock / 60;
     s.slowClock = 0;
-    s.maxCities = Math.max(...Object.keys(s.empires).map(id => G.citiesOf(s, id).length));
+    s.maxCities = Math.max(...Object.keys(s.empires).map(id => G.cityCount(s, id)));
     aiThink(s, dtMin);
     G.updateExplored(s);
     s.campClock = (s.campClock || 0) + dtMin;
     if (s.campClock > 5 * G.pace(s).time) { s.campClock = 0; for (let i = 0; i < 2 && Object.keys(s.camps).length < s.campTarget; i++) G.spawnCamp(s); }
-    for (const h of G.slowHooks) h(s, dtMin);
+    for (const h of G.slowHooks) { h(s, dtMin); G._epoch++; }
   }
 };
 

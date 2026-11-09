@@ -152,7 +152,7 @@ G.magicState = magic;
 // which city taps a node: the nearest city whose reach covers it
 G.nodeTapper = (s, node) => {
   let best = null, bd = 1e9;
-  for (const c of Object.values(s.cities)) {
+  for (const c of G.allCities ? G.allCities(s) : Object.values(s.cities)) {
     const d = Math.hypot(c.x - node.x, c.y - node.y);
     if (d <= G.cityReach(s, c) + 0.5 && d < bd) { bd = d; best = c; }
   }

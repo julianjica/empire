@@ -290,6 +290,7 @@ const EFFECTS = {
     if (opts.length) {
       const id = G.pick(opts);
       mine[id] = true;
+      if (G.bumpEpoch) G.bumpEpoch();
       const R = G.research(s, spy.owner);
       if (R.active && R.active.id === id) { const c = s.cities[R.active.city]; if (c && c.owner === spy.owner) G.gain(s, c, R.active.cost, 0.5); R.active = null; }
       return { text: `${spy.name} copied the scholars' notes in ${city.name}: you now know ${DATA.techs[id].icon} ${DATA.techs[id].name}.`, tech: id };

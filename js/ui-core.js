@@ -8,7 +8,7 @@
 let S = null;                 // game state
 const UI = {
   tab: 'city', city: null, sel: null, form: {}, mode: 'raid', openReport: null, holding: false,
-  start: { race: 'hearth', difficulty: 'normal', pace: 'standard', mode: 'conquest' },
+  start: { race: 'hearth', difficulty: 'easy', pace: 'standard', mode: 'conquest', rivals: 3, world: 'normal' },
 };
 const $app = document.getElementById('app');
 const act = {};
@@ -179,36 +179,61 @@ const curCity = () => {
 // ---------------------------------------------------------------------
 // start screen
 // ---------------------------------------------------------------------
-const choice = (id, map, cur, label) => `<label>${label}<select id="${id}">${Object.entries(map).map(([k, v]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${v.name} — ${v.desc}</option>`).join('')}</select></label>`;
+const START_REC = { pace: 'standard', mode: 'conquest', rivals: 3, world: 'normal', difficulty: 'easy' };
+const capitalDefault = r => r === 'hearth' || !DATA.aiNames[r] ? 'Hearthstead' : DATA.aiNames[r][0];
+// a row of option buttons (radio group) for one start setting
+const startSeg = (k, label, opts, cur, note) => `<div class="st-opt"><div class="st-lbl">${label}</div><div class="seg" role="radiogroup" aria-label="${label}">${opts.map(([v, name, sub]) =>
+  `<button class="${String(cur) === String(v) ? 'on' : ''}" role="radio" aria-checked="${String(cur) === String(v)}" data-act="startOpt" data-k="${k}" data-v="${v}">${name}${START_REC[k] !== undefined && String(START_REC[k]) === String(v) ? '<i class="st-rec" title="Recommended for a first game">★</i>' : ''}${sub ? `<small>${sub}</small>` : ''}</button>`).join('')}</div>${note ? `<div class="st-note muted">${note}</div>` : ''}</div>`;
 const renderStart = () => {
   const st = UI.start;
+  if (!st.name) st.name = 'Kingdom of ' + ['Ashvale', 'Brightmoor', 'Duskhaven', 'Emberfall'][Math.floor(Math.random() * 4)];
+  if (!st.hero) st.hero = ['Aldric', 'Maren', 'Tavish', 'Isolde', 'Brannoc'][Math.floor(Math.random() * 5)];
+  if (!st.city) st.city = capitalDefault(st.race);
+  st.rivals = st.rivals || 3; st.world = st.world || 'normal';
+  const R = DATA.races[st.race];
+  const isRec = Object.entries(START_REC).every(([k, v]) => String(st[k]) === String(v));
+  const ws = G.WORLD_SIZES || {};
+  const wsz = k => (G.worldSizeFor ? G.worldSizeFor(k, st.rivals) : 0);
   $app.innerHTML = `<div class="start">
-    <h1>🔥 Ember &amp; Crown 👑</h1>
-    <p class="tag">From a muddy hamlet to an empire of cities. Farm, quarry and smelt; forge tools and weapons; lead a hero into forgotten ruins; bargain or war with three rival peoples. No shop, no premium currency — only what you build.</p>
-    <h3>Choose your people</h3>
+    <header class="st-hero">
+      <h1>🔥 Ember &amp; Crown 👑</h1>
+      <p class="tag">From a muddy hamlet to an empire of cities. No shop, no premium currency — only what you build.</p>
+    </header>
+    <section class="card st-what">
+      <h3>What kind of game is this?</h3>
+      <p>A <b>real-time empire builder</b> you play in short sittings. Your towns farm, quarry and smelt while you plan; you queue buildings, research a tech tree, raise armies with stances and generals, send a hero into ruins, found new cities where the land is rich, and trade, preach, cast spells or go to war with rival peoples. Time runs on (gently) while the tab is closed.</p>
+      <ul class="st-points"><li>⏱️ A first game: a few evenings at Standard pace</li><li>🧭 A step-by-step guide teaches each system as you reach it</li><li>⏸ Pause any time; speed it up to 25×</li></ul>
+    </section>
+    <h2 class="st-h"><span>1</span> Choose your people</h2>
     <div class="races">${DATA.raceOrder.map(r => {
-      const R = DATA.races[r];
-      const champ = (R.heroNames || (DATA.heroNames || {})[r] || [R.name])[0];
-      const pic = ptHtml({ race: r, kind: 'hero', seed: champ, color: R.color, rank: 3, era: 1 }, 72, 'pt-card', `A champion of the ${R.name}`);
-      return `<div class="card race ${st.race === r ? 'sel' : ''}" data-act="pickRace" data-r="${r}">
-        ${pic ? `<div class="pt-racehead">${pic}<h3><span class="dot" style="background:${R.color}"></span>${R.name}</h3></div>` : `<h3><span class="dot" style="background:${R.color}"></span>${R.name}</h3>`}
-        <p>${R.blurb}</p>
-        <ul>${R.perks.map(p => `<li>${p}</li>`).join('')}</ul>
-        <p style="margin-top:8px">Troops: ${R.units.map(u => DATA.units[u].icon + ' ' + DATA.units[u].name).join(', ')}</p>
+      const P = DATA.races[r];
+      const champ = (P.heroNames || (DATA.heroNames || {})[r] || [P.name])[0];
+      const pic = ptHtml({ race: r, kind: 'hero', seed: champ, color: P.color, rank: 3, era: 1 }, 72, 'pt-card', `A champion of the ${P.name}`);
+      return `<div class="card race ${st.race === r ? 'sel' : ''}" data-act="pickRace" data-r="${r}" role="radio" aria-checked="${st.race === r}" tabindex="0" style="--race:${P.color}">
+        <div class="pt-racehead">${pic}<div><h3><span class="dot" style="background:${P.color}"></span>${P.name}</h3>${r === 'hearth' ? '<span class="pill good st-easy">Easiest to learn</span>' : ''}</div></div>
+        <p>${P.blurb}</p>
+        <ul>${P.perks.map(x => `<li>${x}</li>`).join('')}</ul>
+        <p class="race-troops">Troops: ${P.units.map(u => DATA.units[u].icon + ' ' + DATA.units[u].name).join(', ')}</p>
       </div>`;
     }).join('')}</div>
-    <div class="card start-form">
-      <label>Name of your realm<input id="sName" value="${esc(st.name || 'Kingdom of ' + ['Ashvale', 'Brightmoor', 'Duskhaven', 'Emberfall'][Math.floor(Math.random() * 4)])}"></label>
-      <label>Name of your first settlement<input id="sCity" value="${esc(st.city || 'Hearthstead')}"></label>
-      <label>Name of your hero<input id="sHero" value="${esc(st.hero || ['Aldric', 'Maren', 'Tavish', 'Isolde', 'Brannoc'][Math.floor(Math.random() * 5)])}"></label>
-      ${choice('sPace', DATA.pace, st.pace, 'Pace')}
-      ${choice('sMode', DATA.modes, st.mode, 'Mode')}
-      <label>Rival realms<select id="sRivals">${[1, 2, 3, 4, 5, 6, 7].filter(n => n < DATA.raceOrder.length).map(n => `<option value="${n}" ${String(st.rivals || 3) === String(n) ? 'selected' : ''}>${n} rival${n > 1 ? 's' : ''}${n === 3 ? ' — classic' : n >= 6 ? ' — a crowded, larger world' : ''}</option>`).join('')}</select></label>
-      <label title="Grows with the number of rivals. Small: 31×31 with 3 rivals · Normal: 52×52 · Large: 64×64">World size<select id="sWorld">${Object.entries(G.WORLD_SIZES || {}).map(([k, w]) => `<option value="${k}" ${(st.world || 'normal') === k ? 'selected' : ''}>${w.name}${{ small: ' — the classic map, close quarters', normal: ' — room for many cities in different lands', large: ' — vast frontiers, long marches' }[k] || ''}</option>`).join('')}</select></label>
-      <label>Rivals<select id="sDiff">
-        ${['easy', 'normal', 'hard'].map(d => `<option value="${d}" ${st.difficulty === d ? 'selected' : ''}>${{ easy: 'Gentle — slow, peaceful rivals', normal: 'Fair — rivals grow as you do', hard: 'Harsh — fast, warlike rivals' }[d]}</option>`).join('')}
-      </select></label>
-      <button class="primary" data-act="begin" style="padding:10px">Found your realm</button>
+    <h2 class="st-h"><span>2</span> Set up your world</h2>
+    <div class="card st-setup">
+      <div class="st-rec-box ${isRec ? 'ok' : ''}"><div><b>First game?</b> Standard pace, Conquest, 3 rivals, a normal world and gentle rivals give you room to learn every system before anyone marches on you.</div>
+        <button class="${isRec ? '' : 'primary'}" data-act="startRecommend" ${isRec ? 'disabled' : ''}>${isRec ? '★ Recommended settings' : 'Use recommended'}</button></div>
+      <div class="st-grid">
+        ${startSeg('pace', 'Pace', Object.entries(DATA.pace).map(([k, v]) => [k, v.name, esc(v.desc)]), st.pace)}
+        ${startSeg('mode', 'Mode', Object.entries(DATA.modes).map(([k, v]) => [k, v.name, esc(v.desc)]), st.mode)}
+        ${startSeg('difficulty', 'Rivals’ temper', [['easy', 'Gentle', 'Slow, peaceful rivals'], ['normal', 'Fair', 'Rivals grow as you do'], ['hard', 'Harsh', 'Fast, warlike rivals']], st.difficulty)}
+        ${startSeg('rivals', 'Rival realms', [1, 2, 3, 4, 5, 6, 7].filter(n => n < DATA.raceOrder.length).map(n => [n, String(n), n === 3 ? 'classic' : n >= 6 ? 'crowded' : '']), st.rivals)}
+        ${Object.keys(ws).length ? startSeg('world', 'World size', Object.entries(ws).map(([k, w]) => [k, w.name, `${wsz(k)}×${wsz(k)} · ${{ small: 'close quarters', normal: 'room for many cities', large: 'vast frontiers' }[k] || ''}`]), st.world, 'The map grows with the number of rivals.') : ''}
+      </div>
+      <div class="st-names">
+        <label>Name of your realm<input id="sName" value="${esc(st.name)}" maxlength="40"></label>
+        <label>Your capital<input id="sCity" value="${esc(st.city)}" maxlength="30"></label>
+        <label>Your hero<input id="sHero" value="${esc(st.hero)}" maxlength="30"></label>
+      </div>
+      <div class="st-go"><div class="muted">${R ? `<span class="dot" style="background:${R.color}"></span> The ${R.name} · ${DATA.pace[st.pace].name} pace · ${DATA.modes[st.mode].name} · ${st.rivals} rival${st.rivals > 1 ? 's' : ''}` : ''}</div>
+        <button class="primary st-begin" data-act="begin">Found your realm →</button></div>
     </div>
     ${extras(START_EXTRAS)}
     ${savesHtml(false)}
@@ -229,8 +254,11 @@ const savesHtml = inGame => {
 const clockOf = t => {
   return `${Math.floor(t / 3600)}h ${Math.floor(t % 3600 / 60)}m played`; };
 const readStart = () => {
-  const v = id => document.getElementById(id).value;
-  Object.assign(UI.start, { name: v('sName'), city: v('sCity'), hero: v('sHero'), pace: v('sPace'), mode: v('sMode'), difficulty: v('sDiff'), rivals: +v('sRivals'), world: document.getElementById('sWorld') ? v('sWorld') : 'normal' });
+  const v = id => { const el = document.getElementById(id); return el ? el.value : null; };
+  const name = v('sName'), city = v('sCity'), hero = v('sHero');
+  if (name !== null) UI.start.name = name;
+  if (city !== null) UI.start.city = city;
+  if (hero !== null) UI.start.hero = hero;
 };
 
 // ---------------------------------------------------------------------
@@ -248,18 +276,20 @@ const renderTop = city => {
   return `<div class="top">
     <div class="top-1">
       <span class="brand">🔥 Ember &amp; Crown</span>
-      <span class="pill" style="border-color:${DATA.races[emp.race].color}">${esc(emp.name)} · ${DATA.races[emp.race].name}</span>
-      <span class="res-gold" data-good="gold" tabindex="0" aria-label="Gold: hover or tap for income and upkeep">🪙 <b>${fmt(emp.gold)}</b> <span class="muted">${fmtRate(G.citiesOf(S, 'p').reduce((a, c) => { const ce = G.econ(S, c); return a + ce.tax - (ce.wages || 0); }, 0))}/min</span></span>
-      <span title="Renown: total building levels + victories. Unlocks new cities.">⭐ <b>${ren}</b> <span class="muted">${next === Infinity ? '' : '/ ' + next + ' for next city'}</span></span>
+      <span class="pill top-realm" style="border-color:${DATA.races[emp.race].color}">${esc(emp.name)} · ${DATA.races[emp.race].name}</span>
+      <span class="top-stat res-gold" data-good="gold" tabindex="0" aria-label="Gold: hover or tap for income and upkeep">🪙 <b>${fmt(emp.gold)}</b> <span class="muted">${fmtRate(G.citiesOf(S, 'p').reduce((a, c) => { const ce = G.econ(S, c); return a + ce.tax - (ce.wages || 0); }, 0))}/min</span></span>
+      <span class="top-stat top-renown" title="Renown: total building levels + victories. Unlocks new cities.">⭐ <b>${ren}</b> <span class="muted">${next === Infinity ? '' : '/ ' + next + ' for next city'}</span></span>
       <span class="spacer"></span>
-      <span class="muted" title="${DATA.pace[S.settings.pace].name} pace · ${DATA.modes[S.settings.mode].name}">${calendar()} · ${clock(S.time)}</span>
-      <button class="small ec-pause ${UI.paused ? 'on' : ''}" data-act="togglePause" title="${UI.paused ? 'Resume (Space)' : 'Pause (Space)'}" aria-label="${UI.paused ? 'Resume' : 'Pause'}" aria-pressed="${UI.paused ? 'true' : 'false'}">${UI.paused ? '▶️ Paused' : '⏸'}</button>
-      <label class="muted">Speed <select id="speedSel">${SPEEDS.map(v => `<option value="${v}" ${S.settings.speed === v ? 'selected' : ''}>${v}×</option>`).join('')}</select></label>
-      ${TOP_EXTRAS.map(f => { try { return f() || ''; } catch (e) { return ''; } }).join('')}
-      <button class="small" data-act="save">Save</button>
-      <button class="small" data-act="newgame">New game</button>
-      <button class="small" data-act="popKeys" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" aria-expanded="${UI.pop === 'keys'}">⌨️</button>
-      <button class="small" data-act="popOptions" title="Options: motion, text size, colours, autosave" aria-label="Options" aria-expanded="${UI.pop === 'options'}">🎛️</button>
+      <span class="muted top-clock" title="${DATA.pace[S.settings.pace].name} pace · ${DATA.modes[S.settings.mode].name}">${calendar()} · ${clock(S.time)}</span>
+      <span class="top-extras">${TOP_EXTRAS.map(f => { try { return f() || ''; } catch (e) { return ''; } }).join('')}</span>
+      <span class="top-ctl">
+        <button class="small ec-pause ${UI.paused ? 'on' : ''}" data-act="togglePause" title="${UI.paused ? 'Resume (Space)' : 'Pause (Space)'}" aria-label="${UI.paused ? 'Resume' : 'Pause'}" aria-pressed="${UI.paused ? 'true' : 'false'}">${UI.paused ? '▶️ Paused' : '⏸'}</button>
+        <label class="muted top-speed" title="Game speed">Speed <select id="speedSel" aria-label="Game speed">${SPEEDS.map(v => `<option value="${v}" ${S.settings.speed === v ? 'selected' : ''}>${v}×</option>`).join('')}</select></label>
+        <button class="small top-save" data-act="save" title="Save now">Save</button>
+        <button class="small top-new" data-act="newgame" title="Abandon this realm and start a new game">New game</button>
+        <button class="small top-keys" data-act="popKeys" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" aria-expanded="${UI.pop === 'keys'}">⌨️</button>
+        <button class="small" data-act="popOptions" title="Options: motion, text size, colours, autosave, save, new game" aria-label="Options" aria-expanded="${UI.pop === 'options'}">🎛️</button>
+      </span>
     </div>
     <div class="res-bar">
       <div class="res" title="Citizens / housing left for civilians. Workers needed: ${e.workersReq}. Soldiers enrolled: ${e.soldiers} (barracks quarters ${e.quarters}).">
@@ -379,9 +409,58 @@ document.addEventListener('keydown', ev => {
 window.addEventListener('resize', () => { if (UI.resTip) renderResTip(); });
 window.addEventListener('scroll', () => { if (UI.resTip && window.innerWidth > 700) renderResTip(); }, { passive: true });
 
+// ---------------------------------------------------------------------
+// Navigation: the tabs are grouped by key. Modules insert their tabs into TABS themselves;
+// a key that no group lists still shows up under "Other", so new tabs are never lost.
+// Desktop: collapsible groups in the side column. Phones: a bottom bar with the most-used
+// tabs plus a "More" sheet listing every group.
+// ---------------------------------------------------------------------
+const TAB_GROUPS = [
+  { id: 'realm', icon: '👑', name: 'Realm', keys: ['city', 'council', 'ledger', 'empire', 'dynasty'] },
+  { id: 'war', icon: '⚔️', name: 'War', keys: ['military', 'world', 'moves', 'hero'] },
+  { id: 'know', icon: '📚', name: 'Knowledge', keys: ['research', 'culture', 'religion', 'magic'] },
+  { id: 'rel', icon: '🕊️', name: 'Relations', keys: ['diplomacy', 'espionage', 'minors', 'market'] },
+  { id: 'story', icon: '📜', name: 'Story', keys: ['reports', 'chronicle', 'tales'] },
+  { id: 'other', icon: '✳️', name: 'Other', keys: [] },
+  { id: 'help', icon: '❔', name: 'Help', keys: ['help'] },
+];
+const PHONE_BAR = ['city', 'world', 'military', 'research'];   // + "More" on the bottom bar
+// 1–9: the tabs a player reaches for most, then whatever else is in the menu
+const KEY_TABS = ['city', 'military', 'world', 'research', 'council', 'ledger', 'diplomacy', 'reports', 'help'];
+const navGroups = () => {
+  const keys = Object.keys(TABS), listed = new Set(TAB_GROUPS.flatMap(g => g.keys));
+  return TAB_GROUPS.map(g => ({ ...g, tabs: g.id === 'other' ? keys.filter(k => !listed.has(k)) : g.keys.filter(k => TABS[k]) })).filter(g => g.tabs.length);
+};
+const groupOfTab = k => navGroups().find(g => g.tabs.includes(k)) || null;
+const tabBadge = k => { const t = TABS[k]; if (!t || !t.badge || !S) return 0; try { return +t.badge() || 0; } catch (e) { return 0; } };
+const tabBtn = (k, cls = '') => {
+  const t = TABS[k], b = tabBadge(k);
+  return `<button class="${UI.tab === k ? 'on' : ''} ${b ? 'has-badge' : ''} ${cls}" data-act="tab" data-t="${k}"${UI.tab === k ? ' aria-current="page"' : ''}>${t.label}${b ? `<span class="badge">${b}</span>` : ''}</button>`;
+};
+const navCollapsed = () => (OPTS.navCollapsed && typeof OPTS.navCollapsed === 'object' ? OPTS.navCollapsed : (OPTS.navCollapsed = {}));
+const renderNav = () => {
+  const groups = navGroups();
+  const desk = groups.map(g => {
+    if (g.id === 'help') return `<div class="nav-g nav-g-help">${g.tabs.map(k => tabBtn(k)).join('')}</div>`;
+    const hasCur = g.tabs.includes(UI.tab), shut = !!navCollapsed()[g.id] && !hasCur;
+    const sum = shut ? g.tabs.reduce((a, k) => a + tabBadge(k), 0) : 0;
+    return `<div class="nav-g ${shut ? 'shut' : ''}"><button class="nav-gh" data-act="navGroup" data-g="${g.id}" aria-expanded="${!shut}" title="${shut ? 'Show' : 'Hide'} ${g.name} tabs"><span>${g.icon} ${g.name}</span>${sum ? `<span class="badge">${sum}</span>` : ''}<i aria-hidden="true">${shut ? '▸' : '▾'}</i></button>
+      ${shut ? '' : `<div class="nav-gl">${g.tabs.map(k => tabBtn(k)).join('')}</div>`}</div>`;
+  }).join('');
+  const bar = PHONE_BAR.filter(k => TABS[k]);
+  const curOff = !bar.includes(UI.tab) && TABS[UI.tab];
+  const moreN = Object.keys(TABS).filter(k => !bar.includes(k) && tabBadge(k) > 0).length;   // tabs waiting for you, not the sum of their counts
+  const curIcon = curOff ? (TABS[UI.tab].label.match(/^\S+/) || ['☰'])[0] : '☰';
+  const phone = `<nav class="nav-bar" aria-label="Main tabs">${bar.map(k => tabBtn(k)).join('')}
+      <button class="nav-more ${curOff ? 'on' : ''} ${UI.navMore ? 'open' : ''}" data-act="navMore" aria-expanded="${!!UI.navMore}" aria-label="More tabs${moreN ? `, ${moreN} need attention` : ''}"><span class="nb-i">${curIcon}</span><span class="nb-l">${curOff ? esc(TABS[UI.tab].label.replace(/^\S+\s*/, '')) : 'More'}</span>${moreN ? `<span class="badge">${moreN}</span>` : ''}</button></nav>
+    ${UI.navMore ? `<div class="nav-sheet-veil" data-act="navMore"></div><div class="nav-sheet" role="dialog" aria-label="All tabs"><div class="nav-sheet-hd"><b>All tabs</b><button class="small" data-act="navMore" aria-label="Close">✕</button></div>
+      ${groups.map(g => `<div class="nav-sg"><div class="nav-sgh">${g.icon} ${g.name}</div><div class="nav-sgl">${g.tabs.map(k => tabBtn(k)).join('')}</div></div>`).join('')}</div>` : ''}`;
+  return `<div class="nav">${desk}</div>${phone}`;
+};
+
 const renderSide = city => `<aside class="side">
-    <div class="nav">${Object.entries(TABS).map(([k, t]) => { const b = t.badge ? t.badge() : 0; return `<button class="${UI.tab === k ? 'on' : ''} ${b ? 'has-badge' : ''}" data-act="tab" data-t="${k}">${t.label}${b ? `<span class="badge">${b}</span>` : ''}</button>`; }).join('')}</div>
-    <div class="card citylist"><h4>Your cities</h4>${G.citiesOf(S, 'p').map(c => `<button class="${c.id === city.id ? 'on' : ''}" data-act="city" data-c="${c.id}">${esc(c.name)}<small>${G.tier(c).name} · (${c.x}, ${c.y})${c.buildQueue.length ? ' · 🔨' : ''}${c.units.hero ? ' · 🦸' : ''}${c.starving ? ' · <span class="bad">hungry</span>' : ''}</small></button>`).join('')}</div>
+    ${renderNav()}
+    <div class="card citylist ${G.citiesOf(S, 'p').length < 2 ? 'one' : ''}"><h4>Your cities</h4>${G.citiesOf(S, 'p').map(c => `<button class="${c.id === city.id ? 'on' : ''}" data-act="city" data-c="${c.id}">${esc(c.name)}<small>${G.tier(c).name} · (${c.x}, ${c.y})${c.buildQueue.length ? ' · 🔨' : ''}${c.units.hero ? ' · 🦸' : ''}${c.starving ? ' · <span class="bad">hungry</span>' : ''}</small></button>`).join('')}</div>
   </aside>`;
 
 const renderRight = () => {
@@ -706,26 +785,205 @@ const wondersHtml = () => {
     <table>${rows}</table></div>`;
 };
 
-const renderHelp = () => `<div class="card help"><h2>How to play</h2>
-  <ol>
-    <li><b>Grow the basics.</b> Farms, Lumber Camps, Quarries and the Mine produce raw goods every minute. Every field and workshop needs workers, so build <b>Houses</b>. Idle citizens pay taxes in gold.</li>
-    <li><b>People are everything.</b> Citizens work the fields and workshops (too few and everything slows) and idle ones pay taxes. Soldiers are enrolled citizens: training takes recruits from the population, and soldiers beyond your barracks quarters take homes from civilians. Fallen soldiers are people lost. Dismiss troops to send them back to work. A city's reach (how far it sees and which oases it can hold) grows with its population.</li>
-    <li><b>Feed your people.</b> Citizens and soldiers eat grain. If grain runs out, people leave and troops desert.</li>
-    <li><b>Everything gets used.</b> People burn firewood (three times as much in winter, more on hills and mountains); buildings need timber and stone for repairs; workers wear out tools, soldiers wear out weapons and armour and draw wages; towers and battle mages draw mana; each people wears its own luxury, which cheers them while stocked. Upkeep left unpaid for a few minutes becomes a shortage: cold and unrest, crumbling walls, rusting armour, −15% raw goods, −10% attack, deserters. <b>Hover or tap any good in the top bar</b> to see what makes and uses it, the net rate and when it fills or runs dry.</li>
-    <li><b>Smith.</b> The <b>Smelter</b> turns ore into iron; the <b>Toolsmith</b> makes tools (needed for building levels 6+, settlers and research); the <b>Armory</b> forges weapons for soldiers. Each people has its own twist — check your race perks. Workshops can be paused.</li>
-    <li><b>Your hero</b> 🦸 starts in your capital. Spend attribute points, send them to <b>ruins</b> 🏚️ on adventures for treasure, experience and items, or march with your armies for leadership bonuses. A fallen hero can be revived.</li>
-    <li><b>Research</b> 📚 at the Academy: empire-wide upgrades to production, building speed, storage, attack, defense and more.</li>
-    <li><b>Location matters.</b> A city's yields come from the land within 2 tiles: forests give timber, hills stone, mountains ore, fertile land grain. Rivers and lakes make a city more prosperous. Each people's homeland suits its specialty, and the site survey on the World map rates open land before you settle. Trade covers what your land lacks.</li>
-    <li><b>Seas and ships.</b> Armies march around lakes and seas, so routes follow the land. A coastal city can build a <b>Harbor</b>: fishing boats add grain, and shipwrights build Transport Cogs (each carries 30 citizens' worth of troops or settlers) and War Galleys. Send ships with your army to cross water — that's the only way to reach islands, which often hide unclaimed land and treasures.</li>
-    <li><b>Explore.</b> The map is hidden until your cities, armies or scouts 🦅 see it. Scouts bring back troop counts, stores and walls. <b>Oases</b> 🏝️ guarded by beasts give a nearby city +25% of a good once claimed (attack and win; one slot per 5 Town Hall levels).</li>
-    <li><b>Fight.</b> Raid brigand camps for plunder and renown. Defenders with high 🐎🛡️ stop cavalry, high 🛡️ stops infantry. Rivals leave you alone at first; their pressure grows over time.
-      Battles are fought on the defender's tile: forests (+8% defence) break cavalry (−20%) and hinder archers and engines; hills (+8%) favour archers (+15%); mountains (+12%) favour foot soldiers and cripple riders and siege; open plains and farmland favour cavalry (+10%/+5%). Attacking across a river costs −15% (−20% in spring), amphibious troops gain +10% at rivers and shores, flyers ignore the ground, winter snow slows cavalry and floods, ash or tempests over the field matter too — no role's ground effect exceeds ±25%. Mixes counter each other (infantry beats cavalry, cavalry beats ranged, ranged beats infantry; up to ±10%). Each battle has an opening volley, the clash and a pursuit; the send form's preview and every battle report show the full breakdown.</li>
-    <li><b>Diplomacy</b> 🕊️: send gifts, make peace, form alliances, demand tribute, and trade with foreign merchants. Breaking a treaty angers everyone.</li>
-    <li><b>Expand & conquer.</b> Renown unlocks city slots; Settlers found cities. A <b>Herald</b> marching with a winning army lowers a city's loyalty; at zero it is yours.</li>
-    <li><b>Calamities & wonders.</b> Now and then a wyrm wakes, a blight spreads, the dead rise, the earth shakes, rivers flood or a star falls. Each strikes a whole region — every realm's cities inside it. Some can be fought (storm the wyrm's lair, destroy the hordes, claim the star-iron); others must be endured, and some leave boons behind.</li>
-    <li><b>Modes.</b> Conquest ends when every rival falls. In Endless, fallen realms rise again as new dynasties and warlords keep coming.</li>
-  </ol>
-  <p class="muted">Quests (right column) guide you early and pay rewards. Events may ask for your decision; if you don't answer in time, the default happens. Time keeps running at normal (1×) speed while the game is closed, up to 12 hours. The game autosaves in this browser (how often is set in 🎛️ Options). Keys: 1–9 open tabs, [ and ] switch cities, space pauses — see ⌨️.</p></div>`;
+// ---------------------------------------------------------------------
+// How to play: a searchable encyclopedia (sections + glossary). Static text only, so it renders
+// without a game (the tests call renderHelp() with no state). Other tabs link here through the
+// "?" in their header (tabHead below): TAB_HELP maps a tab key to its section.
+// ---------------------------------------------------------------------
+const HELP_SECTIONS = [
+  { id: 'start', icon: '🚀', title: 'First steps', tabs: ['city', 'council'], words: 'begin beginner first hour plan opening tutorial quests start guide',
+    html: '<p>You begin with one city, <b>250 gold</b> and a small base output (6 grain, 8 timber, 7 stone, 3 ore per minute) even before you build anything. A good first hour:</p><ul><li>Queue <b>Farms</b>, <b>Lumber Camps</b> and <b>Quarries</b> on the 🏛️ City tab, then a <b>Mine</b> at Town Hall 1.</li><li>Keep raising the <b>Town Hall</b>: it unlocks buildings and lets everything else grow (no building may exceed 2 × Town Hall + 2).</li><li>Add <b>Houses</b> and a <b>Warehouse</b> before goods overflow.</li><li>At Town Hall 2–3 build a <b>Barracks</b>, an <b>Academy</b> and start a topic on the 📚 Research tab.</li><li>Turn on <b>🦅 Auto-explore</b> and send your hero on adventures.</li><li>Follow the quests in the right column and check the 🏛️ Council for urgent advice.</li></ul>' },
+
+  { id: 'time', icon: '⏳', title: 'Time, speed & saving', tabs: ['empire', 'help'], words: 'pause speed fast forward offline autosave save slot export keys shortcuts keyboard seasons',
+    html: '<p>At 1× one game-second is one real second. Speeds are <b>1×, 2×, 5×, 10× and 25×</b>; <b>Space</b> pauses.</p><ul><li><b>Offline:</b> time keeps running at 1× while the game is closed, up to <b>12 hours</b>.</li><li><b>Saving:</b> the game autosaves in this browser; set how often in 🎛️ Options. Save slots and export live on the 👑 Empire tab.</li><li><b>Keys:</b> 1–9 open tabs, [ and ] switch cities, + and − change speed, Esc closes panels.</li><li><b>Seasons</b> last 2 game-hours each and change output, marches and upkeep (see Upkeep and Reports).</li></ul>' },
+
+  { id: 'economy', icon: '🌾', title: 'Goods, workers & taxes', tabs: ['city', 'ledger'], words: 'grain timber stone ore iron tools weapons mana gold luxuries bread production workers idle citizens tax storage warehouse',
+    html: '<p><b>Raw goods</b> are grain, timber, stone and ore. The <b>Smelter</b> refines iron, the <b>Toolsmith</b> tools, the <b>Armory</b> weapons. Each people also has a unique good (bread, runesteel, heartwood, pearls, dreamsilk, bonedust, stormglass).</p><ul><li>Every building needs <b>workers</b> (its workers × level). With too few people, output falls in proportion.</li><li><b>Taxes</b> per minute: 1 + 0.15 per citizen + 0.35 more per <b>idle citizen</b>.</li><li>Each citizen eats <b>0.12 grain</b>/min.</li><li><b>Luxuries</b> (dreamsilk, heartwood, runesteel, stormglass) give <b>+4 happiness</b> while stocked.</li><li>Storage is 800 × 1.32 per Warehouse level; 10% is <b>hidden</b> from raiders (30% for Deepdelvers).</li><li>Gold is a single treasury for the whole realm.</li></ul>' },
+
+  { id: 'upkeep', icon: '🪵', title: 'Upkeep & shortages', tabs: ['city', 'ledger'], words: 'upkeep firewood repairs wages armour shortage famine starving desert breakdown grace winter cold',
+    html: '<p>Cities consume goods to keep running. <b>Hover or tap a good in the top bar</b> for the full breakdown.</p><ul><li><b>Firewood:</b> 0.05 timber per citizen, ×3 in winter (×0.4 summer); hills ×1.25, mountains ×1.5.</li><li><b>Repairs:</b> timber and stone per building level; walls cost stone; armoured troops use iron.</li><li><b>Tools:</b> 0.006 per worker beyond 20. <b>Wages:</b> 0.02 gold per soldier.</li></ul><p>A <b>shortage</b> starts after a short grace (timber 3 min, stone 10, mana 1, gold 2):</p><ul><li>Tools: raw goods −15%. Weapons: attack −10%.</li><li>Timber: −6 happiness (−10 in winter) and in winter 0.5%/min of people die.</li><li>Gold: −8 happiness, 1%/min of soldiers desert.</li><li><b>Famine</b>: people −3%/min, troops desert 2%/min, −15 happiness.</li></ul>' },
+
+  { id: 'building', icon: '🏗️', title: 'Building & the queue', tabs: ['city'], words: 'build queue cancel refund town hall unlock tier hamlet village town city capital level',
+    html: '<p>Build on the 🏛️ City tab. The <b>queue</b> is unlimited: each work is paid when queued and built one after another.</p><ul><li><b>Cancel</b>: full refund if not started, 50% if started.</li><li>No building may exceed <b>2 × Town Hall + 2</b>. From level 6 buildings need <b>tools</b>.</li><li>Each Town Hall level builds 5% faster.</li><li><b>Unlocks:</b> Mine TH1; Smelter, Barracks, Tavern, Shrine TH2; Toolsmith, Armory, Wall, Market, Academy, Spymaster’s Den TH3; Harbor, Temple, Mage Tower TH4; Stable TH5; Theatre TH6; Siege Workshop TH8; Wonder TH12.</li><li><b>Tiers:</b> Hamlet TH1, Village TH3, Town TH6, City TH10, Great City TH15, Capital of Ages TH20.</li><li>Each building shows if it is working, slow, idle or blocked.</li></ul>' },
+
+  { id: 'research', icon: '📚', title: 'Research', tabs: ['research'], words: 'tech technology academy era branch column queue plan path recommended',
+    html: '<p>The 📚 Research tab holds <b>131 techs</b> for each people — 127 shared and 4 of your people’s own — in 4 eras (Founding, Kingdom, Empire, Legend), 12 columns and 11 branches.</p><ul><li>One topic at a time for the whole realm; the queue is unlimited. Goods are paid when a topic starts; cancelling the active one refunds 50%.</li><li>Each column needs an <b>Academy</b> level in the studying city: 1, 1, 2, 3, 4, 5, 6, 8, 9, 11, 12, 14.</li><li>Costs grow ×1.32 per column; later columns need tools, arcana needs mana.</li><li><b>Plan path</b> (or shift-click) queues missing prerequisites; <b>Recommended next</b> suggests three.</li><li>A new era opens once you know half of the previous one.</li></ul>' },
+
+  { id: 'military', icon: '⚔️', title: 'Troops & battles', tabs: ['military', 'moves'], words: 'army troops train infantry cavalry ranged archers siege ram catapult herald raid attack loot counter river terrain conquest loyalty walls forge',
+    html: '<p>Train troops on the 🛡️ Military tab. They take citizens (infantry 1, cavalry 2, siege 3, settlers 5); at least 5 must remain. Each building level trains 3% faster.</p><ul><li>Battles run in three phases: <b>opening volley</b>, the <b>clash</b>, then <b>pursuit and rout</b>.</li><li><b>Counters</b> (up to ±10%): infantry counters cavalry, cavalry counters ranged, ranged counters infantry.</li><li>Terrain and weather up to ±25%: forests break cavalry (−20%), hills favour archers (+15%). Attacking across a <b>river</b> costs −15% (−20% in spring).</li><li><b>Raid</b>: partial losses, loot above the hidden share. <b>Attack</b>: the loser is wiped out.</li><li>Conquest needs <b>Heralds</b> (Town Hall 8): each surviving herald lowers loyalty 20–32; at 0 the city is yours.</li><li>Rams negate walls; catapults wreck up to 5 building levels.</li></ul>' },
+
+  { id: 'stances', icon: '🎖️', title: 'Stances & generals', tabs: ['military', 'moves'], words: 'stance aggressive defensive skirmish siege balanced garrison hold walls sally evacuate general traits commander',
+    html: '<p>Choose a <b>stance</b> when you march:</p><ul><li><b>Aggressive</b>: +10% attack, heavier losses on both sides. <b>Defensive</b>: −5% attack, own losses ×0.75, no pursuit.</li><li><b>Skirmish</b>: −5% attack, much lighter losses, strong volley; not for conquests. <b>Siege</b>: +6% vs cities, rams break 1.5× walls, 20% slower, half loot.</li></ul><p>Garrisons have their own: <b>Hold the walls</b> (+8% defence), <b>Sally out</b> (strong pursuit), <b>Evacuate stores</b> (25% more hidden, −10% defence).</p><p><b>Generals</b> are recruited in a city with Barracks 3 (220 gold + 160 per general serving), cost 0.4 gold/min, give +1.5% per level (max 10) and carry traits. You may have 1 + cities/3 + renown/800, up to 8.</p>' },
+
+  { id: 'world', icon: '🗺️', title: 'Map, scouting & auto-explore', tabs: ['world', 'military'], words: 'fog map scout explore auto-explore brigand camp ruins oasis harbor sea island ship vision',
+    html: '<p>The 🗺️ World map is hidden by fog that lifts around cities, armies and scouts.</p><ul><li><b>Scouts</b> reveal radius 2 and report troops, stores, walls and loyalty; defending scouts can catch them.</li><li><b>🦅 Auto-explore</b> (city header or 🛡️ Military tab) keeps up to 2 scouts out per city and stays silent unless it finds something.</li><li><b>Brigand camps</b> respawn; any victory razes one. Each win gives renown (3 for the first 25, then 1.5).</li><li><b>Ruins</b> yield treasure only to a hero’s adventure and reset after about an hour.</li><li><b>Oases</b> give +25% of one raw good; take them with an attack, not a raid.</li><li>A <b>Harbor</b> (TH4, coast) builds fishing boats, transports and war galleys; islands are reached by ship.</li></ul>' },
+
+  { id: 'hero', icon: '🦸', title: 'Hero', tabs: ['hero'], words: 'hero attributes might leadership warding stewardship arcana items adventure level revive duel rival',
+    html: '<p>Your hero grows on the 🦸 Hero tab, gaining <b>4 points</b> per level.</p><ul><li><b>Might</b>: +50 attack, +35 defence per point. <b>Leadership</b>: +2% army attack. <b>Warding</b>: +2% city defence. <b>Stewardship</b>: +2% raw goods where the hero rests. <b>Arcana</b>: +4% spell power, −3% mana cost.</li><li><b>Items</b> (weapon, armour, horse, trinket) come as Common, Rare or Epic.</li><li>The hero can’t march below 20 health; resting in a city gives +5 happiness.</li><li>If slain, revive at the capital for 120 gold + 150 grain per level.</li><li>Rival heroes become famous from level 8; heroes on both sides <b>duel</b>, and slaying one gives +15 renown.</li></ul>' },
+
+  { id: 'expansion', icon: '🏕️', title: 'New cities', tabs: ['city', 'military', 'world'], words: 'settle settlers expand new city renown site survey stars deposit river lake region scarcity city limit',
+    html: '<p><b>Renown</b> (all building levels + victories + 25 per conquest) unlocks more cities: the 2nd at 60, then 160, 320, 550, 850, 1250… The limit is 9 / 12 / 14 by map size.</p><ul><li><b>Settlers</b> (Town Hall 5): 600 grain, 600 timber, 500 stone, 400 gold, 20 tools, 5 people.</li><li>The <b>site survey</b> rates each raw good 1–5 stars from tiles within 2.</li><li><b>River</b>: grain ×1.15 and +10% prosperity (tax and growth); <b>lake</b>: ×1.1 and +5%.</li><li><b>Deposits</b> (rich ore vein, fine quarry stone, ancient grove, black earth) add +18% each in reach, up to +50%.</li><li>Every capital has at least one <b>weak good</b>; settle in another region to cover it.</li></ul>' },
+
+  { id: 'trade', icon: '🐫', title: 'Trade routes, supply lines & the Ledger', tabs: ['ledger', 'market'], words: 'trade route caravan supply line logistics ledger escort ambush carts surplus auto-sell auto-buy goods matrix auto-supply shortage cover',
+    html: '<p><b>Trade routes</b> (⚖️ Market tab): 1 + Market level/4 per city, leaving every 5–30 min. Foreign routes need peace or neutrality, opinion ≥0 and a Market in the partner city; both sides earn gold and +1 opinion per 2 trips. Routes to free cities build influence.</p><ul><li><b>Ambush</b> near camps or hostile armies: unescorted, 35–65% of cargo is lost. An <b>escort</b> may hold (10% lost) or break (40%).</li></ul><p><b>🔄 Auto-supply</b> is <b>on from the start</b>: once you have two cities they cover each other’s shortages by caravan. The recommended policy keeps about 10 minutes of use of grain, timber, stone, iron, tools and weapons (and bread or bonedust for the peoples that use them) in every city; a city with a surplus sends carts to one that runs low. The pill in each city header shows carts coming and leaving; tap it to switch the system off or on.</p><ul><li>Only a city with a <b>Market</b> sends carts (1 + Market level/4 on the road at once); any city can receive.</li><li>Tune it in <b>📒 Ledger › Supply lines</b>: per good, keep N minutes of use or N in stock; options relieve shortages first, auto-sell above 92% of storage, or auto-buy above a gold reserve. Mana can’t be shipped.</li><li>Supply carts can be ambushed like any caravan.</li></ul><p>The Ledger also has a <b>Cities</b> table with bulk actions and a <b>Goods matrix</b>.</p>' },
+
+  { id: 'market', icon: '⚖️', title: 'Market & merchants', tabs: ['market'], words: 'buy sell price rate merchant caravan market level gold exchange',
+    html: '<p>Trade goods for gold on the ⚖️ Market tab. A bigger <b>Market</b> gives better prices:</p><ul><li><b>Sell</b> at value × (0.55 + 0.02 per level), up to 95%.</li><li><b>Buy</b> at value × (1.9 − 0.035 per level), never below 105%.</li><li>Hearthfolk get better rates.</li><li>Caravans between your own cities carry <b>Market level × 500</b> goods.</li><li><b>Foreign merchants</b> may visit with up to 4 offers that last 10 minutes (🕊️ Diplomacy).</li></ul><p>Selling overflow before storage fills, and buying the odd shortfall, is usually cheaper than letting a shortage bite.</p>' },
+
+  { id: 'diplomacy', icon: '🕊️', title: 'Diplomacy', tabs: ['diplomacy'], words: 'opinion war peace alliance neutral treaty gift tribute rival calm period',
+    html: '<p>Each rival has an <b>opinion</b> of you from −100 to 100 and a status: war, neutral, peace or alliance. Manage them on the 🕊️ Diplomacy tab.</p><ul><li><b>Gifts</b> raise opinion. Peace is accepted depending on opinion and power.</li><li><b>Alliance</b> needs 20 min of peace and opinion ≥50.</li><li>Declaring war costs −30 opinion; breaking a treaty −10 with everyone.</li><li>Demanding <b>tribute</b> only works if you have twice their power.</li><li>Rivals leave you alone at first (15/30/60 min by pace), then pressure ramps up.</li></ul>' },
+
+  { id: 'culture', icon: '🎭', title: 'Happiness, culture & traditions', tabs: ['culture', 'city'], words: 'happiness mood jubilant discontent unrest revolt tax policy placate festival tavern temple theatre culture tradition pillar war weariness',
+    html: '<p>Happiness starts at <b>55</b>. Tavern +3, Temple +2, Theatre +1.5 per level (up to 35), bread +8, hero +5, festival +10. Crowding (−12), war weariness (−25), empire size and famine lower it.</p><ul><li><b>Tax policy</b>: Low ×0.7 taxes, +10; High ×1.35, −15.</li><li><b>Jubilant</b> ≥75: +10% goods, +15% growth. <b>Discontent</b> &lt;40: −10% goods. <b>Unrest</b> &lt;20: −25% goods, −50% tax and loyalty falls; at 0 the city revolts.</li><li><b>Placate</b>: +25 happiness for 20 min and +10 loyalty.</li></ul><p><b>Culture</b> buys <b>traditions</b> on the 🎭 Culture tab: 96 per realm, costing 80/420/1250/3600 by age, +15% per tradition owned, 25% off if you lived the related tale.</p>' },
+
+  { id: 'faith', icon: '⛪', title: 'Faith', tabs: ['religion'], words: 'religion faith god tenet priest convert miracle holy war shrine temple religious victory',
+    html: '<p>With a Temple and <b>150 faith</b> you can found a faith on the ⛪ Faith tab: choose one of 7 gods and 2 of 12 <b>tenets</b>. Adopting another realm’s faith costs 40.</p><ul><li>Faith comes from Shrines, Temples, happiness and holy sites.</li><li><b>Priests</b> (60 grain, 40 gold, 30 faith) convert the city they reach.</li><li><b>Miracles</b> cost 150–300 faith, +50% each use: Blessed Harvest, Banish, Sanctuary, Crusade, Inspiration.</li><li>Realms of another faith with opinion below −30 may wage <b>holy war</b>.</li><li><b>Religious victory</b>: your faith holds a majority in 60% of all cities, including one of every surviving rival, after 12 game-hours.</li></ul>' },
+
+  { id: 'magic', icon: '🔮', title: 'Magic', tabs: ['magic'], words: 'mana spell school ley node mage tower strain wild magic rift great working arcane',
+    html: '<p><b>Mana</b> comes from each city’s base, <b>ley nodes</b> (held by the nearest city within reach) and the <b>Mage Tower</b> (TH4, Academy 1).</p><ul><li>You know your people’s school plus your faith’s patron god’s school. The 33 spells need Mage Tower 1, 5, 10 or 15.</li><li>Recasting within the hour costs +20%.</li><li><b>Strain</b> decays 2/min; above 60 wild magic may open a demon rift, raise a tempest or burn half the city’s mana. Sealing a rift gives +15 renown.</li><li>The <b>Great Working</b> needs 4 ley nodes and Mage Tower 15: 5 stages of mana, gold and time. Losing the city or the nodes breaks it; finishing it wins.</li></ul>' },
+
+  { id: 'espionage', icon: '🕵️', title: 'Espionage', tabs: ['espionage'], words: 'spy spies mission intel sabotage poison incite steal siphon defection counter-intelligence spymaster den',
+    html: '<p>A <b>Spymaster’s Den</b> (TH3) houses 1 + level/3 spies (max 12 overall); each new spy costs more. Plan missions on the 🕵️ Espionage tab:</p><ul><li><b>Intel</b> 85%, <b>Sabotage</b> 60%, <b>Poison</b> 60%, <b>Incite unrest</b> 60%, <b>Siphon mana</b> 55%, <b>Steal secrets</b> 45%.</li><li><b>Strike at the hero</b> 40% (spy level 2).</li><li><b>Plot a defection</b> 30% (level 3; target loyalty below 40, not a capital).</li><li>Spies left at home guard against enemy spies.</li><li>A caught spy causes a <b>diplomatic incident</b>.</li></ul>' },
+
+  { id: 'minors', icon: '🏰', title: 'Free cities', tabs: ['minors'], words: 'free city minor influence patron ally mercenary merchant mage temple maritime forge request resolve tribute',
+    html: '<p>Free cities (about 5/8/10 by world size) are Mercenary, Merchant, Mage, Temple, Maritime or Forge holds. Court them on the 🏰 Free Cities tab.</p><ul><li><b>Influence</b> (max 100) comes from gold gifts (1 per 8 gold), caravans and requests; it slowly decays.</li><li>With the most influence and at least 30 you become <b>patron</b>; at 60 an ally.</li><li><b>Requests</b> every 15–30 min pay +25 influence.</li><li>Mercenary holds hire out companies from 20 influence.</li><li><b>Conquest</b>: resolve starts at 100; each won attack −20–30, each herald −20–32. At 0 it joins you if you have a free city slot, otherwise it pays tribute. Attacking costs influence everywhere.</li></ul>' },
+
+  { id: 'council', icon: '🏛️', title: 'The Council & governors', tabs: ['council', 'city'], words: 'council advisor steward marshal spymaster high priest archmage advice snooze governor automation focus manual',
+    html: '<p>On the 🏛️ Council tab five advisors (<b>Steward, Marshal, Spymaster, High Priest, Archmage</b>) rank their advice, most often with a one-click action. Snooze an item for 15 min. The 🏛️ Council chip in the top bar shows urgent items.</p><p><b>Governors</b> can run a city for you:</p><ul><li>Focus: Balanced, Growth, Production, Military, Faith or Magic; <b>✋ Manual</b> turns them off.</li><li>They respect a gold reserve and can hold a target garrison.</li><li>They keep 2 works queued (3 from Town Hall 10).</li><li>With a Market they sell overflow and buy upkeep goods.</li></ul>' },
+
+  { id: 'dynasty', icon: '👑', title: 'Dynasty', tabs: ['dynasty'], words: 'dynasty ruler heir succession marriage family house',
+    html: '<p>Your realm is led by a <b>ruler</b> from your house. <b>Heirs</b>, <b>succession</b> and <b>marriages</b> are handled on the <b>Dynasty</b> tab.</p><ul><li><b>Rulers</b>: the head of your house who leads the realm.</li><li><b>Heirs and succession</b>: who takes the throne next.</li><li><b>Marriages</b>: ties between your house and others.</li></ul><p>This part of the game is still being built. Visit the Dynasty tab to see what is available so far; more will appear there as it grows.</p>' },
+
+  { id: 'monsters', icon: '🐉', title: 'Monsters, calamities & the crisis', tabs: ['world', 'military'], words: 'monster aurochs troll giant griffon serpent werewolf crisis omen rite ritual source calamity wyrm blight dead quake flood eruption starfall banish',
+    html: '<p><b>Monsters</b> roam the map: aurochs herds (migrate with the seasons), trolls, hill giants, griffons, sea serpents (warships only) and werewolves (hunt at night). Hunt them with an attack or raid.</p><p><b>Calamities</b> (wyrm, blight, restless dead, quake, flood, starfall…) strike a whole region; some can be fought, some leave boons. The Banish miracle ends one.</p><p><b>The crisis</b> comes after ~5 game-hours (Endless) or ~10 (Conquest), with <b>omens</b> ~25 min before. It has 4 stages of 45 min.</p><ul><li>Destroy its 3 <b>sources</b> (+20 to the <b>rite</b> each, goal 100); the 🔥 ritual adds +5.</li><li>Win: renown by your share. Lose: every city loses 18% people, 15% troops and a building level.</li><li>AI wars pause; the crisis pill in the top bar jumps to the nearest source.</li></ul>' },
+
+  { id: 'victory', icon: '🏆', title: 'Victory, modes, pace & difficulty', tabs: ['empire'], words: 'win victory conquest endless wonder great working religious pace quick standard long difficulty gentle fair harsh',
+    html: '<p><b>Conquest</b> mode can be won by:</p><ul><li>Defeating every rival.</li><li>First finishing a <b>Wonder</b> (Town Hall 12, Academy 5, Warehouse 14, 3 cities; 10 stages).</li><li>Completing the <b>Great Working</b>, or a <b>religious victory</b>.</li></ul><p>If a rival finishes a wonder, Working or faith victory first, you lose, though you may play on in Endless.</p><p><b>Endless</b> has no victory; fallen realms return as new dynasties.</p><ul><li><b>Pace</b>: Quick (production ×2, times ×0.5), Standard, Long (production ×0.6, times ×1.7).</li><li><b>Difficulty</b>: Gentle, Fair, Harsh set AI production (×0.75/×1/×1.3) and hostility.</li></ul>' },
+
+  { id: 'story', icon: '📖', title: 'Reports, Chronicle & Tales', tabs: ['reports', 'chronicle', 'tales'], words: 'reports chronicle tales story events decisions default history timeline feats seasons spring summer autumn winter',
+    html: '<ul><li><b>📜 Reports</b>: battles, scouting and adventures.</li><li><b>📖 Chronicle</b>: your history (sampled every 3 min), a timeline and feats.</li><li><b>📜 Tales</b>: story events, the first after ~20–27 min, then every 20–35 min. You have 10 minutes to answer or the default happens. <b>Decisions</b> in the right column also have a default.</li></ul><p><b>Seasons</b> last 2 game-hours:</p><ul><li>Spring: +15% growth, +10% timber.</li><li>Summer: +10% grain, stone and ore.</li><li>Autumn: +25% grain, +5% tax.</li><li>Winter: −30% grain, marches 20% slower, troops eat 15% more.</li></ul><p>Each people feels the seasons differently.</p>' },
+];
+
+const HELP_GLOSSARY = [
+  ['Renown', 'Prestige from building levels, victories and conquests; it unlocks more cities.', 'expansion'],
+  ['Reach', 'How far a city’s influence extends; it grows with population and decides which deposits, ley nodes and oases it holds.', 'expansion'],
+  ['Housing', 'The number of citizens a city can hold; soldiers beyond barracks quarters take housing from civilians.', 'economy'],
+  ['Quarters', 'Housing for soldiers: 10 per Barracks level, 6 per Stable level, 4 per War Pit level.', 'economy'],
+  ['Idle citizens', 'People with no building job; each pays 0.35 extra gold per minute in taxes.', 'economy'],
+  ['Workers', 'Citizens needed to run buildings; too few and output falls in proportion.', 'economy'],
+  ['Hidden stores', 'The share of goods raiders cannot take: 10%, or 30% for Deepdelvers.', 'economy'],
+  ['Luxury', 'A rare good (dreamsilk, heartwood, runesteel, stormglass) that gives +4 happiness while stocked.', 'economy'],
+  ['Upkeep', 'Goods a city consumes each minute for firewood, repairs, tools, armour, weapons, wages and mana.', 'upkeep'],
+  ['Firewood', 'Timber burned by citizens, three times as much in winter and more on hills and mountains.', 'upkeep'],
+  ['Shortage', 'A good running out after its grace period, with penalties until it is restocked.', 'upkeep'],
+  ['Famine', 'No grain: people and troops leave and happiness falls by 15.', 'upkeep'],
+  ['Queue', 'The list of works a city will build in order; each is paid when queued.', 'building'],
+  ['Town Hall', 'The heart of a city; its level unlocks buildings and caps all others at 2 × level + 2.', 'building'],
+  ['Era', 'One of four research ages; the next opens once you know half of the previous one.', 'research'],
+  ['Plan path', 'Queues every missing prerequisite of a tech at once (or shift-click).', 'research'],
+  ['Counter', 'A troop role’s edge over another: infantry beats cavalry, cavalry beats ranged, ranged beats infantry.', 'military'],
+  ['Raid', 'An attack for loot where both sides take partial losses.', 'military'],
+  ['Herald', 'A unit (Town Hall 8) that lowers a city’s loyalty on a won attack, needed for conquest.', 'military'],
+  ['Loyalty', 'A city’s allegiance; heralds or unrest drive it to 0, when the city changes hands or revolts.', 'military'],
+  ['Opening volley', 'The first battle phase, fought by ranged troops, mages, engines and ships.', 'military'],
+  ['Forge upgrade', 'An Armory upgrade to one unit type’s attack or armour, +4% per level up to 10.', 'military'],
+  ['Stance', 'Orders for a march or garrison that trade attack, losses, pursuit and loot.', 'stances'],
+  ['General', 'A commander assigned to a march, adding 1.5% per level plus traits.', 'stances'],
+  ['Scout', 'A unit that reveals the map and reports a target’s troops, stores, walls and loyalty.', 'world'],
+  ['Auto-explore', 'Keeps up to 2 scouts per city mapping the fog on their own.', 'world'],
+  ['Brigand camp', 'A hostile camp that respawns; any victory razes it and gives renown.', 'world'],
+  ['Ruins', 'Sites where only a hero’s adventure finds treasure; they reset after about an hour.', 'world'],
+  ['Oasis', 'A tile giving +25% of one raw good to the city that takes it by attack.', 'world'],
+  ['Harbor', 'A coastal building (TH4) for fishing boats, transports and war galleys.', 'world'],
+  ['Adventure', 'A hero’s expedition to ruins and other sites for treasure and experience.', 'hero'],
+  ['Duel', 'A clash between heroes when both sides field one in battle.', 'hero'],
+  ['Settlers', 'A unit of 5 people (Town Hall 5) that founds a new city.', 'expansion'],
+  ['Site survey', 'A 1–5 star rating of each raw good around a possible city site.', 'expansion'],
+  ['Deposit', 'A rich tile (ore vein, quarry stone, grove, black earth) adding +18% output, up to +50%.', 'expansion'],
+  ['Prosperity', 'A bonus to taxes and growth from a river (+10%) or lake (+5%).', 'expansion'],
+  ['Weak good', 'A raw good a region produces poorly; settling another region covers it.', 'expansion'],
+  ['Trade route', 'A recurring caravan to another city that earns gold for both sides.', 'trade'],
+  ['Supply line', 'A realm-wide rule that ships surplus of a good to cities that need it; on by default (🔄 Auto-supply).', 'trade'],
+  ['Auto-supply', 'Your cities send each other what they lack by caravan, automatically; toggle it from the 🔄 pill in a city header.', 'trade'],
+  ['Escort', 'Troops guarding a caravan against ambushes.', 'trade'],
+  ['Ambush', 'An attack on a caravan near camps or hostile armies that steals cargo.', 'trade'],
+  ['Opinion', 'How a rival regards you, from −100 to 100.', 'diplomacy'],
+  ['Tribute', 'Gold demanded from a much weaker realm, or paid by a beaten free city.', 'diplomacy'],
+  ['Happiness', 'A city’s mood score; high values boost goods and growth, low ones bring unrest.', 'culture'],
+  ['Unrest', 'Happiness below 20: output and taxes fall and loyalty drains.', 'culture'],
+  ['Placate', 'Gives +25 happiness for 20 minutes and +10 loyalty.', 'culture'],
+  ['War weariness', 'Up to −25 happiness when soldiers exceed 12% of the people.', 'culture'],
+  ['Culture', 'Points earned each minute that buy traditions.', 'culture'],
+  ['Tradition', 'A permanent realm bonus bought with culture.', 'culture'],
+  ['Tenet', 'One of two doctrines chosen when founding a faith.', 'faith'],
+  ['Priest', 'A unit that spreads your faith to the city it reaches.', 'faith'],
+  ['Miracle', 'A faith-powered act such as Blessed Harvest or Banish; each use costs 50% more.', 'faith'],
+  ['Holy war', 'A war waged by a realm of another faith that dislikes you strongly.', 'faith'],
+  ['Mana', 'Magical power used by spells, Mage Towers, battle mages and wards.', 'magic'],
+  ['Ley node', 'A source of mana held by the nearest city that reaches it.', 'magic'],
+  ['Strain', 'Magical stress from casting; above 60 wild magic may strike.', 'magic'],
+  ['Great Working', 'A five-stage magical project that wins a Conquest game.', 'magic'],
+  ['Spy', 'An agent from the Spymaster’s Den who runs missions or guards at home.', 'espionage'],
+  ['Influence', 'Your standing with a free city, from gifts, caravans and requests.', 'minors'],
+  ['Patron', 'The realm with the most influence (at least 30) over a free city.', 'minors'],
+  ['Resolve', 'A free city’s will to stay free; at 0 it yields.', 'minors'],
+  ['Governor', 'Automation that builds, trains and trades for a city by a chosen focus.', 'council'],
+  ['Advisor', 'A Council member who ranks advice with one-click actions.', 'council'],
+  ['Heir', 'The next ruler of your house, managed on the Dynasty tab.', 'dynasty'],
+  ['Calamity', 'A disaster striking every city in a region.', 'monsters'],
+  ['Crisis', 'A late-game threat with three sources that every realm must face.', 'monsters'],
+  ['Omen', 'A warning that the crisis will begin in about 25 minutes.', 'monsters'],
+  ['Rite', 'The crisis progress bar (goal 100), raised by destroying sources and the ritual.', 'monsters'],
+  ['Wonder', 'A ten-stage great building whose completion wins a Conquest game.', 'victory'],
+  ['Tale', 'A story event with choices; unanswered after 10 minutes, the default happens.', 'story'],
+];
+const TAB_HELP = { city: 'building', council: 'council', ledger: 'trade', empire: 'expansion', dynasty: 'dynasty', military: 'military', world: 'world', moves: 'stances',
+  hero: 'hero', research: 'research', culture: 'culture', religion: 'faith', magic: 'magic', diplomacy: 'diplomacy', espionage: 'espionage', minors: 'minors',
+  market: 'market', reports: 'story', chronicle: 'story', tales: 'story' };
+const helpFor = k => TAB_HELP[k] || ((HELP_SECTIONS.find(h => h.tabs.includes(k)) || {}).id) || '';
+const helpText = h => (h.title + ' ' + h.words + ' ' + h.html.replace(/<[^>]+>/g, ' ')).toLowerCase();
+const helpMatch = (txt, q) => !q || q.split(/\s+/).filter(Boolean).every(w => txt.includes(w));
+const renderHelp = () => {
+  const q = String((UI.form && UI.form.helpQ) || '').trim().toLowerCase();
+  const focus = UI.helpFocus || '';
+  const secs = HELP_SECTIONS.map(h => {
+    const hit = helpMatch(helpText(h), q);
+    return `<details class="help-sec" id="help-${h.id}" data-help="${esc(helpText(h))}" ${hit ? '' : 'hidden'} ${(q && hit) || focus === h.id ? 'open' : ''}>
+      <summary><span class="help-ico" aria-hidden="true">${h.icon}</span> ${h.title}</summary><div class="help-body">${h.html}</div></details>`;
+  }).join('');
+  const gloss = HELP_GLOSSARY.slice().sort((a, b) => a[0].localeCompare(b[0])).map(([t, d, sid]) => {
+    const hit = helpMatch((t + ' ' + d).toLowerCase(), q);
+    return `<div class="help-term" data-help="${esc((t + ' ' + d).toLowerCase())}" ${hit ? '' : 'hidden'}><dt>${t}</dt><dd>${d} <button class="link" data-act="helpGo" data-s="${sid}">more</button></dd></div>`;
+  }).join('');
+  return `<div class="card help"><div class="row"><h2 style="margin:0">❔ How to play</h2><span class="spacer"></span>${act.tutOpen ? '<button class="small" data-act="tutOpen">🧭 Open the guide</button>' : ''}</div>
+    <p class="muted help-lede">Ember &amp; Crown is a real-time empire builder: your city keeps working while you plan. Grow the economy, research, raise armies, found more cities and deal with rivals, monsters and gods. Search below or open a topic; most tabs have a <b>?</b> in their header that jumps straight to their page.</p>
+    <input type="search" id="helpQ" class="help-q" data-k="helpQ" value="${esc(q)}" placeholder="Search the rules: shortage, stance, oasis, river…" aria-label="Search the rules" autocomplete="off">
+    <div class="help-toc">${HELP_SECTIONS.map(h => `<button class="small" data-act="helpGo" data-s="${h.id}">${h.icon} ${h.title}</button>`).join('')}</div>
+    <p class="help-none muted" ${q && !HELP_SECTIONS.some(h => helpMatch(helpText(h), q)) && !HELP_GLOSSARY.some(([t, d]) => helpMatch((t + ' ' + d).toLowerCase(), q)) ? '' : 'hidden'}>Nothing matches. Try a shorter word.</p>
+    <div class="help-secs">${secs}</div>
+    <h3 class="help-gh">📖 Glossary</h3><dl class="help-gloss">${gloss}</dl>
+    <p class="muted" style="font-size:12.5px">Keys: 1–9 open tabs (see ⌨️), [ and ] switch cities, Space pauses, + and − change speed, Esc closes panels.</p></div>`;
+};
+// filter the open Help page as the player types (render() leaves the page alone while the field has focus)
+const helpFilter = () => {
+  const box = document.getElementById('helpQ');
+  if (!box || !$app.contains(box)) return;
+  const q = box.value.trim().toLowerCase();
+  let any = false;
+  $app.querySelectorAll('.help-sec, .help-term').forEach(el => {
+    const hit = helpMatch(el.dataset.help || '', q);
+    el.hidden = !hit; if (hit) any = true;
+    if (el.tagName === 'DETAILS') el.open = !!(q && hit) || (!q && el.id === 'help-' + (UI.helpFocus || ''));
+  });
+  const none = $app.querySelector('.help-none'); if (none) none.hidden = !q || any;
+};
+document.addEventListener('input', ev => { if (ev.target && ev.target.id === 'helpQ') { UI.form.helpQ = ev.target.value; helpFilter(); } });
+// the header of every tab: where it sits in the menu, and a "?" to its help page
+const tabHead = k => {
+  if (k === 'help' || !TABS[k]) return '';
+  const g = groupOfTab(k), sid = helpFor(k);
+  return `<div class="tab-head"><span class="tab-crumb">${g && g.id !== 'other' ? `<span class="muted">${g.icon} ${g.name} ›</span> ` : ''}<b>${TABS[k].label}</b></span><span class="spacer"></span>${sid ? `<button class="small tab-help" data-act="helpGo" data-s="${sid}" title="How this works" aria-label="Help for ${esc(TABS[k].label.replace(/^\S+\s*/, ''))}">?</button>` : ''}</div>`;
+};
 
 Object.assign(TABS, {
   city: { label: '🏛️ City', render: renderCity },
@@ -776,6 +1034,8 @@ const pinPhoneHeader = () => {
   const sp = bar.querySelector(':scope > .spacer');
   if (sp) bar.style.top = -Math.max(0, sp.offsetTop) + 'px';
 };
+// the phone's chip row scrolls sideways: keep its position when the top bar is rebuilt
+const topScroll = x => { const el = $app.querySelector('.top-extras'); if (!el) return 0; if (x === undefined) return el.scrollLeft; if (x) el.scrollLeft = x; return x; };
 const render = (force) => {
   if (!S) { REGION.mainEl = null; if (force) renderStart(); return; }
   const city = curCity();
@@ -792,7 +1052,7 @@ const render = (force) => {
     const top = $app.querySelector('.top');
     if (top && !(active && active.id === 'speedSel')) {
       const h = paint(renderTop(city));
-      if (h !== REGION.top) { top.outerHTML = h; REGION.top = h; pinPhoneHeader(); }
+      if (h !== REGION.top) { const x = topScroll(); top.outerHTML = h; REGION.top = h; topScroll(x); pinPhoneHeader(); }
     }
     return;
   }
@@ -802,7 +1062,7 @@ const render = (force) => {
   const html = {
     top: paint(renderTop(city)),
     side: paint(renderSide(city)),
-    main: paint(`${awayHtml()}${endgameBanner()}${S.gameOver || S.victory ? extras(ENDGAME_EXTRAS) : ''}${tab.render(city)}`),
+    main: paint(`${awayHtml()}${endgameBanner()}${S.gameOver || S.victory ? extras(ENDGAME_EXTRAS) : ''}${tabHead(TABS[UI.tab] ? UI.tab : 'city')}${tab.render(city)}`),
     right: paint(renderRight()),
   };
   const scroll = window.scrollY;
@@ -822,7 +1082,8 @@ const render = (force) => {
       REGION[k] = html[k]; PERF.regions[k]++;
       return true;
     };
-    swap('top', ':scope > .top');
+    const topX = topScroll();
+    if (swap('top', ':scope > .top')) topScroll(topX);
     // sideways scroll positions (phone tab bar, wide tables) and the chronicle's scroll survive a rebuild
     const navEl = $app.querySelector('.nav'), navScroll = navEl ? navEl.scrollLeft : 0;
     if (swap('side', '.layout > aside.side:not(.right)')) { const n = $app.querySelector('.nav'); if (n && navScroll) n.scrollLeft = navScroll; }
@@ -845,19 +1106,31 @@ const render = (force) => {
 Object.assign(act, {
   pickRace: d => {
     readStart();
-    // keep a custom city name; otherwise suggest one that fits the people
+    // keep a custom capital name; otherwise suggest the one that fits the people
     const defaults = ['Hearthstead', ...Object.values(DATA.aiNames).map(l => l[0])];
-    if (!UI.start.city || defaults.includes(UI.start.city)) UI.start.city = d.r === 'hearth' ? 'Hearthstead' : (DATA.aiNames[d.r] || ['Hearthstead'])[0];
+    if (!UI.start.city || defaults.includes(UI.start.city.trim())) UI.start.city = capitalDefault(d.r);
     UI.start.race = d.r; renderStart();
   },
+  startOpt: d => { readStart(); UI.start[d.k] = d.k === 'rivals' ? +d.v : d.v; renderStart(); },
+  startRecommend: () => { readStart(); Object.assign(UI.start, START_REC); renderStart(); },
   begin: () => {
     readStart();
     const st = UI.start;
-    S = G.newGame({ name: st.name.trim(), cityName: st.city.trim(), heroName: st.hero.trim(), race: st.race, difficulty: st.difficulty, pace: st.pace, mode: st.mode, rivals: st.rivals || 3, worldSize: st.world || 'normal' });
+    S = G.newGame({ name: (st.name || '').trim() || 'Kingdom of Emberfall', cityName: (st.city || '').trim() || capitalDefault(st.race), heroName: (st.hero || '').trim() || 'Aldric', race: st.race, difficulty: st.difficulty, pace: st.pace, mode: st.mode, rivals: st.rivals || 3, worldSize: st.world || 'normal' });
     UI.city = G.citiesOf(S, 'p')[0].id; UI.tab = 'city'; UI.form = {}; UI.sel = null;
-    G.save(S); render(true);
+    G.save(S); window.scrollTo(0, 0); render(true);
   },
-  tab: d => { UI.tab = d.t; window.scrollTo(0, 0); render(true); },
+  tab: d => { if (!TABS[d.t]) return; UI.tab = d.t; UI.navMore = false; window.scrollTo(0, 0); render(true); },
+  navMore: () => { UI.navMore = !UI.navMore; render(true); },
+  helpGo: d => {
+    UI.helpFocus = d.s || ''; UI.form.helpQ = ''; UI.tab = 'help'; UI.navMore = false;
+    if (UI.pop) { UI.pop = null; renderPop(); }
+    render(true);
+    const el = d.s && document.getElementById('help-' + d.s);
+    if (el) { el.open = true; try { el.scrollIntoView({ block: 'start' }); } catch (e) { } }
+    else window.scrollTo(0, 0);
+  },
+  navGroup: d => { const c = navCollapsed(); c[d.g] = !c[d.g]; saveOpts(); render(true); },
   city: d => { UI.city = d.c; render(true); },
   build: d => { toast(G.queueBuild(S, UI.city, d.b)); render(true); },
   cancelBuild: d => { G.cancelBuild(S, UI.city, +d.i); render(true); },
@@ -934,6 +1207,8 @@ document.addEventListener('change', ev => {
 });
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && ev.target.dataset && ev.target.dataset.k) { ev.target.blur(); render(true); }
+  // cards that act like buttons (the peoples on the start screen)
+  else if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches && ev.target.matches('[data-act][tabindex]:not(button)')) { ev.preventDefault(); ev.target.click(); }
 });
 
 // ---------------------------------------------------------------------
@@ -1004,7 +1279,11 @@ const setSpeed = dir => {
 const togglePause = () => { UI.paused = !UI.paused; toast(UI.paused ? '⏸ Paused — press Space to resume' : '▶️ Resumed'); };
 
 // --- popovers (keyboard help, options) --------------------------------
-const tabKeys = () => Object.keys(TABS).slice(0, 9);
+const tabKeys = () => {
+  const first = KEY_TABS.filter(k => TABS[k]);
+  for (const g of navGroups()) for (const k of g.tabs) if (first.length < 9 && !first.includes(k)) first.push(k);
+  return first.slice(0, 9);
+};
 const popHtml = () => {
   if (UI.pop === 'keys') {
     const k = s => `<kbd>${s}</kbd>`;
@@ -1024,7 +1303,8 @@ const popHtml = () => {
       ${cb('largeText', 'Larger text')}
       ${cb('cbColors', 'Colour-blind-friendly realm colours', 'Only changes how realms are shown, not your save')}
       <label class="ec-opt"><span>Autosave every</span><select data-opt="autosave">${AUTOSAVE_CHOICES.map(v => `<option value="${v}" ${+OPTS.autosave === v ? 'selected' : ''}>${v < 60 ? v + ' seconds' : v / 60 + ' minute' + (v > 60 ? 's' : '')}</option>`).join('')}</select></label>
-      <p class="muted">Kept in this browser, apart from your saves.</p>`;
+      <p class="muted">Kept in this browser, apart from your saves.</p>
+      <div class="ec-pop-acts"><button class="small" data-act="save">💾 Save now</button>${act.tutOpen ? '<button class="small" data-act="tutOpen">🧭 Guide</button>' : ''}<button class="small" data-act="helpGo" data-s="">❔ How to play</button><button class="small" data-act="newgame">↺ New game</button></div>`;
   }
   return '';
 };
@@ -1076,6 +1356,7 @@ document.addEventListener('keydown', ev => {
   if (k === 'Escape') {
     const audio = document.getElementById('ecAudioPop');
     if (UI.pop) { UI.pop = null; renderPop(); }
+    else if (UI.navMore) { UI.navMore = false; render(true); }
     else if (audio && audio.classList.contains('on')) audio.classList.remove('on');
     else if (UI.spellTarget) return;   // the world map cancels spell targeting itself
     else if (UI.away) { UI.away = null; render(true); }

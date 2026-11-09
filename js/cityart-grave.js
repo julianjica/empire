@@ -289,7 +289,7 @@
   // ================================================================ HOUSES: crooked town houses
   def('cottage', ([x, y], L, band, p) => {
     const i = X.i || 0, kind = i % 3, rnd = rngOf('cot'), lean = (rnd() < 0.5 ? -1 : 1) * (3 + rnd() * 5);
-    const s = [1.0, 1.1, 1.2, 1.25][band], ax = i % 2 ? 'x' : 'y';
+    const wet = !!X.wet, s = wet ? [0.9, 0.95, 1.0, 1.0][band] : [1.0, 1.1, 1.2, 1.25][band], ax = i % 2 ? 'x' : 'y';   // wet: on a pile deck over the water — the house only, no plots, tombs or fences
     let top;
     if (kind === 1 && band >= 1) { // a narrow tower-house with a candle in the top window
       const tw = 0.62 + band * 0.04;
@@ -298,19 +298,22 @@
         const tx = x + 0.1 + tw, ty = y + 0.15 + tw;
         A.cyl(tx, ty, 0.14, 18, 14, p.wall); A.cone(tx, ty, 0.2, 32, 14, p.roof);
       }
-      // the family plot beside it
-      A.tomb(x + 0.95, y + 0.55, 0.65); if (band >= 2) A.tomb(x + 1.1, y + 0.95, 0.6);
-      A.ironFence([[x + 0.8, y + 1.15], [x + 1.25, y + 1.15], [x + 1.25, y + 0.35]], 5);
-    } else if (kind === 2 && band >= 2) { // a house with its own little mausoleum
+      // the family plot beside it (a coil of tarred rope and an eel-trap on a deck over the water)
+      if (wet) { const [rx, ry] = A.P(x + 0.95, y + 0.7); A.c.beginPath(); A.c.ellipse(rx, ry - 1, 2.6, 1.3, 0, 0, Math.PI * 2); A.c.strokeStyle = A.F('#5a5040'); A.c.lineWidth = 1.1; A.c.stroke(); A.c.beginPath(); A.c.ellipse(rx + 4, ry + 1, 1.6, 2.4, -0.6, 0, Math.PI * 2); A.c.fillStyle = A.F('#3a3228'); A.c.fill(); A.c.stroke(); }
+      else {
+        A.tomb(x + 0.95, y + 0.55, 0.65); if (band >= 2) A.tomb(x + 1.1, y + 0.95, 0.6);
+        A.ironFence([[x + 0.8, y + 1.15], [x + 1.25, y + 1.15], [x + 1.25, y + 0.35]], 5);
+      }
+    } else if (kind === 2 && band >= 2 && !wet) { // a house with its own little mausoleum
       top = house(x, y + 0.1, s * 0.78, s * 0.75, 12 + band * 4, band, { axis: ax, storeys: band >= 3 ? 2 : 1, lean, chim: 'house', dormer: band >= 3 });
       crypt(x + s * 0.82, y + 0.75, 0.38, 0.38, 7 + band, { glow: band >= 3 });
     } else {
       const storeys = band >= 2 ? 2 : 1, H = [9, 12, 17, 20][band] + (L % 5) * 0.4;
       top = house(x, y, s, s * 0.88, H, band, { axis: ax, storeys: band >= 3 ? 3 : storeys, lean, chim: 'house', dormer: band >= 1 && ax === 'x', roof: p.e === 0 && band === 0 ? '#4a4034' : undefined, rh: band === 0 ? 18 : 24 });
-      if (band >= 1 && i % 2 === 0) A.tomb(x + s * 0.12, y + s * 0.9 + 0.14, 0.7);
+      if (band >= 1 && i % 2 === 0 && !wet) A.tomb(x + s * 0.12, y + s * 0.9 + 0.14, 0.7);
     }
-    if (i % 3 === 0 && band >= 1) A.witchLamp(x + s + 0.05, y + s * 0.9 + 0.1, 0, 11);
-    if (band === 0 && i % 2) A.deadTree(x + 1.15, y + 0.25, 0.55);
+    if (i % 3 === 0 && band >= 1 && !wet) A.witchLamp(x + s + 0.05, y + s * 0.9 + 0.1, 0, 11);
+    if (band === 0 && i % 2 && !wet) A.deadTree(x + 1.15, y + 0.25, 0.55);
     if (band >= 2 && i % 4 === 1) raven(...A.P(x + s / 2, y + s * 0.45, top - 8), 0.7);
     return top;
   });
@@ -993,11 +996,17 @@
     const bollard = (dd, u, z) => add(dd, u, () => { const q = at(dd, u, z); A.poly([[q[0] - 1.3, q[1]], [q[0] + 1.3, q[1]], [q[0] + 1, q[1] - 4], [q[0] - 1, q[1] - 4]], IRON, null); A.circ(q[0], q[1] - 4, 1.4, '#2c2c34'); return z + 5; });
     // a flat black ferry barge: a hooded ferryman poling at the stern, a coffin (or two) amidships, a lantern on a crook
     const barge = (u, d0, d1, coffins) => add((d0 + d1) / 2, u, () => {
-      const hw = 0.22, c = [[d0, u - hw * 0.6], [d0 + 0.15, u - hw], [d1, u - hw], [d1, u + hw], [d0 + 0.15, u + hw], [d0, u + hw * 0.6]], faces = [];
+      const hw = 0.22, c = [[d0, u - hw * 0.6], [d0 + 0.15, u - hw], [d1, u - hw], [d1, u + hw], [d0 + 0.15, u + hw], [d0, u + hw * 0.6]], faces = [], ice = A.SNOW;
+      if (ice) { // the black water is frozen: a sheet of broken ice round the barge
+        const m = (d0 + d1) / 2, r = (d1 - d0) / 2 + 0.3, ring = [];
+        for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2; ring.push(at(m + Math.cos(a) * r, u + Math.sin(a) * (hw + 0.28), 0)); }
+        A.poly(ring, '#e6eef2', '#a9c2d0', 0.6);
+        if (!A.GLOW) for (const k of [1, 6, 10, 13]) { const a = k / 16 * Math.PI * 2; A.line(ring[k], at(m + Math.cos(a) * r * 0.6, u + Math.sin(a) * (hw + 0.1), 0), '#c4d6e0', 0.5); }
+      }
       for (let i = 0; i < c.length; i++) { const a = c[i], b = c[(i + 1) % c.length], g = pt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2); faces.push([g[0] + g[1], [at(a[0], a[1], -1), at(b[0], b[1], -1), at(b[0], b[1], 3.5), at(a[0], a[1], 3.5)], i]); }
       faces.sort((m, n) => m[0] - n[0]);
-      for (const [, q, i] of faces) A.poly(q, i % 2 ? '#141418' : '#1e1e24');
-      A.poly(c.map(([dd, uu]) => at(dd, uu, 3.5)), rc('#4a4036'), '#8a7a5a', 0.8);
+      for (const [, q, i] of faces) A.poly(q, ice ? A.mix(i % 2 ? '#141418' : '#1e1e24', '#b9cad4', 0.4) : i % 2 ? '#141418' : '#1e1e24');
+      A.poly(c.map(([dd, uu]) => at(dd, uu, 3.5)), rc('#4a4036'), ice ? '#f2f7fa' : '#8a7a5a', ice ? 1.6 : 0.8);
       for (let dd = d0 + 0.3; dd < d1; dd += 0.18) A.line(at(dd, u - hw + 0.03, 3.5), at(dd, u + hw - 0.03, 3.5), '#3a322a', 0.4);
       for (let k = 0; k < coffins; k++) { const g = pt(d0 + (d1 - d0) * (0.35 + k * 0.25), u); coffinFlat(g[0] - 0.2, g[1] - 0.08, 3.5); }
       const st = at(d1 - 0.12, u, 3.5); // ferryman
@@ -1010,7 +1019,7 @@
     const ship = (u, d0, d1, big) => add((d0 + d1) / 2, u, () => {
       A.shipHull(e, u, d0, d1, big, p.e >= 2 ? '#3a3a40' : null);
       const hh = big ? 7 : 5, m = (d0 + d1) / 2, top = at(m, u, hh + (big ? 34 : 22));
-      if (p.e >= 2) { const hw = big ? 0.3 : 0.22, zs = hh + (big ? 30 : 19), sh0 = big ? 18 : 12; for (const t of [-0.4, 0.35]) { const q = at(m, u + hw * 1.6 * t, zs + 0.5); A.line([q[0], q[1] + sh0 * 0.4], [q[0] + 1.5, q[1] + sh0 + 1], '#5a5a62', 0.6); } }
+      if (p.e >= 2 && !A.SNOW) { const hw = big ? 0.3 : 0.22, zs = hh + (big ? 30 : 19), sh0 = big ? 18 : 12; for (const t of [-0.4, 0.35]) { const q = at(m, u + hw * 1.6 * t, zs + 0.5); A.line([q[0], q[1] + sh0 * 0.4], [q[0] + 1.5, q[1] + sh0 + 1], '#5a5a62', 0.6); } }
       const bow = at(d0, u, hh + 3); A.lampDot(bow[0], bow[1] - 2, 1.4, '#4a8a5a', GLOW); A.rec('lights', { x: bow[0], y: bow[1] - 2, r: 14, col: 'witch' });
       if (big) raven(top[0] + 1, top[1] + 3, 0.6);
       return hh + (big ? 38 : 26);
@@ -1079,7 +1088,7 @@
     for (const [gx, gy] of [[bx - 0.04, by + s + 0.04], [bx + s + 0.04, by + s + 0.04], [bx + s + 0.04, by - 0.04]]) pinnacle(gx, gy, zs, 6 + band, A.shade(col, -0.1));
     const zt = A.hip({ x: bx, y: by, w: s, d: s, z: zs - 1, h: 1, col }, s * (60 + band * 8), p.roof, 0.05);
     const [fx, fy] = A.P(cx, cy, zt); A.line([fx, fy], [fx, fy - 7], IRON, 1.1); A.line([fx - 3, fy - 4.5], [fx + 3, fy - 4.5], IRON, 0.9);
-    A.rec('beams', { x: lx, y: ly }); A.rec('lights', { x: lx, y: ly, r: 34, col: 'witch' });
+    A.rec('beams', { x: lx, y: ly, col: 'green' }); A.rec('lights', { x: lx, y: ly, r: 34, col: 'witch' });
     raven(fx + 5, fy + 8, 0.7); if (band >= 2) ravensCircle(cx, cy, zt, 3, 22);
     return zt + 10;
   });

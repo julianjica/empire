@@ -34,7 +34,8 @@
 //  dep; falls back to the people's 'cottage' with the same ctx, then the stock stilt
 //  house; cityview always adds the boardwalk ashore / rope bridges) and 'lighthouse'
 //  (town hall 10+ on a coast: Tidekin always, any other people that registers one;
-//  slot [gx-.4, gy-.4, .8, .8], ctx.u, dd; rec('beams', {x, y}) sweeps a beam at night).
+//  slot [gx-.4, gy-.4, .8, .8], ctx.u, dd; rec('beams', {x, y, col}) sweeps a beam at night;
+//  col tints it: '#rrggbb', 'r,g,b' or a name — warm (default), green, violet, blue, pearl, sea).
 //  The level dressing (yard stock, fence, banner, lamps, gilded finial) and
 //  tech marks are drawn after the override unless it opts out (above); api.dress
 //  and api.techMark(name, gx, gy, {n, h, col}) are there to place parts yourself.
@@ -124,6 +125,9 @@
   // ------------------------------------------------------------------
   const _cc = new Map();
   const rgbOf = h => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+  // a lighthouse beam's colour: '#rrggbb' / '#rgb', an 'r,g,b' string, a name, or the warm default
+  const BEAMCOL = { warm: '255,240,180', green: '140,255,170', witch: '140,255,170', violet: '205,170,255', fey: '205,170,255', blue: '150,205,255', storm: '150,205,255', pearl: '236,240,255', sea: '150,240,235' };
+  const beamRgb = col => { if (!col || typeof col !== 'string') return BEAMCOL.warm; if (BEAMCOL[col]) return BEAMCOL[col]; if (col[0] === '#') { const h = col.length === 4 ? '#' + col[1] + col[1] + col[2] + col[2] + col[3] + col[3] : col; return /^#[0-9a-f]{6}$/i.test(h) ? rgbOf(h).join(',') : BEAMCOL.warm; } return /^\d+,\d+,\d+$/.test(col.replace(/\s/g, '')) ? col.replace(/\s/g, '') : BEAMCOL.warm; };
   const toHex = (r, g, b) => '#' + ((1 << 24) | (clampv(Math.round(r), 0, 255) << 16) | (clampv(Math.round(g), 0, 255) << 8) | clampv(Math.round(b), 0, 255)).toString(16).slice(1);
   const shade = (h, f) => {
     const k = h + f; let v = _cc.get(k); if (v) return v;
@@ -470,7 +474,8 @@
   // drawing state
   // ------------------------------------------------------------------
   let c = null, GLOW = false, REC = null, RACE = 'hearth', STY = PAL.hearth, SEASON = 0, SNOW = false, STARVE = false, R = Math.random, GROUND = '#9fb562';
-  let LUM = false, LEY = 0, HARB = null, WATERHOMES = [];   // LUM: Veilborn buildings faintly glow in the night pass
+  let LUM = false, LEY = 0, HARB = null, WATERHOMES = [], RECDY = 0;
+  const WETDECK = 6;   // a fisher home's deck height over the water (non-Tidekin homes)   // LUM: Veilborn buildings faintly glow in the night pass
   const OUT = 'rgba(42,28,18,0.55)';
   const DARK = () => LUM ? '#120e20' : '#000';
   const F = s => GLOW ? DARK() : s;
@@ -481,7 +486,8 @@
   const dormant = t => { const st = stateOf(t); return st === 'idle' || st === 'blocked'; };
   const actSig = a => Object.keys(a).sort().filter(k => a[k] && a[k].state && a[k].state !== 'working').map(k => k + ':' + a[k].state[0]).join(',');
   // every animated record made while a building is drawn is tagged with it, so smoke, wheels and sparks follow its activity
-  const rec = (k, o) => { if (!REC) return; if (DIM && k === 'lights') return; if (CUR_B && o && typeof o === 'object' && o.bt === undefined) o.bt = CUR_B; REC[k].push(o); };
+  // (RECDY: a raised drawing — a home on a deck — keeps its sparks / lights / smoke on it)
+  const rec = (k, o) => { if (!REC) return; if (DIM && k === 'lights') return; if (RECDY && o && typeof o === 'object' && typeof o.y === 'number') o.y -= RECDY; if (CUR_B && o && typeof o === 'object' && o.bt === undefined) o.bt = CUR_B; REC[k].push(o); };
   const roofCol = col => SNOW ? mix(col, '#f3f6f9', 0.8) : col;
 
   function path(pts) { c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]); c.closePath(); }
@@ -2225,15 +2231,20 @@
     return out;
   }
   function shipHull(e, u, d0, d1, big, sail) { // a hull lying along the pier, bow toward open water
-    const hw = big ? 0.3 : 0.22, hh = big ? 7 : 5, hullC = RACE === 'grave' ? '#2e2a28' : RACE === 'veil' ? '#cfc4b0' : '#6a4a2e';
+    const hw = big ? 0.3 : 0.22, hh = big ? 7 : 5, hull0 = RACE === 'grave' ? '#2e2a28' : RACE === 'veil' ? '#cfc4b0' : '#6a4a2e', hullC = SNOW ? mix(hull0, '#b9cad4', 0.4) : hull0;
     const G2 = (dd, du) => edgePt(e, dd, u + du);
+    if (SNOW) { // iced in at the pier: a sheet of broken ice round the hull, sails furled on the yard
+      sail = null;
+      const ring = []; for (let k = 0; k < 16; k++) { const a = k / 16 * TAU, m = (d0 + d1) / 2, r = (d1 - d0) / 2 + 0.35; ring.push(P(...G2(m + Math.cos(a) * r, Math.sin(a) * (hw + 0.3)))); }
+      poly(ring, '#eef5f9', '#a9c2d0', 0.6);
+    }
     const gun = [[G2(d0, 0), hh + 3], [G2(d0 + 0.45, hw), hh], [G2(d1, hw * 0.85), hh + 1.5], [G2(d1, -hw * 0.85), hh + 1.5], [G2(d0 + 0.45, -hw), hh]];
     const wl = [[G2(d0 + 0.18, 0), 0], [G2(d0 + 0.45, hw * 0.8), 0], [G2(d1 - 0.05, hw * 0.7), 0], [G2(d1 - 0.05, -hw * 0.7), 0], [G2(d0 + 0.45, -hw * 0.8), 0]];
     const sides = [];
     for (let i = 0; i < 5; i++) { const j = (i + 1) % 5; const dep = gun[i][0][0] + gun[i][0][1] + gun[j][0][0] + gun[j][0][1]; sides.push([dep, [P(...gun[i][0], gun[i][1]), P(...gun[j][0], gun[j][1]), P(...wl[j][0], -1), P(...wl[i][0], -1)], i]); }
     sides.sort((a, b) => a[0] - b[0]);
     for (const [, q, i] of sides) poly(q, shade(hullC, i % 2 ? -0.18 : 0));
-    poly(gun.map(([g, h]) => P(...g, h)), shade(hullC, 0.3));
+    poly(gun.map(([g, h]) => P(...g, h)), SNOW ? '#f2f7fa' : shade(hullC, 0.3));   // snow lies on the deck in winter
     if (big) for (let k = 1; k < 4; k++) { const p = P(...G2(d0 + (d1 - d0) * k / 4, hw), hh - 2.5); circ(p[0], p[1], 0.9, '#2a1e18'); }
     const m = (d0 + d1) / 2, mb = P(...G2(m, 0), hh), mt = P(...G2(m, 0), hh + (big ? 34 : 22));
     line(mb, mt, '#3a2a1a', big ? 1.6 : 1.1);
@@ -2260,6 +2271,7 @@
       const dd0 = lakeDepth(z, u), len = dd0 - out;
       if (band >= 2 && i === 0 && len > 1.6) shipHull(e, u - 0.55, out + 0.1, out + Math.min(2.2, len - 0.1), true, band >= 3 ? sail : null);
       else if (band >= 3 && i === outs.length - 1 && len > 1.4) shipHull(e, u + 0.55, out + 0.1, out + Math.min(1.8, len - 0.1), false, sail);
+      else if (len > 0.9 && SNOW) { const ub = u + (i % 2 ? -0.55 : 0.55); boatAshore(...edgePt(e, lakeDepth(z, ub) + 0.3, ub)); }   // hauled up for the winter
       else if (len > 0.9) boat(...edgePt(e, out + Math.min(0.9, len * 0.45), u + (i % 2 ? -0.55 : 0.55)), i % 2 === 0);
       lantern(...at(out + 0.05, u + 0.22, 12), 1.3); line(at(out + 0.05, u + 0.22, 2), at(out + 0.05, u + 0.22, 9), shade(wood, -0.4), 1);
     });
@@ -2307,9 +2319,65 @@
       sea: e === 'N' ? [-1, 0] : e === 'E' ? [0, -1] : e === 'S' ? [1, 0] : [0, 1], front: e === 'S' || e === 'W', lake: z,
     }, extra || {});
   }
-  // Tidekin lighthouse on a rock at the end of the shore
-  function lighthouse(z, u, band) {
-    const dd = Math.max(0.65, lakeDepth(z, u) * 0.45), [gx, gy] = edgePt(z.e, dd, u);
+  // the wall's tall pieces (corner / side towers, gatehouses, posterns) as grid footprints + rough heights
+  function wallFeatures(city) {
+    const WL = G.lvl(city, 'wall'), wb = WL > 0 && TECH.fortification ? Math.max(1, wallBand(WL)) : wallBand(WL), out = [];
+    if (wb < 0) return out;
+    const H = 20 + wb * 4, at = (side, u) => side === 'N' ? [u, WALL_A] : side === 'S' ? [u, WALL_B] : side === 'W' ? [WALL_A, u] : [WALL_B, u];
+    if (wb >= 2) for (const [gx, gy] of [[WALL_A, WALL_A], [WALL_B, WALL_A], [WALL_A, WALL_B], [WALL_B, WALL_B]]) out.push({ r: [gx - 0.45, gy - 0.45, 0.9, 0.9], h: 34 + wb * 7 + 24 });
+    if (wb >= 1) { const ws = subStep(WL, wallBand(WL)), us = ws >= 4 ? [7.6, 16.4] : ws >= 2 ? [7.6] : []; for (const side of ['N', 'W', 'E', 'S']) for (const u of us) { const [gx, gy] = at(side, u); out.push({ r: [gx - 0.45, gy - 0.45, 0.9, 0.9], h: 34 + Math.min(wb, 2) * 7 + 24 }); } }
+    for (const side of ['N', 'W', 'E', 'S']) {
+      const wide = LAY.mainSides.includes(side), g0 = wide ? GATE0 - 0.55 : 11.4, g1 = wide ? GATE1 + 0.55 : 12.6, [fx, fy] = at(side, 12);
+      out.push({ r: side === 'N' || side === 'S' ? [g0, fy - 0.3, g1 - g0, 0.6] : [fx - 0.3, g0, 0.6, g1 - g0], h: H + (wide ? 22 : 8) });
+    }
+    return out;
+  }
+  // screen bounding box [x0, y0, x1, y1] of a grid footprint raised to height h
+  const sbox = (r, h) => { const xs = [], ys = []; for (const [gx, gy] of [[r[0], r[1]], [r[0] + r[2], r[1]], [r[0], r[1] + r[3]], [r[0] + r[2], r[1] + r[3]]]) for (const zz of [0, h]) { const [x, y] = P(gx, gy, zz); xs.push(x); ys.push(y); } return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+  // where a lighthouse can stand: on a rock off a headland (towards a shore's end), clear of the harbour works
+  // (piers, moored hulls, the crane), the plain pier and its boats, and not overlapping a wall tower or gatehouse
+  // on screen (in front it would paint over the tower, behind it the tower hides it). null when nowhere fits.
+  function pickLighthouse(city) {
+    const band = bandOf(G.lvl(city, 'townhall')), lh = 72 + band * 12, hz = harborLake();
+    const fb = wallFeatures(city).map(f => sbox(f.r, f.h));
+    // points along every pier / hull / boat to keep clear of, and the harbour's own rect
+    const keep = [], rects = [];
+    for (const z of REG.lakes) {
+      const u0 = lakeU0(z), works = HARB && HARB.z === z;
+      const sp = works ? harborSpan(HARB.L) : 0, us = [u0];
+      if (works) { for (const du of sp >= 2 ? [-2.2, -1.1, 1.1, 2.2] : sp ? [-1.1, 1.1] : []) if (u0 + du > z.a + 0.6 && u0 + du < z.b - 0.6) us.push(u0 + du); if (!HARB.L) us.push(u0 + 1.1); rects.push(harborRect(HARB)); }
+      else us.push(u0 + 0.9, u0 - 1.4);
+      for (const u of us) { const dep = lakeDepth(z, u); for (let dd = 0.3; dd <= dep + 0.4; dd += 0.35) for (const du of works ? [-0.55, 0, 0.55] : [0]) keep.push(edgePt(z.e, dd, u + du)); }
+    }
+    let best = null, bs = -1e9;
+    for (const z of REG.lakes) {
+      for (let u = z.a + 0.2; u <= z.b - 0.2 + 1e-6; u += 0.15) {
+        const dep = lakeDepth(z, u); if (dep < 0.6) continue;
+        const dd = Math.max(0.42, dep * (z.e === 'N' || z.e === 'E' ? 0.4 : 0.45)), [gx, gy] = edgePt(z.e, dd, u);
+        if (gx < 0.4 || gy < 0.4 || gx > N - 0.4 || gy > N - 0.4) continue;
+        let near = 99; for (const [px, py] of keep) near = Math.min(near, Math.hypot(px - gx, py - gy));
+        if (near < 1.6) continue;
+        if (rects.some(r => overlapR(r, [gx - 0.4, gy - 0.4, 0.8, 0.8], 0.35))) continue;
+        const lb = sbox([gx - 0.4, gy - 0.4, 0.8, 0.8], lh);
+        if (fb.some(b => b[0] < lb[2] + 8 && lb[0] < b[2] + 8 && b[1] < lb[3] && lb[1] < b[3])) continue;
+        // a headland: towards an open end of the shore (not where it runs on round a corner), well away from the works
+        const end = Math.min(z.keepA ? 9 : u - z.a, z.keepB ? 9 : z.b - u);
+        const s = Math.min(near, 4) * 0.7 - Math.min(end, 6) * 0.3 + (z === hz ? 0.8 : 0) + (z.e === 'S' || z.e === 'W' ? 0.5 : 0);
+        if (s > bs) { bs = s; best = { z, u, dd }; }
+      }
+    }
+    return best;
+  }
+  // grid distance from (gx, gy) to a shore's pier / harbour works (a segment along the shore halfway out)
+  function nearWorks(z, gx, gy) {
+    const u0 = lakeU0(z), w = HARB && HARB.z === z && HARB.L > 0 ? harborSpan(HARB.L) + 1.0 : 1.6, m = lakeDepth(z, u0) * 0.5;
+    const [ax, ay] = edgePt(z.e, m, u0 - w), [bx, by] = edgePt(z.e, m, u0 + w);
+    const t = clampv(((gx - ax) * (bx - ax) + (gy - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2 || 1), 0, 1);
+    return Math.hypot(ax + (bx - ax) * t - gx, ay + (by - ay) * t - gy);
+  }
+  // the lighthouse on a rock off the shore (Tidekin always; any people that registers one)
+  function lighthouse(z, u, band, dd0) {
+    const dd = dd0 || Math.max(0.65, lakeDepth(z, u) * 0.45), [gx, gy] = edgePt(z.e, dd, u);
     const ho = artHook('lighthouse', [gx - 0.4, gy - 0.4, 0.8, 0.8], G.lvl(CITY, 'townhall'), band, mkCtx('lighthouse', 0, false, shoreCtx(z, { u, dd, gx, gy })));
     if (ho !== null) return ho;
     rock(gx, gy + 0.1, 1.3, '#8a9294'); rock(gx + 0.3, gy - 0.2, 0.9, '#9aa2a4');
@@ -2433,6 +2501,24 @@
     if (RACE === 'grave') { const n2 = Math.max(1, Math.round((b - a) / 0.28)); for (let k = 1; k < n2; k += 2) { const u = a + (k + 0.5) * (b - a) / n2; const [sx, sy] = along ? P(u, fp[1] + t * 0.7, H + 3.5) : P(fp[0] + t * 0.7, u, H + 3.5); poly([[sx - 1, sy], [sx + 1, sy], [sx, sy - 4]], '#26262c', null); } if (Math.round(a) % 3 === 0) { const [kx, ky] = along ? P(a + 0.5, fp[1] + t, H * 0.6) : P(fp[0] + t, a + 0.5, H * 0.6); skull(kx, ky, 0.7); } }
     if (RACE === 'wind' && Math.round(a) % 2 === 1) { const [px, py] = along ? P(a + 0.5, fp[1] + t / 2, H + 12) : P(fp[0] + t / 2, a + 0.5, H + 12); line([px, py + 10], [px, py], '#4a3a2a', 1); poly([[px, py], [px + 9, py + 2], [px, py + 4]], STY.flag, null); }
     if (RACE === 'ash' && (Math.round(a * 3) % 4 === 0)) { const [sx, sy] = along ? P(a + 0.2, fp[1] + t, H + 2) : P(fp[0] + t, a + 0.2, H + 2); line([sx, sy], [sx, sy - 8], '#3a2a20', 1); skull(sx, sy - 9, 0.7); }
+  }
+  // the low quay wall that stands in for the town wall in front of a back-shore harbour: a stone parapet with a
+  // coping, bollards and a lamp (a post-and-rail fence while the wall is a palisade); no CITYART hook — it keeps the works in view
+  function seaWall(side, a, b, band) {
+    const along = side === 'N' || side === 'S', fixed = side === 'N' || side === 'W' ? WALL_A : WALL_B;
+    const at = (u, v, z = 0) => along ? P(u, fixed + v, z) : P(fixed + v, u, z);
+    if (band <= 0 || RACE === 'sylvan' || (RACE === 'ash' && band < 2)) {   // timber walls get a timber quay rail
+      const wood = pierWood(), n = Math.max(1, Math.round((b - a) / 0.35));
+      for (let k = 0; k <= n; k++) { const u = a + k * (b - a) / n; line(at(u, 0), at(u, 0, 9), shade(wood, -0.3), 1.4); }
+      for (const z of [4, 8]) line(at(a, 0, z), at(b, 0, z), wood, 1);
+      return;
+    }
+    const t = 0.3, H = 6 + band * 1.5, col = wallCol();
+    const fp = along ? [a, fixed - t / 2, b - a, t] : [fixed - t / 2, a, t, b - a];
+    const bw = box(fp[0], fp[1], fp[2], fp[3], 0, H, col); courses(bw, 3.5, shade(col, -0.16));
+    box(fp[0] - (along ? 0 : 0.03), fp[1] - (along ? 0.03 : 0), fp[2] + (along ? 0 : 0.06), fp[3] + (along ? 0.06 : 0), H, 1.6, shade(col, 0.1));
+    for (let u = Math.ceil(a * 1.25) / 1.25 + 0.2; u < b - 0.1; u += 0.8) { const [x, y] = at(u, 0, H + 1.6); poly([[x - 1.2, y], [x + 1.2, y], [x + 1, y - 2.6], [x - 1, y - 2.6]], '#3a3632', null); }
+    if (Math.abs((a + b) / 2 - 12) > 1.2 && Math.round(a) % 2 === 0) { const [x, y] = at((a + b) / 2, 0, H + 1.6); line([x, y], [x, y - 9], '#3a3632', 1); lantern(x, y - 7, 1.3); }
   }
   function wallTower(gx, gy, band, side = null) {
     const corner = !side;
@@ -2597,9 +2683,26 @@
   }
   function boat(gx, gy, sail) {
     const [x, y] = P(gx, gy);
+    if (SNOW) { // iced in: a ridge of broken ice round a frosted hull, rime on the gunwale, the sail furled
+      c.beginPath(); c.ellipse(x, y + 0.5, 11.5, 4.2, 0, 0, TAU); c.fillStyle = F('#eef5f9'); c.fill(); c.strokeStyle = F('#a9c2d0'); c.lineWidth = 0.6; c.stroke();
+      poly([[x - 8, y - 2], [x + 8, y - 2], [x + 5, y + 2], [x - 5, y + 2]], mix('#7a5434', '#b9cad4', 0.45));
+      line([x - 7.5, y - 2.2], [x + 7.5, y - 2.2], '#f6fafc', 1.8);
+      for (const dx of [-5, -1, 3]) line([x + dx, y - 1.4], [x + dx + 0.4, y + 1], '#e4eef3', 0.6);
+      if (sail) { line([x, y - 2], [x, y - 16], '#4a3020', 1); line([x - 0.5, y - 13], [x + 5.5, y - 12], '#d9d2c2', 2.2); line([x - 0.5, y - 16.5], [x + 0.5, y - 16.5], '#f6fafc', 1.4); }
+      return;
+    }
     poly([[x - 8, y - 2], [x + 8, y - 2], [x + 5, y + 2], [x - 5, y + 2]], '#7a5434');
     line([x - 7, y - 2], [x + 7, y - 2], '#a87444', 1);
     if (sail) { line([x, y - 2], [x, y - 18], '#4a3020', 1); poly([[x + 0.5, y - 17], [x + 8, y - 5], [x + 0.5, y - 5]], '#f2ead6'); }
+  }
+  // a boat hauled up on the shore for the winter: upturned on two trestles, snow on its keel
+  function boatAshore(gx, gy) {
+    const [x, y] = P(gx, gy);
+    for (const dx of [-4.5, 4.5]) { line([x + dx - 1.5, y + 1], [x + dx, y - 3], '#5a4030', 1); line([x + dx + 1.5, y + 1], [x + dx, y - 3], '#5a4030', 1); }
+    c.beginPath(); c.moveTo(x - 8.5, y - 2.5); c.quadraticCurveTo(x - 7, y - 8, x, y - 8.5); c.quadraticCurveTo(x + 7, y - 8, x + 8.5, y - 2.5); c.closePath();
+    c.fillStyle = F('#6e4c30'); c.fill(); c.strokeStyle = F(OUT); c.lineWidth = 0.6; c.stroke();
+    line([x - 8.2, y - 2.6], [x + 8.2, y - 2.6], '#8a6440', 1);
+    c.beginPath(); c.moveTo(x - 6.5, y - 6.2); c.quadraticCurveTo(x, y - 10.5, x + 6.5, y - 6.2); c.quadraticCurveTo(x, y - 7.8, x - 6.5, y - 6.2); c.fillStyle = F('#f6fafc'); c.fill();
   }
   function drawLakes() {
     const ring = (z, off) => { const out = []; for (let u = z.a; u <= z.b + 0.001; u += 0.25) out.push(P(...edgePt(z.e, Math.max(0, lakeDepth(z, u) + off), u))); out.push(P(...edgePt(z.e, 0, z.b)), P(...edgePt(z.e, 0, z.a))); return out; };
@@ -2618,7 +2721,8 @@
       for (let dd = 0.6; dd < dd0; dd += 0.7) for (const du of [-0.24, 0.24]) line(P(...edgePt(z.e, dd, u0 + du), -3), P(...edgePt(z.e, dd, u0 + du), 2), '#5a4030', 1.2);
       poly(deck, '#a07a4a');
       for (let dd = 0.7; dd < dd0 + 0.3; dd += 0.25) line(P(...edgePt(z.e, dd, u0 - 0.25), 2), P(...edgePt(z.e, dd, u0 + 0.25), 2), '#7a5a3a', 0.5);
-      if (SEASON !== 3) { boat(...edgePt(z.e, Math.min(dd0 - 0.4, 1.4), u0 + 0.9), false); if (z.b - z.a > 5) boat(...edgePt(z.e, Math.min(dd0 - 0.5, 1.9), u0 - 1.4), true); }
+      if (!SNOW) { boat(...edgePt(z.e, Math.min(dd0 - 0.4, 1.4), u0 + 0.9), false); if (z.b - z.a > 5) boat(...edgePt(z.e, Math.min(dd0 - 0.5, 1.9), u0 - 1.4), true); }
+      else boatAshore(...edgePt(z.e, lakeDepth(z, u0 + 0.9) + 0.3, u0 + 0.9));   // hauled up out of the ice
       const [sx, sy] = P(...edgePt(z.e, dd0 * 0.5, (z.a + z.b) / 2 + 1));
       if (SEASON < 3) rec('sparks', { x: sx, y: sy, kind: 'water', rx: 30, ry: 12 });
     }
@@ -2842,10 +2946,22 @@
     // the boardwalk ashore and the rope bridge between neighbours are always cityview's
     const L = G.lvl(CITY, 'houses'), wx = shoreCtx(z, { wet: true, u, dd, dep });
     if (!front) walk();
-    let h = artHook('waterhome', [w.gx, w.gy, 0.9, 0.85], L, band, mkCtx('waterhome', i, false, wx));
-    if (h === null) h = artHook('cottage', [w.gx, w.gy, 1.3, 1.2], L, band, mkCtx('cottage', i, false, wx));
-    const opt = ARTOPT;
-    if (h === null) h = hallTide(w.gx, w.gy, 0.9, 0.85, [11, 13, 16, 17][band], band, { wet: true, axis: i % 4 === 1 ? 'x' : 'y', chim: 'house', noNet: i % 3 === 0 }) + 6;
+    let h = artHook('waterhome', [w.gx, w.gy, 0.9, 0.85], L, band, mkCtx('waterhome', i, false, wx)), opt = ARTOPT;
+    if (h === null && RACE === 'tide') { // the Tidekin cottage already stands on stilts
+      h = artHook('cottage', [w.gx, w.gy, 1.3, 1.2], L, band, mkCtx('cottage', i, false, wx)); opt = ARTOPT;
+      if (h === null) h = hallTide(w.gx, w.gy, 0.9, 0.85, [11, 13, 16, 17][band], band, { wet: true, axis: i % 4 === 1 ? 'x' : 'y', chim: 'house', noNet: i % 3 === 0 }) + 6;
+    } else if (h === null) { // anyone else: the people's own cottage raised on a pile-built deck over the water
+      const dh = WETDECK, [x0, y0] = [w.gx - 0.12, w.gy - 0.1];
+      stilts(x0, y0, 1.12, 1.02, -3, dh - 1);
+      const dk = box(x0 - 0.04, y0 - 0.04, 1.2, 1.1, dh - 1.6, 1.6, wood); planks(dk, shade(wood, -0.25));
+      c.save(); c.translate(0, -dh); RECDY = dh;
+      try {
+        h = artHook('cottage', [w.gx - 0.1, w.gy - 0.08, 1.1, 1.0], L, band, mkCtx('cottage', i, false, wx)); opt = ARTOPT;
+        if (h === null) { h = BLD.cottage(w.gx - 0.1, w.gy - 0.08, band, i); opt = null; }
+      } finally { c.restore(); RECDY = 0; }
+      h += dh;
+      for (const [px, py] of [[x0 + 1.12, y0 + 0.2], [x0 + 0.2, y0 + 1.02]]) { const [lx, ly] = P(px, py, dh); line([lx, ly], [lx, ly - 7], shade(wood, -0.35), 0.9); }   // mooring posts at the deck's front corners
+    }
     if (front) walk();
     ARTOPT = opt;
     return h;
@@ -3023,7 +3139,7 @@
   // ------------------------------------------------------------------
   // scene assembly
   // ------------------------------------------------------------------
-  let CITY = null;
+  let CITY = null, LIGHT = null;
   function bandOf(L) { return L <= 4 ? 0 : L <= 9 ? 1 : L <= 14 ? 2 : 3; }
   function drawScene(ctx, glow, k, offx, offy) {
     const city = CITY;
@@ -3039,19 +3155,25 @@
     let light = null;
     WATERHOMES = [];
     const artLight = coastal && ARTREG[RACE] && typeof ARTREG[RACE].lighthouse === 'function';
-    if (RACE !== 'tide' && artLight && G.lvl(city, 'townhall') >= 10) { const hz = harborLake(), u0 = lakeU0(hz), ua = hz.a + 1.0, ub = hz.b - 1.0; if (ub - ua > 2.4) light = { z: hz, u: Math.abs(ua - u0) > Math.abs(ub - u0) ? ua : ub }; }
-    if (RACE === 'tide' && coastal) {
-      const hz = harborLake();
-      if (G.lvl(city, 'townhall') >= 10) { const u0 = lakeU0(hz), ua = hz.a + 1.0, ub = hz.b - 1.0; light = { z: hz, u: Math.abs(ua - u0) > Math.abs(ub - u0) ? ua : ub }; }
+    if ((RACE === 'tide' || artLight) && coastal && G.lvl(city, 'townhall') >= 10) light = pickLighthouse(city);
+    if (!glow) LIGHT = light;
+    // homes over the water: a whole stilt quarter for the Tidekin, a few fisher homes on pilings for everyone else
+    if (coastal) {
+      const tide = RACE === 'tide', WB = wallBand(G.lvl(city, 'wall'));
       for (const z of REG.lakes) {
-        const u0 = lakeU0(z), keep = HARB && HARB.z === z && HARB.L > 0 ? harborSpan(HARB.L) + 1.0 : 0.9;
+        if (!tide && WB >= 1 && (z.e === 'N' || z.e === 'E')) continue;   // fisher homes behind a stone wall would only show their roofs
+        const u0 = lakeU0(z), works = HARB && HARB.z === z && HARB.L > 0, keep = tide ? (works ? harborSpan(HARB.L) + 1.0 : 0.9) : (works ? harborSpan(HARB.L) + 2.1 : 2.0);
         let prev = null;
-        for (let u = z.a + 1.0; u <= z.b - 1.0; u += 1.4) {
-          if (Math.abs(u - u0) < keep || (light && light.z === z && Math.abs(u - light.u) < 1.2)) { prev = null; continue; }
+        for (let u = z.a + 1.0; u <= z.b - 1.0; u += tide ? 1.4 : 1.6) {
+          if (Math.abs(u - u0) < keep || (light && light.z === z && Math.abs(u - light.u) < (tide ? 1.2 : 1.7))) { prev = null; continue; }
           const dep = Math.min(lakeDepth(z, u - 0.45), lakeDepth(z, u + 0.45));
-          if (dep < 1.75) { prev = null; continue; }
+          if (dep < (tide ? 1.75 : 2.0)) { prev = null; continue; }
           const dd = dep - 0.8, [gx, gy] = edgePt(z.e, dd, u);
-          const w0 = { z, u, dd, dep, gx: gx - 0.45, gy: gy - 0.45, prev };
+          // where two shores meet at a corner: keep clear of the other shore's homes, harbour works and lighthouse
+          const lp = light ? edgePt(light.z.e, light.dd, light.u) : null;
+          if (WATERHOMES.some(o => o.z !== z && Math.hypot(o.gx + 0.45 - gx, o.gy + 0.45 - gy) < 1.6) || (lp && Math.hypot(lp[0] - gx, lp[1] - gy) < 1.6)
+            || REG.lakes.some(o => o !== z && nearWorks(o, gx, gy) < 2.0)) { prev = null; continue; }
+          const w0 = { z, u, dd, dep, gx: gx - 0.45, gy: gy - 0.45, prev: tide ? prev : null };
           WATERHOMES.push(w0); prev = w0;
         }
       }
@@ -3104,7 +3226,7 @@
         let wi = 0;
         for (let i = 0; i < n; i++) {
           let [cx, cy] = COTTAGES[i], wet = null;
-          if (i % 2 === 1 && wi < WATERHOMES.length) { wet = WATERHOMES[wi++]; wet.used = true; cx = wet.gx; cy = wet.gy; }
+          if ((RACE === 'tide' ? i % 2 === 1 : i % 3 === 2) && wi < WATERHOMES.length) { wet = WATERHOMES[wi++]; wet.used = true; cx = wet.gx; cy = wet.gy; }
           if (wet) { const w0 = wet; push(cx + cy + 0.9, () => { const h = drawB(() => waterHome(w0, band, i), 'houses'), opt = ARTOPT; for (const hb of opt ? optHits(opt, [w0.gx - 0.05, w0.gy - 0.05, 1.0, 0.95], h) : [hullBox(w0.gx - 0.05, w0.gy - 0.05, 1.0, 0.95, h)]) addHit(t, hb, w0.gx + w0.gy + 0.9); }); continue; }
           push(cx + cy + 1.1, () => { const h = drawB(() => drawArt('cottage', [cx, cy, 1.3, 1.2], L, band, i, q.length > 0 && i === n - 1 && active), 'houses'), opt = ARTOPT; for (const hb of opt ? optHits(opt, [cx, cy, 1.3, 1.2], h) : [hullBox(cx, cy, 1.3, 1.2, h)]) addHit(t, hb, cx + cy + 1.1); if (q.length && i === n - 1) scaffold(cx - 0.05, cy - 0.05, 1.35, 1.25, h * 0.8, active); });
         }
@@ -3180,7 +3302,7 @@
       }
       else { firePit(gx, gy, 1); }
     });
-    if (light) { const [lg, lh] = edgePt(light.z.e, Math.max(0.65, lakeDepth(light.z, light.u) * 0.45), light.u); push(lg + lh, () => { const h = drawB(() => lighthouse(light.z, light.u, bandOf(G.lvl(city, 'townhall'))), 'townhall'), opt = ARTOPT; for (const hb of opt ? optHits(opt, [lg - 0.4, lh - 0.4, 0.8, 0.8], h) : [hullBox(lg - 0.4, lh - 0.4, 0.8, 0.8, h)]) addHit('townhall', hb, lg + lh); }); }
+    if (light) { const [lg, lh] = edgePt(light.z.e, light.dd, light.u); push(lg + lh, () => { const h = drawB(() => lighthouse(light.z, light.u, bandOf(G.lvl(city, 'townhall')), light.dd), 'townhall'), opt = ARTOPT; for (const hb of opt ? optHits(opt, [lg - 0.4, lh - 0.4, 0.8, 0.8], h) : [hullBox(lg - 0.4, lh - 0.4, 0.8, 0.8, h)]) addHit('townhall', hb, lg + lh); }); }
     // Ashborn bonfire in the pond spot
     if (RACE === 'ash' && !DATA.buildings.temple) push(POND[0] + POND[1], () => { firePit(POND[0], POND[1], 1.4); for (let k = 0; k < 5; k++) { const a = k / 5 * TAU + 0.3; skull(...P(POND[0] + Math.cos(a) * 0.8, POND[1] + Math.sin(a) * 0.8, 3), 0.8); } });
     if (RACE === 'ash') { for (const [gx, gy] of LAY.deco.pits) if (G.lvl(city, 'houses') >= 3) push(gx + gy, () => firePit(gx, gy, 0.7)); }
@@ -3239,24 +3361,60 @@
     // walls
     const WL = G.lvl(city, 'wall'), wb = WL > 0 && TECH.fortification ? Math.max(1, wallBand(WL)) : wallBand(WL), wq = qOf('wall').length > 0, wst = G.buildStatus(S, city, 'wall');
     const sides = ['N', 'W', 'E', 'S'];
+    // the harbour on a back shore (water at the N or E plot edge = behind the W / N wall on screen)
+    let seaFront = null;
+    if (HARB && HARB.L > 0 && (HARB.z.e === 'N' || HARB.z.e === 'E')) {
+      const us = shoreCtx(HARB.z).piers, side = HARB.z.e === 'N' ? 'W' : 'N';
+      let lo = Math.min(...us) - 0.75, hi = Math.max(...us) + 0.75;
+      const towers = (wb >= 2 ? [WALL_A, WALL_B] : []).concat(wb >= 1 ? (ws => ws >= 4 ? [7.6, 16.4] : ws >= 2 ? [7.6] : [])(subStep(WL, wallBand(WL))) : []);
+      // a side / corner tower just past an end: run the quay wall on to it rather than crowd in another tower
+      for (const t of towers) { if (t < (lo + hi) / 2) lo = t > lo - 2.0 ? t + 0.45 : lo; else hi = t < hi + 2.0 ? t - 0.45 : hi; }
+      lo = Math.max(lo, WALL_A + 0.45); hi = Math.min(hi, WALL_B - 0.45);
+      if (hi - lo > 1.2) seaFront = { side, lo, hi, ends: [lo, hi].filter(u => !towers.some(t => Math.abs(t - u) < 1.0) && Math.abs(u - 12) > 1.5) };
+    }
+    const sideUs = wb >= 1 ? (ws => ws >= 4 ? [7.6, 16.4] : ws >= 2 ? [7.6] : [])(subStep(WL, wallBand(WL))) : [];
     for (const side of sides) {
       // a gatehouse where a high street leaves, a narrow postern where only a track does
       const wide = LAY.mainSides.includes(side), g0 = wide ? GATE0 : 11.62, g1 = wide ? GATE1 : 12.38;
+      const fixedD = side === 'N' || side === 'W' ? WALL_A : WALL_B;
+      // the tall pieces along this side (u-range of their footprint, draw depth): a wall piece that starts inside
+      // one is drawn after it (its depth runs further along), so the part inside the tower / gatehouse is split off
+      // and drawn just before it — the tower then stands in front of the wall's end, whatever art draws either
+      const feats = [{ lo: wide ? GATE0 - 0.55 : g0 - 0.22, hi: wide ? GATE1 + 0.55 : g1 + 0.22, dep: fixedD + 12 + 0.35 }];
+      if (wb >= 2) feats.push({ lo: WALL_A - 0.45, hi: WALL_A + 0.45, dep: fixedD + WALL_A + 0.4 });
+      for (const u of sideUs) feats.push({ lo: u - 0.45, hi: u + 0.45, dep: fixedD + u + 0.4 });
+      if (seaFront && seaFront.side === side && wb >= 1) for (const u of seaFront.ends) feats.push({ lo: u - 0.45, hi: u + 0.45, dep: fixedD + u + 0.4 });
+      // a back shore's harbour (N / E water lies behind the wall on screen): the wall in front of the works drops to a
+      // low quay wall between two flanking towers, so the piers, boats and ships show over it
+      const sea = seaFront && seaFront.side === side ? seaFront : null;
+      const emit = (p0, p1) => {
+        const m = (p0 + p1) / 2;
+        const gx = side === 'N' || side === 'S' ? m : side === 'W' ? WALL_A : WALL_B;
+        const gy = side === 'N' || side === 'S' ? (side === 'N' ? WALL_A : WALL_B) : m;
+        const dep = gx + gy + 0.3;
+        const fp = side === 'N' || side === 'S' ? [p0, gy - 0.25, p1 - p0, 0.5] : [gx - 0.25, p0, 0.5, p1 - p0];
+        const low = sea && p0 >= sea.lo - 0.001 && p1 <= sea.hi + 0.001, seg = low ? seaWall : wallSeg;
+        const f = wb >= 0 ? feats.find(q => p0 >= q.lo - 0.001 && p0 < q.hi - 0.02 && q.dep < dep) : null;
+        if (f) {
+          const cut = Math.min(p1, f.hi);
+          if (cut - p0 > 0.1) push(f.dep - 0.01, () => seg(side, p0, cut, wb));
+          if (p1 - cut > 0.02) push(fixedD + (cut + p1) / 2 + 0.3, () => seg(side, cut, p1, wb));
+        } else if (wb >= 0) push(dep, () => seg(side, p0, p1, wb));
+        addHit('wall', hullBox(fp[0], fp[1], fp[2], fp[3], low ? 10 : wb >= 0 ? 22 + wb * 4 : 8), dep);
+      };
       for (let a = WALL_A; a < WALL_B - 0.01; a += 1) {
         const b = a + 1;
         const pieces = [];
         if (b <= g0 || a >= g1) pieces.push([a, b]); else { if (a < g0) pieces.push([a, g0]); if (b > g1) pieces.push([g1, b]); }
         for (const [p0, p1] of pieces) {
-          const m = (p0 + p1) / 2;
-          const gx = side === 'N' || side === 'S' ? m : side === 'W' ? WALL_A : WALL_B;
-          const gy = side === 'N' || side === 'S' ? (side === 'N' ? WALL_A : WALL_B) : m;
-          const dep = gx + gy + 0.3;
-          if (wb >= 0) push(dep, () => wallSeg(side, p0, p1, wb));
-          const fp = side === 'N' || side === 'S' ? [p0, gy - 0.25, p1 - p0, 0.5] : [gx - 0.25, p0, 0.5, p1 - p0];
-          addHit('wall', hullBox(fp[0], fp[1], fp[2], fp[3], wb >= 0 ? 22 + wb * 4 : 8), dep);
+          if (!sea || p1 <= sea.lo || p0 >= sea.hi) { emit(p0, p1); continue; }
+          const cuts = [p0, Math.max(p0, sea.lo), Math.min(p1, sea.hi), p1];
+          for (let k = 0; k < 3; k++) if (cuts[k + 1] - cuts[k] > 0.02) emit(cuts[k], cuts[k + 1]);
         }
       }
-      if (wb >= 0) { const m = (GATE0 + GATE1) / 2; const gx = side === 'N' || side === 'S' ? m : side === 'W' ? WALL_A : WALL_B, gy = side === 'N' || side === 'S' ? (side === 'N' ? WALL_A : WALL_B) : m; push(gx + gy + 0.35, () => wide ? gate(side, wb) : postern(side, wb, g0, g1)); }
+      const postHide = sea && !wide && g0 >= sea.lo && g1 <= sea.hi;   // the track runs straight onto the quay
+      if (wb >= 0 && !postHide) { const m = (GATE0 + GATE1) / 2; const gx = side === 'N' || side === 'S' ? m : side === 'W' ? WALL_A : WALL_B, gy = side === 'N' || side === 'S' ? (side === 'N' ? WALL_A : WALL_B) : m; push(gx + gy + 0.35, () => wide ? gate(side, wb) : postern(side, wb, g0, g1)); }
+      if (sea && wb >= 1) for (const u of sea.ends) { const [gx, gy] = side === 'N' ? [u, WALL_A] : [WALL_A, u]; push(gx + gy + 0.4, () => wallTower(gx, gy, Math.min(wb, 2), side)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); }
     }
     if (wb >= 2) for (const [gx, gy] of [[WALL_A, WALL_A], [WALL_B, WALL_A], [WALL_A, WALL_B], [WALL_B, WALL_B]]) { push(gx + gy + 0.4, () => wallTower(gx, gy, wb)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); }
     // more towers along the sides as the wall levels up within its band
@@ -3585,7 +3743,7 @@
       for (let k = 0; k < 4; k++) { const a = Math.sin(t * 2.2 + k * 0.9 + ch.seed * 9) * 0.35, len = 5 + k % 2 * 2, x0 = ch.x - 2.5 + k * 1.7; X.beginPath(); X.moveTo(x0, ch.y); X.lineTo(x0 + Math.sin(a) * len, ch.y + Math.cos(a) * len); X.stroke(); }
       X.fillStyle = '#c9a03a'; X.fillRect(ch.x - 3, ch.y - 0.6, 6, 1.2);
     }
-    for (const dv of recd.divers) for (let k = 0; k < 2; k++) {
+    if (!SNOW) for (const dv of recd.divers) for (let k = 0; k < 2; k++) {   // nobody dives through the ice
       const ph = (t * 0.22 + dv.seed + k * 0.5) % 1, ox = dv.x + (k ? 0.35 : -0.3) * dv.rx, oy = dv.y + (k ? -0.15 : 0.2) * dv.ry;
       if (ph < 0.55) { // swimming at the surface
         const bob = Math.sin(t * 3 + k) * 0.6; X.fillStyle = 'rgba(255,255,255,0.5)'; X.beginPath(); X.ellipse(ox, oy + 1, 3.2, 1.2, 0, 0, TAU); X.fill();
@@ -3683,6 +3841,7 @@
     const X = ctx;
     for (const s of recd.sparks) {
       if (s.kind !== 'water' && dormant(s.bt)) continue;
+      if (s.kind === 'water' && SNOW) continue;   // frozen water: no glints, wakes or ripples
       if (s.kind === 'rune') { const p = 0.55 + 0.45 * Math.sin(t * 2.4 + s.x * 0.3); glowDot(s.x, s.y, 9, 'rgba(110,210,255,A)', (0.25 + la * 0.5) * p); }
       else if (s.kind === 'grove') {
         for (let k = 0; k < 10; k++) { const ph = (t * 0.12 + k / 10) % 1; const a = k * 2.4 + t * 0.3; const x = s.x + Math.cos(a) * s.r * 0.8 * (0.4 + ph * 0.6), y = s.y + s.r * 0.3 - ph * s.r * 1.3; glowDot(x, y, 3.5, 'rgba(190,255,210,A)', (0.35 + la * 0.5) * Math.sin(ph * Math.PI)); }
@@ -3714,13 +3873,13 @@
       const [ex, ey, rx, ry] = l.ring;
       for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI, x = ex + Math.cos(a) * rx * 0.95, y = ey + Math.sin(a) * ry * 0.95, p = 0.5 + 0.5 * Math.sin(t * 2 - k * 0.8); glowDot(x, y, 6, 'rgba(160,240,255,A)', (0.2 + la * 0.5) * l.s * p); }
     }
-    // Tidekin lighthouse: a sweeping beam after dark
+    // lighthouses: a sweeping beam after dark, warm unless the people tints it (rec('beams', {x, y, col}))
     if (la > 0.05) for (const bm of recd.beams) {
-      const a = t * 0.6, len = 150, half = 0.09;
-      const g = X.createRadialGradient(bm.x, bm.y, 2, bm.x, bm.y, len); g.addColorStop(0, `rgba(255,240,180,${0.5 * la})`); g.addColorStop(1, 'rgba(255,240,180,0)');
+      const a = t * 0.6, len = 150, half = 0.09, rgb = beamRgb(bm.col);
+      const g = X.createRadialGradient(bm.x, bm.y, 2, bm.x, bm.y, len); g.addColorStop(0, `rgba(${rgb},${0.5 * la})`); g.addColorStop(1, `rgba(${rgb},0)`);
       X.fillStyle = g; X.beginPath(); X.moveTo(bm.x, bm.y);
       X.lineTo(bm.x + Math.cos(a - half) * len, bm.y + Math.sin(a - half) * len * 0.35); X.lineTo(bm.x + Math.cos(a + half) * len, bm.y + Math.sin(a + half) * len * 0.35); X.closePath(); X.fill();
-      glowDot(bm.x, bm.y, 14, 'rgba(255,240,180,A)', 0.6 * la);
+      glowDot(bm.x, bm.y, 14, `rgba(${rgb},A)`, 0.6 * la);
     }
     if (la > 0.05) {
       for (const l of recd.lights) if (l.col !== 'grove') glowDot(l.x, l.y, l.r * 0.55, l.col === 'witch' ? 'rgba(120,255,160,A)' : l.col === 'fey' ? 'rgba(200,170,255,A)' : l.col === 'storm' ? 'rgba(130,195,255,A)' : l.col === 'sea' ? 'rgba(120,230,230,A)' : 'rgba(255,200,110,A)', la * 0.35);
@@ -3876,7 +4035,7 @@
       start();
     } else stop();
   });
-  window.EC_CITYVIEW = { perf, get xf() { return [K, OFFX, OFFY]; }, get hits() { return recd && recd.hits; }, rebuild: () => { drawnKey = ''; REGCACHE.clear(); LAYCACHE.clear(); }, layout: () => LAY, region: () => REG, draw: ts => renderFrame(ts == null ? performance.now() : ts), setHover: (type, x, y) => { hover = type ? { type, text: describe(type) } : null; mouse = x == null ? null : { x, y }; },
+  window.EC_CITYVIEW = { perf, get waterhomes() { return WATERHOMES.filter(w => w.used).map(w => w.z.e + w.u.toFixed(1)); }, get light() { return LIGHT && { e: LIGHT.z.e, u: LIGHT.u, dd: LIGHT.dd }; }, get xf() { return [K, OFFX, OFFY]; }, get hits() { return recd && recd.hits; }, rebuild: () => { drawnKey = ''; REGCACHE.clear(); LAYCACHE.clear(); }, layout: () => LAY, region: () => REG, draw: ts => renderFrame(ts == null ? performance.now() : ts), setHover: (type, x, y) => { hover = type ? { type, text: describe(type) } : null; mouse = x == null ? null : { x, y }; },
     get hover() { return hover; }, get reduceMotion() { return reduceMotion; },
     toClient: (x, y) => { const r = cv.getBoundingClientRect(); return { x: r.left + (x * K + OFFX) / dpr, y: r.top + (y * K + OFFY) / dpr }; } };
 })();

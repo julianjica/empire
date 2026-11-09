@@ -16,7 +16,7 @@
 .tut-head { display: flex; align-items: center; gap: 6px; }
 .tut-step { font-size: 11.5px; color: var(--muted); letter-spacing: .02em; text-transform: uppercase; }
 .tut-sp { flex: 1; }
-.tut-x { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 4px; }
+.tut-x { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 6px; min-width: 32px; }
 .tut-x:hover { color: var(--ink); }
 .tut-title { margin: 4px 0 6px; font-family: var(--font, inherit); font-size: 16px; }
 .tut-body p { margin: 0 0 8px; }
@@ -55,8 +55,30 @@
   .tut-spot { transition: none; }
 }
 
+/* checklist, current hint, reward, stage list */
+.tut-goals { list-style: none; margin: 4px 0 8px; padding: 0; }
+.tut-goals li { display: flex; gap: 7px; align-items: baseline; padding: 3px 0; font-size: 13px; }
+.tut-goals li > span { flex: 0 0 16px; text-align: center; color: var(--muted); font-weight: 700; }
+.tut-goals li.ok { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.tut-goals li.ok > span { color: var(--good, #4a8a3a); }
+.tut-goals li.next { font-weight: 600; }
+.tut-goals li.next > span { color: var(--accent); }
+.tut-now { background: color-mix(in srgb, var(--accent) 9%, var(--panel)); border-left: 3px solid var(--accent); border-radius: 6px; padding: 6px 9px 1px; margin: 0 0 8px; font-size: 13px; }
+.tut-now p { margin: 0 0 6px; }
+.tut-reward { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+.tut-flash { background: color-mix(in srgb, var(--good, #4a8a3a) 14%, var(--panel)); border-radius: 6px; padding: 4px 8px; margin: 6px 0 2px; }
+.tut-list { list-style: none; margin: 4px 0 10px; padding: 0; max-height: 46vh; overflow: auto; }
+.tut-list li { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+.tut-list li .tut-li-s { flex: 0 0 16px; text-align: center; font-weight: 700; color: var(--muted); }
+.tut-list li.past .tut-li-s { color: var(--good, #4a8a3a); }
+.tut-list li.cur .tut-li-s { color: var(--accent); }
+.tut-list li .tut-li-t { flex: 1; min-width: 0; }
+.tut-list li small { display: block; font-size: 11.5px; }
+.tut-pill.new, .tut-q.new { position: relative; }
+.tut-pill.new::after, .tut-q.new::after { content: ""; position: absolute; top: -3px; right: -3px; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); border: 2px solid var(--panel); }
+
 /* top-bar buttons */
-.tut-q { font-weight: 700; min-width: 28px; }
+.tut-q { font-weight: 600; min-width: 28px; }
 .tut-bell.on { border-color: var(--accent); }
 
 /* phones: a bottom sheet */
@@ -68,6 +90,8 @@
   }
   .tut-coach.min { left: auto; right: 12px; bottom: 12px; padding: 0; }
   .tut-title { font-size: 15px; }
+  .tut-x { min-height: 40px; min-width: 40px; }
+  .tut-actions button, .tut-foot .link { min-height: 40px; }
   /* leave room so the sheet never hides the end of the page */
   body:has(.tut-coach.on:not(.min)) { padding-bottom: 42vh; }
 }

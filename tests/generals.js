@@ -75,13 +75,14 @@ ok('Ambusher: +12% in forests and hills only', (!fF || near(ratio(['ambusher'], 
 ok('Cautious: fewer losses, halves the foe\\'s pursuit, withdraws', (() => { const e = edge(['cautious'], { militia: 10 }, 'att', fP); return e.k.loss === 0.92 && e.k.cap === 0.85 && e.foe.pursuit === 0.5; })());
 ok('Reckless: +12% attack, +15% own losses, double death risk', near(ratio(['reckless'], { militia: 10 }, 'att', fP), 1.12) && edge(['reckless'], { militia: 10 }, 'att', fP).k.loss === 1.15
   && near(G.generalFateOdds({ traits: ['reckless'] }, 0.5, false).death, 2 * G.generalFateOdds({ traits: [] }, 0.5, false).death));
-ok('Veteran trainer: troops train 10% faster where he is stationed, +3%', (() => { const before = G.mod(s, 'p', cap, 'trainTime'); const g = mk(['drillmaster']); const after = G.mod(s, 'p', cap, 'trainTime'); drop(g); return near(after / before, 0.9) && near(ratio(['drillmaster'], { militia: 1 }, 'att', fP), 1.03); })());
+ok('Veteran trainer: troops train 10% faster where he is stationed, +3%', (() => { const keep = emp.generals; emp.generals = [];   // alone at home, so he is the one in command
+  const before = G.mod(s, 'p', cap, 'trainTime'); const g = mk(['drillmaster']); const after = G.mod(s, 'p', cap, 'trainTime'); drop(g); emp.generals = keep; return near(after / before, 0.9) && near(ratio(['drillmaster'], { militia: 1 }, 'att', fP), 1.03); })());
 ok('Warden: +10% garrison defence', near(ratio(['warden'], { militia: 10 }, 'def', fP), 1.10) && near(ratio(['warden'], { militia: 10 }, 'att', fP), 1));
 ok('Raider: +5% on raids', near(ratio(['raider'], { militia: 10 }, 'att', fP, 'raid'), 1.05) && near(ratio(['raider'], { militia: 10 }, 'att', fP, 'attack'), 1));
 ok('Tactician: leadership counts half again', near(G.generalLeadership({ level: 4, traits: ['tactician'] }), 1 + 0.015 * 4 * 1.5));
 ok('Lucky: half the odds', (() => { const a = G.generalFateOdds({ traits: ['lucky'] }, 0.6, true), b = G.generalFateOdds({ traits: [] }, 0.6, true); return near(a.death, b.death / 2) && near(a.capture, b.capture / 2); })());
 ok('Riverwise: no penalty crossing rivers', (() => { const f = { ...fP, crossing: true, naval: false, season: 1 }; return near(ratio(['riverwise'], { militia: 10 }, 'att', f), 1 - R.river) && near(ratio(['riverwise'], { militia: 10 }, 'att', fP), 1); })());
-ok('Beloved: 15% less war weariness', (() => { const b0 = G.traditionFx(emp, 'weary'); const g = mk(['beloved']); const b1 = G.traditionFx(emp, 'weary'); drop(g); return near(b1 / b0, 0.85); })());
+ok('Beloved: 15% less war weariness', (() => { const keep = emp.generals; emp.generals = []; const b0 = G.traditionFx(emp, 'weary'); const g = mk(['beloved']); const b1 = G.traditionFx(emp, 'weary'); drop(g); emp.generals = keep; return near(b1 / b0, 0.85); })());
 emp.generals = emp.generals.filter(g => g === g1);
 
 // ---- stances: bounded and visible ----
@@ -251,9 +252,11 @@ ok('Evacuate stores: weaker, but more of the stores hidden and less produced', g
   const p0 = G.econ(s, ai).protect, r0 = G.mod(s, 'a1', ai, 'grain'); G.setGarrisonStance(s, ai.id, 'evacuate'); G._modCache = null;
   const p1 = G.econ(s, ai).protect, r1 = G.mod(s, 'a1', ai, 'grain'); G.setGarrisonStance(s, ai.id, 'standing'); return p1 > p0 && r1 < r0; })());
 const aiG = { id: 'a1gT', name: 'Warden Test', race: s.empires.a1.race, seed: 'w', level: 3, xp: 0, hp: 100, traits: ['warden'], status: 'home', city: ai.id, battles: 0, wins: 0 };
-G.ensureGenerals(s); s.empires.a1.generals.push(aiG);
+G.ensureGenerals(s); s.empires.a1.generals = s.empires.a1.generals.filter(g => g.city !== ai.id || g.status !== 'home');   // the AI may have stationed its own general there
+const base0 = gb(strong);   // the same garrison with no commander at all
+s.empires.a1.generals.push(aiG);
 const wd = gb(strong);
-ok('a commander lends his level and defensive traits to the garrison', G.commanderOf(s, ai) === aiG && wd.D > gs.standing.s.D * 1.1 && wd.tactics.generals.def.name === aiG.name);
+ok('a commander lends his level and defensive traits to the garrison', G.commanderOf(s, ai) === aiG && wd.D > base0.D * 1.1 && wd.tactics.generals.def.name === aiG.name, [G.commanderOf(s, ai) && G.commanderOf(s, ai).id, Math.round(wd.D), Math.round(base0.D)].join(' '));
 ok('the preview of a scouted city shows its commander', (() => { s.intel[G.tileIdx(s, at)] = { t: s.time, units: { ...ai.units }, wall: 0, th: G.lvl(ai, 'townhall') };
   const p = G.previewWith(s, cap, at, { militia: 10 }, 'raid', { stance: 'skirmish' }); return p.known && p.tactics.generals && p.tactics.generals.def.id === aiG.id && p.tactics.stances.att.key === 'skirmish'; })());
 s.empires.a1.generals = [];

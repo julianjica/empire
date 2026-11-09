@@ -406,8 +406,8 @@
 
   // ------------------------------------------------- homes: stilt hut / ledge house / tower house
   def('cottage', ([x, y], L, band) => {
-    const i = X.i || 0, form = i % 3, s = [0.9, 1.0, 1.08, 1.14][band];
-    const cx = x + 0.6, cy = y + 0.55;
+    const i = X.i || 0, form = i % 3, wet = !!X.wet, s = wet ? 0.95 : [0.9, 1.0, 1.08, 1.14][band];   // wet: on a pile deck over the water — no rock ledge or crag
+    const cx = x + (wet ? 0.55 : 0.6), cy = y + (wet ? 0.5 : 0.55);
     let top;
     if (form === 0) { // round reed hut on stilts
       const pz = 5 + band * 2.5, r = 0.3 + band * 0.03;
@@ -427,9 +427,8 @@
       if (band >= 3) chime(...A.P(cx + r * 1.2, cy + r * 1.2, pz + wh));
       top += 5;
     } else if (form === 1) { // a house on a rocky ledge
-      const rh = 3 + band * 2.5;
-      rockBase(x + 0.08, y + 0.08, s, s * 0.9, rh);
-      crag(x + 0.15, y + s * 0.9 + 0.05, 0.45);
+      const rh = wet ? 0 : 3 + band * 2.5;
+      if (!wet) { rockBase(x + 0.08, y + 0.08, s, s * 0.9, rh); crag(x + 0.15, y + s * 0.9 + 0.05, 0.45); }
       const H = 8 + band * 2;
       const o = hut(x + 0.18, y + 0.18, s - 0.2, s * 0.9 - 0.25, rh, H, { axis: i % 2 ? 'x' : 'y' });
       A.door(o.b, 'L', (s - 0.2) * 0.4, 0.22, Math.min(7, H * 0.7));
@@ -439,7 +438,7 @@
         void ub;
       }
       if (i % 2 === 0) A.chimney(x + 0.35, y + 0.35, rh + H, 8, 'house', A.shade(A.STY.stone, -0.1));
-      if (band >= 1) A.pennant(x + s + 0.02, y + 0.15, rh, 14 + band * 2);
+      if (band >= 1) A.pennant(x + s + (wet ? -0.06 : 0.02), y + 0.15, rh, 14 + band * 2);
       top = o.top + 4;
     } else { // narrow tower house with a perch gallery
       const tw = 0.5, H = 15 + band * 5 + (L % 5);
@@ -1071,14 +1070,23 @@
     for (const t of [0.4, 0.8]) A.circ(x - 1.2 * s * t, y + 5 * s + 6 * s * t, 0.8, '#f4ead2');
   }
   // a kite-boat: a slim canoe with outrigger, a kite flying seaward on its line
+  // winter: the water is frozen — a sheet of broken ice round a hull lying along the shore normal
+  function iceRing(u, d0, d1, hw) {
+    const S = X, m = (d0 + d1) / 2, r = (d1 - d0) / 2 + 0.3, ring = [];
+    for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2; ring.push(S.at(m + Math.cos(a) * r, u + Math.sin(a) * (hw + 0.28), 0)); }
+    A.poly(ring, '#eef5f9', '#a9c2d0', 0.6);
+    if (!X.night) for (const k of [1, 6, 10, 13]) { const a = k / 16 * Math.PI * 2; A.line(ring[k], S.at(m + Math.cos(a) * r * 0.6, u + Math.sin(a) * (hw + 0.1), 0), '#c4d6e0', 0.5); }
+  }
   function kiteBoat(dd, u, len, col, kiteCol, kiteUp = 1) {
     const S = X, bw = 0.12, b = dd - len / 2, s = dd + len / 2;
+    if (X.snow) { iceRing(u - 0.12, b, s, 0.2); col = A.mix(col, '#b9cad4', 0.4); kiteCol = null; }   // iced in: frosted hull, the kite stowed
     prism([S.pt(b, u), S.pt(b + len * 0.3, u + bw), S.pt(s - len * 0.15, u + bw), S.pt(s, u), S.pt(s - len * 0.15, u - bw), S.pt(b + len * 0.3, u - bw)], -0.5, 2.6, col, { top: A.shade(col, 0.28) });
     A.poly([S.pt(b + len * 0.25, u), S.pt(b + len * 0.35, u + bw * 0.5), S.pt(s - len * 0.2, u + bw * 0.5), S.pt(s - len * 0.12, u), S.pt(s - len * 0.2, u - bw * 0.5), S.pt(b + len * 0.35, u - bw * 0.5)].map(p => A.P(p[0], p[1], 2.3)), A.shade(col, -0.4), null);
     // outrigger float on the far side
     const o0 = S.at(dd - len * 0.2, u - 0.3, 0.5), o1 = S.at(dd + len * 0.2, u - 0.3, 0.5);
     A.line(S.at(dd - len * 0.1, u, 2.4), S.at(dd - len * 0.1, u - 0.3, 1), beamC(), 0.7); A.line(S.at(dd + len * 0.1, u, 2.4), S.at(dd + len * 0.1, u - 0.3, 1), beamC(), 0.7);
     A.line(o0, o1, A.shade(col, -0.2), 1.6);
+    if (X.snow) A.line(S.at(b + len * 0.3, u + bw, 2.7), S.at(s - len * 0.15, u + bw, 2.7), '#f6fafc', 1.6);   // rime on the gunwale
     if (!X.night && !X.snow) { const [wx, wy] = S.at(dd, u, 0); A.line([wx - 6, wy + 1.5], [wx + 6, wy + 1.5], 'rgba(255,255,255,0.5)', 0.7); }
     if (kiteCol) { const t = S.at(b + 0.05, u, 3), k = S.at(b - 0.9, u + 0.2, 26 + kiteUp * 8); kite(k[0], k[1], 1, kiteCol, t[0], t[1]); return 40; }
     return 6;
@@ -1145,13 +1153,21 @@
         J(out + 0.9, u + sd, () => {
           const p0 = 0, p1 = 0;
           const d0 = out + 0.1, d1 = out + Math.min(1.9, len - 0.1), bw = 0.22;
-          const hc = '#7a5434', uu = u + sd;
+          const hc = X.snow ? A.mix('#7a5434', '#b9cad4', 0.4) : '#7a5434', uu = u + sd;
+          if (X.snow) iceRing(uu, d0, d1, bw);
           prism([S.pt(d0, uu), S.pt(d0 + 0.45, uu + bw), S.pt(d1 - 0.1, uu + bw * 0.85), S.pt(d1, uu), S.pt(d1 - 0.1, uu - bw * 0.85), S.pt(d0 + 0.45, uu - bw)], -1, 5, hc, { top: A.shade(hc, 0.3) });
           A.poly([S.pt(d0 + 0.2, uu), S.pt(d0 + 0.5, uu + bw * 0.62), S.pt(d1 - 0.15, uu + bw * 0.55), S.pt(d1 - 0.08, uu), S.pt(d1 - 0.15, uu - bw * 0.55), S.pt(d0 + 0.5, uu - bw * 0.62)].map(p => A.P(p[0], p[1], 4.6)), A.shade(hc, -0.35), null);
           A.line(S.at(d0 + 0.45, uu + bw, 3), S.at(d1 - 0.1, uu + bw * 0.85, 3), ERA >= 3 ? '#e0b440' : A.STY.roof, 1);
           void p0; void p1;
           const m = d0 + (d1 - d0) * 0.62, mb = S.at(m, uu, 4.6), H = 28 + band * 3;
           A.line(mb, [mb[0], mb[1] - H], '#4a3a2a', 1.4);
+          if (X.snow) { // iced in for the winter: rime on the gunwale, the batwing sail furled along the mast
+            A.line(S.at(d0 + 0.45, uu + bw, 5), S.at(d1 - 0.1, uu + bw * 0.85, 5), '#f6fafc', 1.8);
+            A.line([mb[0] + 1.2, mb[1] - 6], [mb[0] + 1.2, mb[1] - H * 0.85], ERA >= 3 ? '#f4f0e4' : '#efe2c4', 2.6); A.line([mb[0] + 0.6, mb[1] - H * 0.85 - 0.5], [mb[0] + 1.8, mb[1] - H * 0.85 - 0.5], '#f6fafc', 1.4);
+            A.rec('flags', { x: mb[0], y: mb[1] - H + 1, col: A.STY.flag, len: 10, seed: RN() });
+            top = Math.max(top, H + 6);
+            return;
+          }
           // a great batwing sail (fanned battens like a hawk's wing)
           const top0 = [mb[0], mb[1] - H], foot = [mb[0], mb[1] - 6], tipP = [mb[0] + 15, mb[1] - H * 0.35];
           A.poly([top0, [mb[0] + 12, mb[1] - H * 0.8], tipP, [mb[0] + 10, mb[1] - 8], foot], ERA >= 3 ? '#f4f0e4' : '#efe2c4', A.OUT, 0.6);
@@ -1254,7 +1270,7 @@
     A.rec('sails', { x: sx, y: sy, r: 13 + band * 2, col: ERA >= 3 ? '#f4f0e4' : '#efe2c4' });
     A.pennant(gx - 0.28, gy + 0.28, H + 1.4, 10, A.STY.flag);
     perchArm(gx - 0.3, gy, H + 6, -0.3, 0.1, true);
-    A.rec('beams', { x: lx, y: ly }); A.rec('lights', { x: lx, y: ly, r: 40 + band * 6, col: ERA >= 3 ? 'storm' : undefined });
+    A.rec('beams', { x: lx, y: ly, col: 'blue' }); A.rec('lights', { x: lx, y: ly, r: 40 + band * 6, col: ERA >= 3 ? 'storm' : undefined });
     birds(gx, gy, top + 10, 2, 24);
     return { top: top + 4, hit: [[gx - 0.4, gy - 0.4, 0.8, 0.8, top + 4]] };
   });

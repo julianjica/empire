@@ -571,7 +571,22 @@ G.researchQueueNote = (s, owner) => {
 // ---------------------------------------------------------------------
 // per-empire product of every known tech's fx (memoized on the number of known techs)
 const FX_CACHE = new WeakMap();
+// inside a step the answer is also remembered per realm until the engine's epoch moves on (after each hook, each
+// resolved move, and wherever a tech is learnt), sparing the count of known techs on every modifier lookup
+const FX_STEP = new Map();
+let fxEpoch = -1, fxState = null;
 G.techFx = (s, owner) => {
+  if (!G._modCache) return techFxRaw(s, owner);
+  if (fxEpoch !== G._epoch || fxState !== s) { FX_STEP.clear(); fxEpoch = G._epoch; fxState = s; }
+  const e = s.empires[owner];
+  const done = e && e.research && e.research.done;
+  const m = FX_STEP.get(owner);
+  if (m !== undefined && m.done === done && m.race === (e && e.race)) return m.fx;
+  const fx = techFxRaw(s, owner);
+  FX_STEP.set(owner, { done, race: e && e.race, fx });
+  return fx;
+};
+const techFxRaw = (s, owner) => {
   const e = s.empires[owner];
   const R = e && e.research;
   if (!R || !R.done) return null;
@@ -662,6 +677,7 @@ G.stepHooks.push(s => {
     if (R && R.active && R.active.end <= s.time) {
       const t = DATA.techs[R.active.id];
       R.done[R.active.id] = true;
+      if (G.bumpEpoch) G.bumpEpoch();
       R.active = null;
       if (t) G.log(s, e.id, `📚 Research complete: ${t.icon} ${t.name}. ${G.techFxText(t.id)}`, 'good');
       if (R.queue && R.queue.length) G.processResearchQueue(s, e.id);

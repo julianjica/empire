@@ -233,3 +233,90 @@ html.ec-large-text :is([style*="font-size:11"], [style*="font-size: 11"], [style
 #ecResPop.sheet { left: 10px !important; right: 10px; bottom: 10px; top: auto !important; width: auto; max-width: none; max-height: 60vh; font-size: 13px;
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
 #ecResPop.sheet td { padding: 4px 3px; }
+
+/* ---------- grouped navigation (ui-core.js renderNav) ---------- */
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-g { margin-bottom: 4px; }
+.nav-gh { display: flex !important; align-items: center; gap: 6px; width: 100%; margin: 0 0 2px !important; padding: 3px 8px !important;
+  background: none; border: 0 !important; color: var(--muted); font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase; font-weight: 600; box-shadow: none !important; }
+.nav-gh > span:first-child { flex: 1; text-align: left; }
+.nav-gh i { font-style: normal; font-size: 14px; opacity: .75; }
+.nav-gh:hover { color: var(--ink); }
+.nav-gh .badge { float: none; }
+.nav-gl button { padding-left: 14px; }
+.nav-g-help { border-top: 1px solid var(--line); padding-top: 6px; }
+.nav-bar, .nav-sheet, .nav-sheet-veil { display: none; }
+
+/* every tab's header: where it sits in the menu, and its help link */
+.tab-head { display: flex; align-items: center; gap: 8px; min-height: 28px; margin-bottom: -4px; font-size: 13px; }
+.tab-crumb b { font-family: var(--font); font-size: 15px; }
+.tab-help { font-weight: 700; min-width: 30px; border-radius: 99px; }
+
+/* the top bar's groups */
+.top-extras, .top-ctl { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.top-stat b { font-variant-numeric: tabular-nums; }
+/* chips that need you come first: the crisis, a waiting tale, the guide, the council; sound and notifications last */
+.top-extras > .ec-crisis, .top-extras > [data-t="tales"], .top-extras > .pill.bad { order: -4; }
+.top-extras > .tut-q { order: -3; }
+.top-extras > .cn-chip { order: -2; }
+.top-extras > .ec-audio-btns, .top-extras > .tut-bell { order: 5; }
+.ec-pop-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+
+/* ---------- How to play (ui-core.js renderHelp) ---------- */
+.help-lede { font-size: 13.5px; line-height: 1.5; }
+.help-q { width: 100%; padding: 8px 12px; border-radius: 99px; font-size: 15px; margin: 4px 0 10px; }
+.help-toc { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.help-toc button { border-radius: 99px; }
+.help:has(.help-q:not(:placeholder-shown)) .help-toc { display: none; }
+.help-secs { display: flex; flex-direction: column; gap: 6px; }
+.help-sec { border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); scroll-margin-top: 90px; }
+.help-sec > summary { cursor: pointer; padding: 9px 12px; font-family: var(--font); font-size: 1.05rem; font-weight: 600; list-style: none; display: flex; gap: 8px; align-items: center; }
+.help-sec > summary::-webkit-details-marker { display: none; }
+.help-sec > summary::after { content: "▸"; margin-left: auto; color: var(--muted); font-size: 13px; }
+.help-sec[open] > summary::after { content: "▾"; }
+.help-sec[open] { background: var(--panel); border-color: var(--accent2); }
+.help-body { padding: 0 14px 10px; font-size: 13.5px; }
+.help-body ul { padding-left: 20px; margin: 6px 0; }
+.help-body li { margin: 3px 0; }
+.help-gh { margin-top: 18px; }
+.help-gloss { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 14px; margin: 0; }
+.help-term { padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+.help-term dt { font-weight: 700; }
+.help-term dd { margin: 2px 0 0; color: var(--muted); }
+.help-term [hidden], .help [hidden] { display: none !important; }
+
+/* ---------- start screen ---------- */
+.st-hero { text-align: center; padding: 12px 0 4px; }
+.st-what { max-width: 760px; margin: 0 auto 22px; border-left: 4px solid var(--accent); }
+.st-what h3 { margin-bottom: 4px; }
+.st-what p { margin: 0 0 8px; line-height: 1.55; }
+.st-points { display: flex; flex-wrap: wrap; gap: 6px 18px; list-style: none; padding: 0; margin: 0; font-size: 13px; color: var(--muted); }
+.st-h { display: flex; align-items: center; gap: 10px; font-size: 1.3rem; margin: 6px 0 12px; }
+.st-h > span { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font: 700 15px var(--ui); }
+.race { position: relative; }
+.race.sel { background: color-mix(in srgb, var(--race, var(--accent)) 9%, var(--panel)); }
+.race.sel::after { content: "✓"; position: absolute; top: 8px; right: 10px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.race:focus-visible { outline: 3px solid var(--accent); }
+.race .race-troops { margin-top: 8px; font-size: 12.5px; }
+.st-easy { margin-top: 2px; }
+.st-setup { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
+.st-rec-box { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, var(--accent2) 12%, var(--panel)); border: 1px solid var(--accent2); font-size: 13.5px; }
+.st-rec-box > div { flex: 1 1 260px; }
+.st-rec-box.ok { background: color-mix(in srgb, var(--good) 10%, var(--panel)); border-color: var(--good); }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px 18px; }
+.st-lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; margin-bottom: 5px; }
+.st-note { font-size: 12px; margin-top: 4px; }
+.seg { display: flex; flex-wrap: wrap; gap: 5px; }
+.seg button { position: relative; flex: 1 1 0; min-width: 52px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 8px; border-radius: 8px; font-weight: 600; }
+.seg button small { font-weight: 400; font-size: 11px; color: var(--muted); line-height: 1.25; text-align: center; }
+.seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg button.on small { color: rgba(255, 255, 255, .85); }
+.st-rec { position: absolute; top: 2px; right: 5px; font-style: normal; font-size: 10px; color: var(--accent2); }
+.seg button.on .st-rec { color: #fff; }
+.st-names { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.st-names label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.st-names input { font-size: 15px; padding: 7px 9px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.st-go { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--line); }
+.st-go > div { flex: 1 1 220px; font-size: 13px; }
+.st-go .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; vertical-align: 0; }
+.st-begin { padding: 11px 22px; font-size: 16px; font-family: var(--font); font-weight: 700; }

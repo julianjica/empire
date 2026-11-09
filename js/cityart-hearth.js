@@ -309,26 +309,30 @@
   //  COTTAGE  (slot [gx, gy, 1.3, 1.2]; ctx.i varies each home)
   // =====================================================================
   reg('cottage', ([x, y], L, band, ctx) => {
+    // ctx.wet: a fisher home raised on a pile deck over the water (slot ~1.1 x 1.0) — the house only, no yard; a coil of rope and a creel
+    const wet = !!ctx.wet;
+    if (wet) { x -= band === 0 ? 0.12 : band === 1 ? 0.07 : 0; y -= 0.06; }
     const i = ctx.i || 0, s = sub(L, band), m = roofOf(false, i), wall = WALLS[i % 4];
+    const creel = () => { if (!wet) return; const [rx, ry] = P(x + (band === 0 ? 1.12 : 1.02), y + 0.94); A.c.beginPath(); A.c.ellipse(rx, ry - 1, 2.6, 1.3, 0, 0, Math.PI * 2); A.c.strokeStyle = A.F('#cdbf98'); A.c.lineWidth = 1.1; A.c.stroke(); A.c.beginPath(); A.c.ellipse(rx, ry - 1.4, 1.4, 0.7, 0, 0, Math.PI * 2); A.c.stroke(); A.crate(x + 0.2, y + 0.92, 0.16, 2); };
     const ax = i % 2 ? 'x' : 'y', shut = ['#3f6fa8', '#5e8f3e', '#a8482f', '#6a4a8a'][(i + 1) % 4];
     const stone = X.tech('masonry') || band >= 2;
     let top = 0;
     if (band === 0) { // a low cob cottage under a heavy thatch, a veg patch and a woodpile
-      vegBed(x + 0.08, y + 0.9, 0.5, 0.22);
-      if (s >= 1) woodpile(x + 0.05, y + 0.15, 0.3);
+      if (!wet) vegBed(x + 0.08, y + 0.9, 0.5, 0.22);
+      if (s >= 1 && !wet) woodpile(x + 0.05, y + 0.15, 0.3);
       const b = box(x + 0.3, y + 0.15, 0.8, 0.66, 0, 9, wall);
       A.door(b, 'L', 0.25, 0.2, 7, '#6b3e22');
       shutterWin(b, 'L', 0.58, 3, 0.15, 3.6, s >= 2, shut);
       A.win(b, 'R', 0.33, 3.5, 0.14, 3.4);
       top = roof(b, ax === 'x' ? 11 : 12, ax, m, { o: 0.19 });
       if (s >= 1) A.chimney(ax === 'x' ? b.x + 0.6 : b.x + 0.25, ax === 'x' ? b.y + 0.2 : b.y + 0.15, b.z + b.h + 4, 6, 'house', '#9a7a62');
+      if (wet) { creel(); return top; }
       if (s >= 3) hedge([x + 0.05, y + 1.15], [x + 0.62, y + 1.15], 2, 0.16);
       if (s >= 2) chickens(x + 1.0, y + 1.0, 2);
       return top;
     }
     if (band === 1) { // half-timbered, shuttered, a picket garden and a beehive
-      vegBed(x + 0.06, y + 0.92, 0.42, 0.22);
-      woodpile(x + 0.02, y + 0.12, 0.28);
+      if (!wet) { vegBed(x + 0.06, y + 0.92, 0.42, 0.22); woodpile(x + 0.02, y + 0.12, 0.28); }
       const b = box(x + 0.22, y + 0.1, 0.95, 0.74, 0, 11, wall);
       A.timber(b, BEAM);
       A.door(b, 'L', 0.26, 0.2, 8, ['#6b3e22', '#3f6fa8', '#5e8f3e', '#8a3a2a'][i % 4]);
@@ -336,6 +340,7 @@
       shutterWin(b, 'R', 0.4, 4, 0.16, 4, s >= 2, shut);
       top = roof(b, 12, ax, m);
       A.chimney(ax === 'x' ? b.x + b.w * 0.75 : b.x + b.w * 0.28, ax === 'x' ? b.y + b.d * 0.3 : b.y + b.d * 0.2, b.z + b.h + 4, 7, 'house', stone ? '#8a7f74' : '#9a5a42');
+      if (wet) { creel(); return top; }
       picket([x + 0.52, y + 1.17], [x + 1.25, y + 1.17]); picket([x + 1.25, y + 0.92], [x + 1.25, y + 1.17]);
       if (s >= 1) waterButt(x + 1.2, y + 0.82);
       if (s >= 3) beehive(x + 0.95, y + 1.02);
@@ -343,13 +348,13 @@
       return top;
     }
     // band 2+: two storeys with a jettied, timbered upper floor; band 3 adds a side wing and a hedged garden
-    if (band >= 3) {
+    if (band >= 3 && !wet) {
       const wb = box(x + 0.05, y + 0.1, 0.42, 0.58, 0, 9, stone ? STONE : wall);
       if (stone) A.courses(wb, 3, STONE_D);
       A.win(wb, 'L', 0.2, 3, 0.14, 3.6);
       roof(wb, 8, 'y', m);
     }
-    const bx = band >= 3 ? x + 0.4 : x + 0.2, bw = band >= 3 ? 0.84 : 0.95;
+    const bx = wet ? x + 0.1 : band >= 3 ? x + 0.4 : x + 0.2, bw = wet ? 0.88 : band >= 3 ? 0.84 : 0.95;
     const lo = box(bx, y + 0.12, bw, 0.72, 0, 8, stone ? STONE : wall);
     if (stone) A.courses(lo, 2.7, STONE_D);
     A.door(lo, 'L', 0.24, 0.2, 7, ['#6b3e22', '#3f6fa8', '#5e8f3e', '#8a3a2a'][i % 4]);
@@ -365,6 +370,7 @@
     if (ux === 'x') A.chimney(up.x + up.w * 0.82, up.y + up.d * 0.28, up.z + up.h + 5, 7, 'house', stone ? '#8a7f74' : '#9a5a42');
     else A.chimney(up.x + up.w * 0.25, up.y + up.d * 0.15, up.z + up.h + 5, 8, 'house', stone ? '#8a7f74' : '#9a5a42');
     const [lx, ly] = P(bx + 0.06, y + 0.88, 9); A.lantern(lx, ly, 1.2);
+    if (wet) { creel(); return top; }
     if (band >= 3) {
       hedge([x + 0.02, y + 1.15], [x + 0.55, y + 1.15], 2.1, 0.15); hedge([x + 0.95, y + 1.15], [x + 1.27, y + 1.15], 2.1, 0.15); hedge([x + 1.27, y + 0.95], [x + 1.27, y + 1.12], 2.1, 0.15);
       const a = P(x + 0.62, y + 1.15), b2 = P(x + 0.88, y + 1.15);
@@ -1761,7 +1767,7 @@
     for (const f of flat) f();
     items.sort((p, q) => p[0] - q[0]);
     for (const [, f] of items) f();
-    A.rec('sparks', (() => { const [x, y] = K.at(Math.max(0.5, dep(u0) * 0.4), u0 + 1.4); return { x, y, kind: 'water', rx: 26, ry: 10 }; })());
+    if (!A.SNOW) A.rec('sparks', (() => { const [x, y] = K.at(Math.max(0.5, dep(u0) * 0.4), u0 + 1.4); return { x, y, kind: 'water', rx: 26, ry: 10 }; })());
     return { top: 40 + band * 6, noDress: true };
   });
   reg('lighthouse', ([x, y, w, d], L, band, ctx) => {

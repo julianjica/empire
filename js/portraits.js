@@ -125,7 +125,7 @@ PORTRAIT.palette = {
     const pal = PORTRAIT.palette[race] || PORTRAIT.palette.hearth, kind = spec.kind || 'unit';
     const troop = kind === 'unit', star = kind === 'hero' || kind === 'ruler';
     const female = spec.female != null ? !!spec.female : r() < 0.4;
-    const a = r(), th = AGE[kind] || AGE.unit, age = a < th[0] ? 0 : a < th[1] ? 1 : 2;
+    const a = r(), th = AGE[kind] || AGE.unit, AGE_IN = { young: 0, adult: 1, old: 2 }, age = AGE_IN[spec.age] ?? (a < th[0] ? 0 : a < th[1] ? 1 : 2);   // optional spec.age 'young'|'adult'|'old' (dynasties)
     const L = {
       female, age, skin: mixC(pick(r, pal.skin), pick(r, pal.skin), r() * 0.7), hair: pick(r, pal.hair.concat(HAIR_X[race] || [])), cloth: pick(r, pal.cloth),
       wid: r() * 2 - 1, jaw: star ? 0.4 + r() * 0.6 : r(), chin: r() * 2 - 1, cheek: r() < (star ? 0.65 : 0.3),

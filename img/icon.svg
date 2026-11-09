@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="70%">
+      <stop offset="0" stop-color="#5a2f17"/>
+      <stop offset=".55" stop-color="#2e1d12"/>
+      <stop offset="1" stop-color="#1a110b"/>
+    </radialGradient>
+    <linearGradient id="flame" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#c2410c"/>
+      <stop offset=".45" stop-color="#f97316"/>
+      <stop offset="1" stop-color="#fcd34d"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#fffbeb"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset=".5" stop-color="#e0a83a"/>
+      <stop offset="1" stop-color="#a86a1c"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="12.5" fill="none" stroke="#c9822e" stroke-opacity=".55" stroke-width="2"/>
+  <!-- ember flame -->
+  <path d="M32 5c3 7 10 11 10 20 0 6-4.5 10-10 10s-10-4-10-10c0-5 3-7 4-11 1.5 3 3 4 4.5 4C30 13 30 9 32 5z" fill="url(#flame)"/>
+  <path d="M32 18c2 4 5 6 5 10.5 0 3.3-2.3 5.5-5 5.5s-5-2.2-5-5.5c0-3 2.2-4.5 2.8-7 .8 1.2 1.6 1.7 2.2 1.7 0-1.8-.3-3.2 0-5.2z" fill="url(#core)"/>
+  <!-- crown -->
+  <path d="M11 30l9.5 8L32 26l11.5 12L53 30l-4 22H15z" fill="url(#gold)" stroke="#5a3510" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="14" y="50" width="36" height="6" rx="2" fill="url(#gold)" stroke="#5a3510" stroke-width="2"/>
+  <circle cx="11" cy="30" r="3" fill="#fde68a" stroke="#5a3510" stroke-width="1.5"/>
+  <circle cx="53" cy="30" r="3" fill="#fde68a" stroke="#5a3510" stroke-width="1.5"/>
+  <circle cx="32" cy="45" r="3.2" fill="#b3261e" stroke="#5a3510" stroke-width="1.2"/>
+  <circle cx="22" cy="46" r="2" fill="#2f7fa8"/>
+  <circle cx="42" cy="46" r="2" fill="#3f8f4a"/>
+</svg>

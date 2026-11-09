@@ -496,12 +496,13 @@ G.workingStatus = (s, owner) => {
   if (s.empires[owner].gold < res.cost.gold) return { ...res, ok: false, poor: true, reason: 'Not enough gold' };
   return res;
 };
+G.workingStageTime = (s, stage) => Math.round(2400 * Math.pow(1.25, stage) * G.pace(s).time);
 G.beginWorkingStage = (s, owner) => {
   const st = G.workingStatus(s, owner);
   if (!st.ok) return st.reason;
   payMana(s, owner, st.city, st.cost.mana); s.empires[owner].gold -= st.cost.gold;
   const M = magic(s);
-  M.working[owner] = { stage: st.stage, city: st.city.id, start: s.time, end: s.time + Math.round(2400 * Math.pow(1.25, st.stage) * G.pace(s).time) };
+  M.working[owner] = { stage: st.stage, city: st.city.id, start: s.time, end: s.time + G.workingStageTime(s, st.stage) };
   M.strain[st.city.id] = (M.strain[st.city.id] || 0) + 25;
   const emp = s.empires[owner];
   G.log(s, 'p', owner === 'p' ? `🌌 The Great Working: stage ${st.stage + 1} of ${G.WORKING_STAGES} begins in ${st.city.name}.` : `🌌 The ${emp.name} has begun stage ${st.stage + 1} of the Great Working in ${st.city.name}! Break their hold on the ley nodes or take the city to stop it.`, owner === 'p' ? 'good' : 'warn');

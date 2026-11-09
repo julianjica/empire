@@ -59,7 +59,7 @@ const renderTilePanel = (city, t, vis) => {
   }
   const c = t.city && S.cities[t.city];
   const camp = t.camp && S.camps[t.camp];
-  const head = `<h3>${c ? esc(c.name) : camp ? (camp.kind ? { wyrm: "🐉 The Wyrm's lair", undead: '💀 Horde of the restless dead', star: '☄️ Crater of a fallen star' }[camp.kind] : '⛺ Brigand camp') : t.oasis ? '🏝️ Oasis' : t.ruin ? '🏚️ Ruins' : terr.name}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${d.toFixed(1)} tiles from ${esc(city.name)}</div>`;
+  const head = `<h3>${c ? esc(c.name) : camp ? (camp.kind ? { wyrm: "🐉 The Wyrm's lair", undead: '💀 Horde of the restless dead', star: '☄️ Crater of a fallen star', rift: '👹 Demon rift' }[camp.kind] : '⛺ Brigand camp') : t.oasis ? '🏝️ Oasis' : t.ruin ? '🏚️ Ruins' : terr.name}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${d.toFixed(1)} tiles from ${esc(city.name)}</div>`;
   const islandNote = !terr.impassable && !G.landReachable(S, city, t) ? `<div class="calam good">🏝️ <b>Across the water</b> — no land route from ${esc(city.name)}. Send ships with your army: Transport Cogs from a coastal city's Harbor carry troops and settlers (30 citizens each).</div>` : '';
   const cals = G.calamitiesAt ? G.calamitiesAt(S, t.x, t.y) : [];
   const calHtml = cals.map(q => { const def = DATA.calamities[q.kind]; return `<div class="calam ${def.bad ? 'bad' : 'good'}">${def.icon} <b>${def.name}</b> · ${fmtTime(realSecs(q.end - S.time))} left<br><span style="font-size:12px">${def.text}</span></div>`; }).join('');
@@ -96,7 +96,7 @@ const renderTilePanel = (city, t, vis) => {
       <div class="muted" style="font-size:12px;margin-bottom:2px">Site survey — what a city here would yield, from the land within 2 tiles:</div>${siteHtml(G.siteYield(S, t.x, t.y))}`;
     modes = ['settle', 'scout'];
   }
-  if (camp && camp.kind) info = `<p>${{ wyrm: 'An Elder Wyrm broods here on its hoard. It is immensely strong — bring a great army and your hero.', undead: 'A horde of the restless dead. Destroy every horde to end the rising.', star: 'A fallen star, its crater guarded by star-touched beasts. Its star-iron goes to whoever claims it.' }[camp.kind]}</p>${intelHtml(t)}`;
+  if (camp && camp.kind) info = `<p>${{ wyrm: 'An Elder Wyrm broods here on its hoard. It is immensely strong — bring a great army and your hero.', undead: 'A horde of the restless dead. Destroy every horde to end the rising.', star: 'A fallen star, its crater guarded by star-touched beasts. Its star-iron goes to whoever claims it.', rift: 'A tear in the weave. Rift demons raid the nearest city now and then; sealing it gives +15 renown and its mana.' }[camp.kind]}</p>${intelHtml(t)}`;
   return head + islandNote + calHtml + info + (modes.length ? sendForm(city, t, modes) : '');
 };
 

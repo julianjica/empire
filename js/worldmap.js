@@ -113,6 +113,7 @@
     paintLakes(g, N, X);
     paintRivers(g, N, X);
     paintRoads(g, X);
+    paintLey(g, X);
     paintGlyphs(g, N, X, pal);
     paintTerritory(g, L, X);
     paintFog(g, N, L, X, np);
@@ -228,6 +229,32 @@
         g.setLineDash([]); g.strokeStyle = 'rgba(150,110,60,0.22)'; g.lineWidth = P * 0.13; curve();
         g.setLineDash([P * 0.13, P * 0.09]); g.strokeStyle = 'rgba(85,55,28,0.85)'; g.lineWidth = P * 0.04; curve();
       }
+    }
+    g.restore();
+  }
+
+  // --- ley lines (baked: a soft static glow; the bright pulse is per frame) ---
+  const ARCANE = '#8a5cd6';
+  const hexA = (hex, a) => {
+    if (typeof hex !== 'string' || hex[0] !== '#') return `rgba(138,92,214,${a})`;
+    const h = hex.length === 4 ? hex.slice(1).split('').map(ch => ch + ch).join('') : hex.slice(1, 7);
+    return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
+  };
+  function paintLey(g, X) {
+    const ley = S.ley;
+    if (!ley || !ley.nodes || !ley.nodes.length) return;
+    g.save(); g.lineCap = 'round';
+    for (const [w, a] of [[0.55, 0.07], [0.26, 0.1], [0.1, 0.16]]) {
+      g.strokeStyle = `rgba(130,80,220,${a})`; g.lineWidth = P * w; g.beginPath();
+      for (const [i, j] of ley.lines) { const A = ley.nodes[i], B = ley.nodes[j]; if (!A || !B) continue; g.moveTo(X(A.x + 0.5), X(A.y + 0.5)); g.lineTo(X(B.x + 0.5), X(B.y + 0.5)); }
+      g.stroke();
+    }
+    for (const n of ley.nodes) {
+      if (!S.explored[n.y * S.map + n.x]) continue;   // never hint at undiscovered enclaves
+      const cx = X(n.x + 0.5), cy = X(n.y + 0.5), R = P * (0.55 + 0.22 * n.power);
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, R);
+      gr.addColorStop(0, 'rgba(150,100,235,.3)'); gr.addColorStop(0.6, 'rgba(150,100,235,.1)'); gr.addColorStop(1, 'rgba(150,100,235,0)');
+      g.fillStyle = gr; g.fillRect(cx - R, cy - R, R * 2, R * 2);
     }
     g.restore();
   }
@@ -653,6 +680,8 @@
       c.fillStyle = '#eeeadc'; c.beginPath(); c.arc(0, -16, 9, 0, TAU); c.fill(); c.stroke();
       c.fillStyle = INK; c.beginPath(); c.arc(-3.5, -17, 2.2, 0, TAU); c.arc(3.5, -17, 2.2, 0, TAU); c.fill();
       lights.push([0, 18, 1.4]);
+    } else if (camp.kind === 'rift') {
+      drawRift(c, lw, t, lights);
     } else {
       // crater with a glowing star-shard
       c.fillStyle = '#6a5a48'; c.beginPath(); c.ellipse(0, 16, 30, 11, 0, 0, TAU); c.fill(); c.stroke();
@@ -662,6 +691,76 @@
       c.fillStyle = '#f2d36b'; c.beginPath(); c.moveTo(0, -16); c.lineTo(6, 8); c.lineTo(0, 14); c.lineTo(-6, 8); c.closePath(); c.fill(); c.stroke();
       lights.push([0, 4, 2.2]);
     }
+  }
+  // demon rift (magic.js wild magic): a jagged violet tear, sparks, lurking demons
+  const RIFT_PTS = [[2, -32], [-5, -21], [-1, -15], [-10, -3], [-4, 3], [-9, 15], [-1, 25], [5, 14], [2, 6], [9, -5], [4, -13], [9, -24]];
+  function demon(c, x, y, s, flip, lw, t, seed) {
+    const sway = Math.sin(t * 2 + seed) * 1.2;
+    c.save(); c.translate(x, y); c.scale(s * flip, s);
+    c.fillStyle = '#2a0f22'; c.strokeStyle = '#140610'; c.lineWidth = lw * 0.8;
+    c.beginPath();
+    c.moveTo(-8, 0); c.quadraticCurveTo(-8, -11, -4, -13 + sway * 0.3);   // shoulder
+    c.lineTo(-3, -15); c.quadraticCurveTo(-6, -19, -8, -24);              // left horn
+    c.quadraticCurveTo(-3, -21, -1, -18);
+    c.quadraticCurveTo(0, -19.5, 1, -18);
+    c.quadraticCurveTo(3, -21, 8, -24);                                    // right horn
+    c.quadraticCurveTo(6, -19, 3, -15);
+    c.lineTo(4, -13 + sway * 0.3); c.quadraticCurveTo(8, -11, 8, 0);
+    c.closePath(); c.fill(); c.stroke();
+    // wing stub
+    c.beginPath(); c.moveTo(-6, -10); c.lineTo(-15, -16 + sway); c.lineTo(-12, -8); c.lineTo(-15, -4 + sway * 0.5); c.lineTo(-7, -4); c.closePath(); c.fill(); c.stroke();
+    // eyes
+    c.fillStyle = '#ff5a3c'; c.beginPath(); c.arc(-1.8, -14.5, 0.9, 0, TAU); c.arc(1.8, -14.5, 0.9, 0, TAU); c.fill();
+    c.restore();
+  }
+  function drawRift(c, lw, t, lights) {
+    const p = 0.5 + 0.5 * Math.sin(t * 3);
+    c.save(); c.scale(1.3, 1.3); lw /= 1.3;
+    c.fillStyle = 'rgba(40,10,50,.28)'; c.beginPath(); c.ellipse(0, 22, 32, 9, 0, 0, TAU); c.fill();
+    const gr = c.createRadialGradient(0, -3, 2, 0, -3, 40);
+    gr.addColorStop(0, `rgba(190,120,255,${0.5 + 0.25 * p})`); gr.addColorStop(0.5, 'rgba(150,80,230,.22)'); gr.addColorStop(1, 'rgba(120,60,200,0)');
+    c.fillStyle = gr; c.beginPath(); c.arc(0, -3, 40, 0, TAU); c.fill();
+    demon(c, -22, 20, 0.95, 1, lw, t, 0);
+    demon(c, 23, 22, 0.8, -1, lw, t, 2);
+    const tear = new Path2D();
+    RIFT_PTS.forEach(([x, y], i) => { const w = 1 + 0.06 * Math.sin(t * 5 + i); i ? tear.lineTo(x * w, y) : tear.moveTo(x * w, y); });
+    tear.closePath();
+    c.fillStyle = '#16061f'; c.fill(tear);
+    c.save(); c.clip(tear);
+    c.strokeStyle = `rgba(200,140,255,${0.35 + 0.3 * p})`; c.lineWidth = lw;
+    for (let k = 0; k < 3; k++) { c.beginPath(); c.arc(0, -3, 4 + k * 6, t * (1.2 + k * 0.4), t * (1.2 + k * 0.4) + 3.6); c.stroke(); }
+    c.restore();
+    c.strokeStyle = '#b07cf2'; c.lineWidth = lw * 2.2; c.lineJoin = 'miter'; c.stroke(tear);
+    c.strokeStyle = '#f2e4ff'; c.lineWidth = lw * 0.7; c.stroke(tear);
+    c.lineJoin = 'round';
+    // sparks drifting up out of the tear
+    c.fillStyle = '#ead2ff';
+    for (let i = 0; i < 8; i++) {
+      const rise = ((t * 0.45 + i / 8) % 1), a = i * 2.3 + t * 1.3;
+      const x = Math.sin(a) * (6 + rise * 16), y = 8 - rise * 46, s = 2.6 * (1 - rise);
+      c.globalAlpha = 1 - rise;
+      c.beginPath(); c.moveTo(x, y - s); c.lineTo(x + s * 0.35, y); c.lineTo(x, y + s); c.lineTo(x - s * 0.35, y); c.closePath(); c.fill();
+    }
+    c.globalAlpha = 1;
+    c.restore();
+    lights.push([0, -4, 2.6]);
+  }
+  // holy sites (religion.js): a soft golden halo with the god's emblem above the ruin or oasis
+  function drawHoly(c, tile, lw, t, lights) {
+    const info = G.holySiteInfo ? G.holySiteInfo(S, tile) : null;
+    const god = info && DATA.gods && DATA.gods[info.god];
+    if (!god) return;
+    const p = 0.5 + 0.5 * Math.sin(t * 1.8 + tile.x), y = -38;
+    const gr = c.createRadialGradient(0, y, 2, 0, y, 22);
+    gr.addColorStop(0, `rgba(255,230,150,${0.55 + 0.25 * p})`); gr.addColorStop(0.6, 'rgba(255,210,110,.18)'); gr.addColorStop(1, 'rgba(255,200,90,0)');
+    c.fillStyle = gr; c.beginPath(); c.arc(0, y, 22, 0, TAU); c.fill();
+    c.strokeStyle = `rgba(201,164,60,${0.75 + 0.2 * p})`; c.lineWidth = lw * 1.2;
+    c.beginPath(); c.ellipse(0, y - 13, 10, 3, 0, 0, TAU); c.stroke();            // halo ring
+    c.fillStyle = 'rgba(251,244,224,.92)'; c.beginPath(); c.arc(0, y, 10.5, 0, TAU); c.fill();
+    c.strokeStyle = '#a8832c'; c.lineWidth = lw; c.stroke();
+    c.font = '13px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = INK; c.fillText(god.icon, 0, y + 0.5);
+    lights.push([0, y, 1.6]);
   }
   function palm(c, x, y, s, lw, lean) {
     c.strokeStyle = INK; c.lineWidth = lw * 2.2;
@@ -850,15 +949,132 @@
   // ------------------------------------------------------------------
   // per-frame drawing
   // ------------------------------------------------------------------
+  function leyName(t) {
+    const info = leyInfo.find(o => o.n.x === t.x && o.n.y === t.y);
+    if (info) {
+      const tap = info.tap, e = tap && S.empires[tap.owner];
+      return ` · Ley enclave ×${info.n.power} · ${tap ? 'tapped by ' + tap.name + (e && tap.owner !== 'p' ? ' (' + e.name + ')' : '') : 'untapped'}`;
+    }
+    return S.ley && S.ley.lineTiles && S.ley.lineTiles.includes(t.y * S.map + t.x) ? ' · on a ley line' : '';
+  }
   function tileName(t) {
     const i = t.y * S.map + t.x;
     const pos = ` (${t.x}, ${t.y})`;
     if (!S.explored[i]) return 'Unexplored lands' + pos;
+    const holy = G.holySiteInfo ? G.holySiteInfo(S, t) : null, god = holy && DATA.gods && DATA.gods[holy.god];
+    return baseName(t, pos) + (god ? ` · Holy site of ${god.short}` : '') + leyName(t);
+  }
+  function baseName(t, pos) {
     if (t.city && S.cities[t.city]) { const c = S.cities[t.city], e = S.empires[c.owner]; return `${c.name} · ${G.tier(c).name}${e ? ' of ' + e.name : ''}` + pos; }
-    if (t.camp) { const cp = S.camps[t.camp]; if (cp && cp.kind) return ({ wyrm: "The Wyrm's lair", undead: 'Horde of the restless dead', star: 'Crater of a fallen star' }[cp.kind]) + pos; return `Brigand camp${cp ? ', tier ' + cp.tier : ''}` + pos; }
+    if (t.camp) { const cp = S.camps[t.camp]; if (cp && cp.kind) return ({ wyrm: "The Wyrm's lair", undead: 'Horde of the restless dead', star: 'Crater of a fallen star', rift: 'Demon rift' }[cp.kind] || 'Strange camp') + pos; return `Brigand camp${cp ? ', tier ' + cp.tier : ''}` + pos; }
     if (t.oasis) { const o = t.oasis, oc = o.owner && S.cities[o.owner]; return `Oasis (+25% ${DATA.goods[o.bonus] ? DATA.goods[o.bonus].name : o.bonus})${oc ? ' · held by ' + oc.name : ''}` + pos; }
     if (t.ruin) return `Ruins, tier ${t.ruin.tier}${t.ruin.readyAt > S.time ? ' (plundered)' : ''}` + pos;
     return (DATA.terrain[t.terrain] ? DATA.terrain[t.terrain].name : t.terrain) + pos;
+  }
+
+  // ley lines and enclaves: pulsing arcane lines over explored land, rune circles at the nodes
+  function drawLey(c, t, tp, SX, SY, x0, x1, y0, y1, lights) {
+    const ley = S.ley;
+    if (!ley || !ley.nodes || !ley.nodes.length) return;
+    const N = S.map, seen = (x, y) => { const xi = Math.round(x), yi = Math.round(y); return xi >= 0 && yi >= 0 && xi < N && yi < N && S.explored[yi * N + xi]; };
+    const inView = (ax, ay, bx, by) => Math.max(ax, bx) >= x0 - 1 && Math.min(ax, bx) <= x1 + 1 && Math.max(ay, by) >= y0 - 1 && Math.min(ay, by) <= y1 + 1;
+    const path = new Path2D(); let any = false;
+    for (const [i, j] of ley.lines) {
+      const A = ley.nodes[i], B = ley.nodes[j];
+      if (!A || !B || !inView(A.x, A.y, B.x, B.y)) continue;
+      const n = Math.max(1, Math.ceil(Math.hypot(B.x - A.x, B.y - A.y) * 2));
+      let open = false;
+      for (let s = 0; s < n; s++) {
+        const u0 = s / n, u1 = (s + 1) / n, um = (u0 + u1) / 2;
+        if (!seen(A.x + (B.x - A.x) * um, A.y + (B.y - A.y) * um)) { open = false; continue; }
+        const px0 = SX(A.x + 0.5 + (B.x - A.x) * u0), py0 = SY(A.y + 0.5 + (B.y - A.y) * u0);
+        if (!open) { path.moveTo(px0, py0); open = true; }
+        path.lineTo(SX(A.x + 0.5 + (B.x - A.x) * u1), SY(A.y + 0.5 + (B.y - A.y) * u1));
+        any = true;
+      }
+    }
+    const pulse = 0.5 + 0.5 * Math.sin(t * 1.6);
+    c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+    if (any) {
+      c.strokeStyle = `rgba(150,90,240,${0.13 + 0.09 * pulse})`; c.lineWidth = Math.max(4, tp * 0.24); c.stroke(path);
+      c.strokeStyle = 'rgba(112,62,206,.6)'; c.lineWidth = Math.max(1.2, tp * 0.045); c.stroke(path);
+      c.setLineDash([Math.max(4, tp * 0.22), Math.max(5, tp * 0.34)]); c.lineDashOffset = -t * tp * 0.5;
+      c.strokeStyle = `rgba(246,232,255,${0.55 + 0.35 * pulse})`; c.lineWidth = Math.max(1, tp * 0.026); c.stroke(path);
+      c.setLineDash([]);
+    }
+    // enclaves
+    for (const { n, tap } of leyInfo) {
+      if (n.x < x0 || n.x > x1 || n.y < y0 || n.y > y1 || !S.explored[n.y * N + n.x]) continue;
+      const col = tap ? colorOf(tap.owner) : ARCANE, cx = SX(n.x + 0.5), cy = SY(n.y + 0.5);
+      const R = tp * (0.22 + 0.08 * n.power), ph = hash('ley' + n.id) % 100 / 16, pl = 0.5 + 0.5 * Math.sin(t * 2 + ph);
+      const halo = c.createRadialGradient(cx, cy, R * 0.3, cx, cy, R * (2.3 + 0.25 * pl));
+      halo.addColorStop(0, hexA(col, 0.42)); halo.addColorStop(0.45, 'rgba(160,110,240,.16)'); halo.addColorStop(1, 'rgba(160,110,240,0)');
+      c.fillStyle = halo; c.beginPath(); c.arc(cx, cy, R * (2.3 + 0.25 * pl), 0, TAU); c.fill();
+      lights.push([cx, cy, 1.4 + 0.4 * n.power]);
+      c.fillStyle = 'rgba(36,16,60,.18)'; c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.fill();
+      c.lineWidth = Math.max(1.2, tp * 0.03); c.strokeStyle = hexA(col, 0.95);
+      c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.stroke();
+      c.lineWidth = Math.max(0.8, tp * 0.015); c.strokeStyle = 'rgba(112,62,206,.85)';
+      c.beginPath(); c.arc(cx, cy, R * 0.72, 0, TAU); c.stroke();
+      // runes between the rings, slowly turning
+      const m = 4 + 2 * n.power, rot = t * 0.25 + ph, rr = R * 0.86, s = R * 0.1;
+      c.strokeStyle = 'rgba(240,226,255,.9)'; c.lineWidth = Math.max(0.8, tp * 0.014); c.beginPath();
+      for (let q = 0; q < m; q++) {
+        const a = rot + q / m * TAU, px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr, ca = Math.cos(a), sa = Math.sin(a);
+        if (q % 2) { c.moveTo(px - sa * s, py + ca * s); c.lineTo(px + sa * s, py - ca * s); c.moveTo(px - ca * s * 0.8, py - sa * s * 0.8); c.lineTo(px + ca * s * 0.8, py + sa * s * 0.8); }
+        else { c.moveTo(px - sa * s, py + ca * s); c.lineTo(px + ca * s, py + sa * s); c.lineTo(px + sa * s, py - ca * s); }
+      }
+      c.stroke();
+      // the heart: a glowing gem, one facet per point of power
+      const g = R * 0.36;
+      c.fillStyle = hexA(col, 0.95); c.strokeStyle = 'rgba(30,14,50,.8)'; c.lineWidth = Math.max(0.8, tp * 0.012);
+      c.beginPath(); c.moveTo(cx, cy - g); c.lineTo(cx + g * 0.7, cy); c.lineTo(cx, cy + g); c.lineTo(cx - g * 0.7, cy); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = `rgba(255,255,255,${0.45 + 0.35 * pl})`; c.beginPath(); c.moveTo(cx, cy - g); c.lineTo(cx + g * 0.25, cy - g * 0.2); c.lineTo(cx - g * 0.35, cy - g * 0.1); c.closePath(); c.fill();
+    }
+    c.restore();
+  }
+  // spell targeting: the casting city's shaping range and a violet cursor ring
+  function drawTargeting(c, t, tp, SX, SY) {
+    const st = UI.spellTarget, sp = st && DATA.spells[st.spell], from = st && S.cities[st.city];
+    if (!sp || !from) return;
+    c.save();
+    if (sp.shape) {
+      const R = (G.cityReach(S, from) + 3) * tp;
+      c.fillStyle = 'rgba(140,90,230,.08)'; c.beginPath(); c.arc(SX(from.x + 0.5), SY(from.y + 0.5), R, 0, TAU); c.fill();
+      c.setLineDash([tp * 0.2, tp * 0.14]); c.lineDashOffset = -t * 10; c.strokeStyle = 'rgba(120,70,220,.85)'; c.lineWidth = Math.max(1.5, tp * 0.04); c.stroke();
+      c.setLineDash([]);
+    }
+    if (hover) {
+      const hx = SX(hover.x + 0.5), hy = SY(hover.y + 0.5);
+      c.strokeStyle = 'rgba(150,90,240,.95)'; c.lineWidth = Math.max(2, tp * 0.05);
+      c.beginPath(); c.arc(hx, hy, tp * 0.48, 0, TAU); c.stroke();
+      c.fillStyle = 'rgba(150,90,240,.18)'; c.fill();
+    }
+    c.restore();
+  }
+  // a brief shimmer where the land was reshaped
+  const SHIMMER_MS = 2600;
+  function drawShimmers(c, tp, SX, SY) {
+    if (!shimmers.length) return;
+    const now = performance.now();
+    for (let i = shimmers.length - 1; i >= 0; i--) if (now - shimmers[i].at > SHIMMER_MS) shimmers.splice(i, 1);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (const sh of shimmers) {
+      const u = (now - sh.at) / SHIMMER_MS, a = 1 - u, cx = SX(sh.x + 0.5), cy = SY(sh.y + 0.5);
+      const R = tp * (reduceMotion ? 0.7 : 0.3 + u * 0.9);
+      const gr = c.createRadialGradient(cx, cy, 0, cx, cy, R);
+      gr.addColorStop(0, `rgba(210,170,255,${0.55 * a})`); gr.addColorStop(1, 'rgba(160,110,240,0)');
+      c.fillStyle = gr; c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.fill();
+      if (!reduceMotion) {
+        c.fillStyle = `rgba(255,245,255,${a})`;
+        for (let q = 0; q < 9; q++) {
+          const ang = q * 2.4 + sh.x, d = tp * 0.55 * ((q * 0.37 + u * 1.6) % 1), s = tp * 0.05 * a;
+          const px = cx + Math.cos(ang) * d, py = cy + Math.sin(ang) * d;
+          c.beginPath(); c.moveTo(px, py - s * 2); c.lineTo(px + s * 0.5, py); c.lineTo(px, py + s * 2); c.lineTo(px - s * 0.5, py); c.closePath(); c.fill();
+        }
+      }
+    }
+    c.restore();
   }
 
   function draw(now) {
@@ -889,6 +1105,7 @@
     const y0 = Math.max(0, Math.floor(-oy / tp) - 1), y1 = Math.min(N - 1, Math.ceil((H - oy) / tp) + 1);
     const k = tp / 62, lw = Math.max(1.5, 0.9 / k);
     const lights = [], labels = [], smokes = [];
+    drawLey(c, t, tp, SX, SY, x0, x1, y0, y1, lights);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = y * N + x, tile = S.tiles[i];
       if (!S.explored[i] || !(tile.city || tile.camp || tile.oasis || tile.ruin)) continue;
@@ -903,6 +1120,7 @@
       } else if (tile.camp) { const cp = S.camps[tile.camp]; if (cp && cp.kind) drawMonster(c, cp, lw, t, lp); else drawCamp(c, cp, lw, t, winter, lp); }
       else if (tile.oasis) drawOasis(c, tile.oasis, lw, t);
       else if (tile.ruin) drawRuin(c, tile.ruin, lw, t);
+      if ((tile.oasis || tile.ruin) && !tile.city && !tile.camp) drawHoly(c, tile, lw, t, lp);
       c.restore();
       for (const l of lp) lights.push([cx + l[0] * k, cy + l[1] * k, l[2] || 1]);
     }
@@ -952,6 +1170,8 @@
       ring(UI.sel.x, UI.sel.y, tp * 0.56 * pulse, 'rgba(139,42,26,.9)', Math.max(1.6, tp * 0.045));
       ring(UI.sel.x + 0.02, UI.sel.y - 0.02, tp * 0.6 * pulse, 'rgba(139,42,26,.45)', 1);
     }
+    drawTargeting(c, t, tp, SX, SY);
+    drawShimmers(c, tp, SX, SY);
 
     // armies
     const inc = new Set(incoming());
@@ -1105,8 +1325,24 @@
     vis = G.visibleSet(S);
     updateDim();
     let ex = 0; for (let i = 0; i < S.explored.length; i++) ex += S.explored[i] ? 1 : 0;
-    const key = S.map + '|' + ex + '|' + G.season(S).index + '|' + citySig();
+    const key = S.map + '|' + ex + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0);
     if (key !== layerKey && (!layer || force || now - lastBake > 1000)) { bake(); layerKey = key; lastBake = now; }
+    refreshMagic(now);
+  }
+  // ley tappers (slow to change) and land reshaped by world-shaping spells
+  let leyInfo = [], terrSnap = null, terrSnapS = null, terrSnapRev = -1;
+  const shimmers = [];
+  function refreshMagic() {
+    leyInfo = S.ley && S.ley.nodes ? S.ley.nodes.map(n => ({ n, tap: G.nodeTapper ? G.nodeTapper(S, n) : null })) : [];
+    const rev = S.terrainRev || 0;
+    if (terrSnapS !== S || !terrSnap || terrSnap.length !== S.tiles.length) { terrSnap = S.tiles.map(t => t.terrain); terrSnapS = S; terrSnapRev = rev; return; }
+    if (rev === terrSnapRev) return;
+    const at = performance.now();
+    for (let i = 0; i < S.tiles.length; i++) {
+      const t = S.tiles[i];
+      if (t.terrain !== terrSnap[i]) { terrSnap[i] = t.terrain; if (S.explored[i]) shimmers.push({ x: t.x, y: t.y, at }); }
+    }
+    terrSnapRev = rev;
   }
   function frame() {
     raf = 0;
@@ -1149,7 +1385,8 @@
     if (!tt) { hideTip(); return; }
     hover = tt;
     const p = local(e);
-    tip.textContent = tileName(S.tiles[tt.y * S.map + tt.x]);
+    const sp = UI.spellTarget && DATA.spells[UI.spellTarget.spell];
+    tip.textContent = (sp ? `${sp.icon} Cast ${sp.name} here · ` : '') + tileName(S.tiles[tt.y * S.map + tt.x]);
     tip.style.display = 'block';
     const tw = tip.offsetWidth, th = tip.offsetHeight;
     tip.style.left = clamp(p.x + 14, 4, W - tw - 4) + 'px';
@@ -1168,6 +1405,18 @@
       window.scrollBy({ top: dy, behavior: reduceMotion ? 'auto' : 'smooth' });
     }, 0);
   }
+  // spell targeting (UI.spellTarget = { spell, city }, set by the Magic tab): the next tile click casts
+  function castAt(tt) {
+    const st = UI.spellTarget; UI.spellTarget = null;
+    const sp = DATA.spells[st.spell];
+    const err = sp ? G.castSpell(S, 'p', st.city, st.spell, tt) : 'Unknown spell';
+    UI.sel = tt; lastSelKey = tt.x + ',' + tt.y; UI.holding = false;
+    if (!err) { lastCheck = -1e9; lastBake = -1e9; }   // rebake at once if the land changed
+    toast(err ? `${sp ? sp.icon + ' ' : ''}${err}` : `${sp.icon} ${sp.name} cast at (${tt.x}, ${tt.y})`);
+    render(true);
+  }
+  function cancelTargeting() { if (UI.spellTarget) { UI.spellTarget = null; render(true); } }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && UI.spellTarget && UI.tab === 'world') cancelTargeting(); });
   function setupInput() {
     canvas.addEventListener('pointerdown', e => {
       if (!S || (e.pointerType === 'mouse' && e.button !== 0)) return;
@@ -1207,7 +1456,8 @@
         const d = drag; drag = null; pinch = null;
         if (!cancel && d && !d.moved) {
           const tt = tileAtClient(e);
-          if (tt) { UI.sel = tt; lastSelKey = tt.x + ',' + tt.y; UI.holding = false; render(true); if (e.pointerType !== 'mouse') revealPanel(); }
+          if (tt && UI.spellTarget) castAt(tt);
+          else if (tt) { UI.sel = tt; lastSelKey = tt.x + ',' + tt.y; UI.holding = false; render(true); if (e.pointerType !== 'mouse') revealPanel(); }
         }
       } else if (pts.size === 1) {
         const [p] = [...pts.values()], r = canvas.getBoundingClientRect();
@@ -1248,8 +1498,10 @@
   window.worldMapHtml = city => {
     const owners = Object.values(S.empires).filter(e => !e.dead && Object.values(S.cities).some(c => c.owner === e.id && S.explored[c.y * S.map + c.x]));
     const legend = owners.map(e => `<span><i style="background:${e.color}"></i>${esc(e.name)}${e.id === 'p' ? ' (you)' : ''}</span>`).join('');
-    return `<div class="mapcol"><div id="mapHost" class="maphost" style="height:${H}px">
-        <div class="mapchip">${esc(G.season(S).name)} · ${phaseName()}</div>
+    const st = UI.spellTarget, sp = st && DATA.spells[st.spell], from = st && S.cities[st.city];
+    const banner = sp && from ? `<div class="mg-mapbanner" role="status">${sp.icon} Choose a place for <b>${esc(sp.name)}</b> (from ${esc(from.name)}${sp.shape ? `, within ${(G.cityReach(S, from) + 3).toFixed(1)} tiles` : ''})<button class="small" data-act="wmCancelSpell">Cancel</button></div>` : '';
+    return `<div class="mapcol"><div id="mapHost" class="maphost${banner ? ' mg-targeting' : ''}" style="height:${H}px">
+        <div class="mapchip">${esc(G.season(S).name)} · ${phaseName()}</div>${banner}
         <div class="mapctl">
           <button data-act="wmZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
           <button data-act="wmZoomOut" title="Zoom out" aria-label="Zoom out">&minus;</button>
@@ -1262,11 +1514,12 @@
   Object.assign(act, {
     wmZoomIn: () => { cam.tz = clamp((cam.tz || cam.z) * 1.4, ZMIN, ZMAX); start(); },
     wmZoomOut: () => { cam.tz = clamp((cam.tz || cam.z) / 1.4, ZMIN, ZMAX); start(); },
+    wmCancelSpell: () => cancelTargeting(),
     wmCenter: () => { const c = curCity(); if (c) flyTo(c.x, c.y, Math.max(cam.z, 1.5)); start(); },
   });
 
   MOUNT_HOOKS.push(tab => {
-    if (tab !== 'world' || !S) { stop(); hideTip(); return; }
+    if (tab !== 'world' || !S) { stop(); hideTip(); UI.spellTarget = null; return; }
     const host = document.getElementById('mapHost');
     if (!host) { stop(); return; }
     ensureCanvas();

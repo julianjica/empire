@@ -1,1 +1,73 @@
-/* magic */
+/* Magic tab, city mana chip, and the spell-targeting banner on the World map */
+.mg-head .mg-orb { font-size: 34px; filter: drop-shadow(0 0 6px color-mix(in srgb, #8a5cd6 55%, transparent)); }
+.mg-head .mg-stat { display: flex; flex-direction: column; align-items: flex-end; min-width: 92px; font-size: 12px; }
+.mg-head .mg-stat b { font-size: 20px; font-family: var(--font); white-space: nowrap; }
+.mg-schools { margin-top: 8px; gap: 6px; }
+.mg-school { display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px; border-radius: 99px; font-size: 12.5px;
+  border: 1px solid var(--school); color: var(--ink); background: color-mix(in srgb, var(--school) 14%, var(--panel)); }
+.mg-god { font-size: 12px; opacity: .9; }
+.mg-why { font-size: 11px; margin: 0 6px 0 -2px; }
+.mg-hints { margin-top: 6px; font-size: 12.5px; }
+.mg-hints summary { cursor: pointer; }
+.mg-hints ul { margin: 4px 0 0; padding-left: 18px; }
+.mg-hints li { margin: 2px 0; }
+
+.mg-from { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.mg-group + .mg-group { margin-top: 10px; }
+.mg-group .group-title { color: color-mix(in srgb, var(--school) 70%, var(--ink)); border-bottom: 2px solid color-mix(in srgb, var(--school) 45%, transparent); padding-bottom: 2px; margin-bottom: 8px; }
+.mg-note { text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; }
+.card.mg-spell { display: flex; flex-direction: column; gap: 6px; border-left: 4px solid var(--school);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--school) 9%, var(--panel)), var(--panel) 60%); }
+.card.mg-spell .head { display: flex; align-items: center; gap: 8px; }
+.card.mg-spell .head > div { flex: 1; min-width: 0; }
+.card.mg-spell .ico { font-size: 24px; width: 34px; text-align: center; }
+.card.mg-spell .desc { font-size: 12.5px; color: var(--muted); }
+.card.mg-spell.locked { opacity: .55; }
+.mg-cast { gap: 6px; }
+.mg-cast select { max-width: 100%; min-width: 0; flex: 1 1 140px; }
+.mg-cost { white-space: nowrap; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mg-cost.lack { color: var(--bad); }
+
+.mg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
+.mg-row:first-of-type { border-top: 0; }
+.mg-cname { min-width: 120px; }
+.mg-strain { position: relative; width: 160px; height: 14px; border-radius: 7px; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; }
+.mg-strain > i { display: block; height: 100%; background: #8a5cd6; transition: width .4s; }
+.mg-strain.mg-mid > i { background: var(--warn); }
+.mg-strain.mg-hi > i { background: var(--bad); }
+.mg-strain > span { position: absolute; inset: 0; text-align: center; font-size: 10.5px; line-height: 13px; font-weight: 600; }
+
+.mg-rune { color: var(--rune); letter-spacing: 1px; min-width: 40px; text-shadow: 0 0 6px color-mix(in srgb, var(--rune) 60%, transparent); }
+
+.mg-pips { display: inline-flex; gap: 4px; }
+.mg-pips i { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--c); background: transparent; }
+.mg-pips i.on { background: var(--c); box-shadow: 0 0 6px color-mix(in srgb, var(--c) 60%, transparent); }
+.mg-pips i.run { background: color-mix(in srgb, var(--c) 40%, transparent); animation: mgPulse 1.6s ease-in-out infinite; }
+@keyframes mgPulse { 50% { box-shadow: 0 0 8px var(--c); } }
+.mg-req { list-style: none; padding: 0; margin: 8px 0; font-size: 13px; }
+.mg-req li { margin: 2px 0; }
+.mg-bar > i { background: linear-gradient(90deg, #6a46b8, #b48cf0); }
+.mg-working .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+
+/* city header chip */
+.mg-chiprow { margin-top: 6px; gap: 8px; }
+.mg-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 99px; font-size: 12.5px;
+  border: 1px solid color-mix(in srgb, #8a5cd6 55%, var(--line)); background: color-mix(in srgb, #8a5cd6 8%, var(--panel2)); }
+.mg-chip b { font-size: 13.5px; }
+.mg-ley { margin-left: 4px; padding-left: 6px; border-left: 1px solid var(--line); color: color-mix(in srgb, #8a5cd6 75%, var(--ink)); }
+
+/* World map: spell targeting banner (inside .maphost) */
+.mg-mapbanner { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 3; max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
+  padding: 6px 8px 6px 14px; border-radius: 16px; font: 14px "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  color: #f4ecff; background: rgba(48, 26, 84, .92); border: 1px solid #b48cf0; box-shadow: 0 0 18px rgba(150, 100, 240, .55), 0 4px 12px rgba(0, 0, 0, .4); }
+.mg-mapbanner button { font-size: 12.5px; padding: 3px 10px; border-radius: 12px; }
+.maphost.mg-targeting canvas.worldcanvas { cursor: crosshair; }
+
+@media (prefers-reduced-motion: reduce) { .mg-pips i.run { animation: none; } .mg-strain > i { transition: none; } }
+@media (max-width: 640px) {
+  .mg-head .mg-stat { min-width: 70px; }
+  .mg-strain { width: 110px; }
+  .mg-cname { min-width: 0; }
+  .mg-mapbanner { bottom: 10px; font-size: 13px; }
+}

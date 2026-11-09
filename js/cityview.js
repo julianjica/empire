@@ -784,7 +784,13 @@
   }
   function hallVeil(x, y, w, d, H, band, o) {
     const cx = x + w / 2, cy = y + d / 2, r = Math.min(w, d) / 2;
-    if (band === 0) return mushroomHouse(cx, cy, r, H);
+    if (band === 0) {   // a fey lodge: a great mushroom hall with two smaller caps, drawn back to front
+      const top = mushroomHouse(cx - r * 0.2, cy - r * 0.2, r * 1.45, H * 1.75);
+      mushroomHouse(cx + r * 1.15, cy + r * 0.55, r * 0.6, H * 0.95);
+      mushroomHouse(cx - r * 0.35, cy + r * 1.25, r * 0.5, H * 0.8);
+      if (!o.noLanterns) floatLantern(cx + r * 0.2, cy + r * 0.75, H * 0.9);
+      return top;
+    }
     let top = 0;
     if (band >= 2) top = veilSpire(x + w * 0.86, y + d * 0.14, Math.max(0.09, r * 0.22), H * (1.5 + band * 0.2));
     if (band >= 3) top = Math.max(top, veilSpire(x + w * 0.12, y + d * 0.86, Math.max(0.08, r * 0.2), H * 1.45));

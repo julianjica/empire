@@ -270,7 +270,7 @@ const initRaces2 = () => {
   if (DATA.raceGods) for (const r of ['tide', 'veil', 'grave', 'wind']) DATA.raceGods[r] = DATA.raceGods[r] || DATA.races[r].gods;
   if (DATA.heroNames) for (const r of ['tide', 'veil', 'grave', 'wind']) DATA.heroNames[r] = DATA.heroNames[r] || DATA.races[r].heroNames;
 
-  // ---- economy: unique refiners and Tidekin fishing --------------------
+  // ---- economy: unique refiners --------------------------------------
   const REF2 = ['dreamspire', 'ossuary', 'aerie'];
   const baseEcon = G.econ;
   G.econ = (s, city, away) => {
@@ -290,14 +290,7 @@ const initRaces2 = () => {
       for (const [g, v] of Object.entries(rec.out)) { out[g] = v * outRate * G.mod(s, city.owner, city, g) / G.pace(s).prod / (city.owner !== 'p' ? s.settings.aiMult : 1); e.net[g] = (e.net[g] || 0) + out[g]; }
       e.refiners.push({ type: t, in: inp, out, off });
     }
-    const hb = G.lvl(city, 'harbor');
-    if (hb) {
-      const f = G.mod(s, city.owner, city, 'fishing') - 1;
-      if (f) {
-        const extra = 5 * hb * Math.pow(1.12, hb - 1) * Math.min(4, G.site(s, city).water || 0) / 2 * e.eff * G.mod(s, city.owner, city, 'grain') * f;
-        e.raw.grain = (e.raw.grain || 0) + extra; e.net.grain = (e.net.grain || 0) + extra; e.fishing = extra;
-      }
-    }
+    // (Harbor fishing, with the 'fishing' key, lives in the engine's econ)
     return e;
   };
   // Aerie quarters fliers
@@ -331,17 +324,7 @@ const initRaces2 = () => {
     const t = baseTrainTime(s, city, unit);
     return isShip(unit) && raceOf(s, city.owner) === 'tide' ? Math.max(2, Math.round(t * G.mod(s, city.owner, city, 'shipCost'))) : t;
   };
-  // cheaper ships: the shipwrights hand back the saving once the keel is laid
-  const baseQueueTrain = G.queueTrain;
-  G.queueTrain = (s, cityId, unit, count) => {
-    const err = baseQueueTrain(s, cityId, unit, count);
-    const city = s.cities[cityId];
-    if (!err && city && isShip(unit) && raceOf(s, city.owner) === 'tide') {
-      const k = 1 - G.mod(s, city.owner, city, 'shipCost');
-      if (k > 0) G.gain(s, city, DATA.units[unit].cost, k * Math.floor(count));
-    }
-    return err;
-  };
+  // cheaper ships: the 'shipCost' key is read by G.unitCost (training, AI and the price shown)
   // cheaper Harbors (queueBuild pays the cost buildStatus quotes)
   const baseBuildStatus = G.buildStatus;
   G.buildStatus = (s, city, type) => {

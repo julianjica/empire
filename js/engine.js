@@ -152,8 +152,10 @@ G.econ = (s, city, awayUnits) => {
   }
 
   for (const h of G.econHooks) h(s, city, raw, eff);
+  // harbor fishing: more open water nearby, more fish; the 'fishing' key (Tidekin, traditions, wonders) scales the catch
   const hb = G.lvl(city, 'harbor');
-  if (hb) raw.grain = (raw.grain || 0) + 5 * hb * Math.pow(1.12, hb - 1) * Math.min(4, G.site(s, city).water || 0) / 2 * eff * G.mod(s, city.owner, city, 'grain');
+  const fishing = hb ? 5 * hb * Math.pow(1.12, hb - 1) * Math.min(4, G.site(s, city).water || 0) / 2 * eff * G.mod(s, city.owner, city, 'grain') * G.mod(s, city.owner, city, 'fishing') : 0;
+  if (fishing) raw.grain = (raw.grain || 0) + fishing;
   const refiners = [];
   const refMod = G.mod(s, city.owner, city, 'refine');
   for (const t of REFINE_ORDER) {
@@ -195,7 +197,7 @@ G.econ = (s, city, awayUnits) => {
   const soldiers = G.soldiers(s, city, awayUnits);
   const quarters = G.quarters(city);
   const civCap = Math.max(5, popCap - Math.max(0, soldiers - quarters));
-  return { cap, protect, popCap, civCap, soldiers, quarters, workersReq, eff, raw, refiners, popFood, upkeep, tax, net, idle };
+  return { cap, protect, popCap, civCap, soldiers, quarters, workersReq, eff, raw, refiners, popFood, upkeep, tax, net, idle, fishing };
 };
 
 // ---------------------------------------------------------------------
@@ -227,7 +229,7 @@ G.slowest = (s, owner, units) => Math.min(...Object.entries(units).filter(([, n]
 const PATHS = new WeakMap();
 G.isWater = t => !!t && t.terrain === 'lake';
 G.coastal = (s, x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && G.isWater(G.tileAt(s, x + dx, y + dy))) return true; return false; };
-G.clearPaths = s => { PATHS.delete(s.tiles); COMPS.delete(s.tiles); };
+G.clearPaths = s => { PATHS.delete(s.tiles); COMPS.delete(s.tiles); SEAS.delete(s.tiles); };
 // shortest path (8 directions). Land paths avoid water; sea paths stay on water except the two end tiles.
 // returns { len, path:[[x,y],...] } or null
 G.path = (s, from, to, naval) => {
@@ -288,6 +290,39 @@ G.landRegions = s => {
   }
   COMPS.set(s.tiles, comp);
   return comp;
+};
+// connected bodies of water (8 directions, as ships sail), cached with the paths; land tiles are -1
+const SEAS = new WeakMap();
+G.waterRegions = s => {
+  let comp = SEAS.get(s.tiles); if (comp) return comp;
+  const N = s.map; comp = new Int32Array(N * N).fill(-1);
+  let id = 0;
+  for (let i = 0; i < N * N; i++) {
+    if (comp[i] !== -1 || !G.isWater(s.tiles[i])) continue;
+    const stack = [i]; comp[i] = id;
+    while (stack.length) {
+      const u = stack.pop(), ux = u % N, uy = (u - ux) / N;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const vx = ux + dx, vy = uy + dy;
+        if ((!dx && !dy) || vx < 0 || vy < 0 || vx >= N || vy >= N) continue;
+        const v = vy * N + vx;
+        if (comp[v] === -1 && G.isWater(s.tiles[v])) { comp[v] = id; stack.push(v); }
+      }
+    }
+    id++;
+  }
+  SEAS.set(s.tiles, comp);
+  return comp;
+};
+// the bodies of water a shore tile touches (two shores sharing one can be joined by ship)
+G.seasOf = (s, x, y) => {
+  const w = G.waterRegions(s), out = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if (!dx && !dy) continue;
+    const t = G.tileAt(s, x + dx, y + dy);
+    if (t && G.isWater(t)) { const id = w[t.y * s.map + t.x]; if (!out.includes(id)) out.push(id); }
+  }
+  return out;
 };
 G.landReachable = (s, from, to) => { const c = G.landRegions(s); return c[from.y * s.map + from.x] === c[to.y * s.map + to.x]; };
 G.isIsland = (s, t) => { const c = G.landRegions(s); const cap = G.capital(s, 'p'); return !!cap && c[t.y * s.map + t.x] !== c[cap.y * s.map + cap.x]; };
@@ -357,6 +392,18 @@ G.dismiss = (s, cityId, unit, n) => {
   city.units[unit] -= n;
   city.pop += n * G.unitPop(unit);
   return null;
+};
+
+// effective cost of one unit for an owner (race and tradition discounts: 'unitCost' for every unit, 'shipCost' for ships)
+G.unitCost = (s, owner, unit) => {
+  const d = DATA.units[unit];
+  if (!d || !d.cost) return {};
+  let k = owner && s.empires[owner] ? G.mod(s, owner, null, 'unitCost') : 1;
+  if (d.type === 'ship' && owner && s.empires[owner]) k *= G.mod(s, owner, null, 'shipCost');
+  if (k === 1) return d.cost;
+  const c = {};
+  for (const [g, v] of Object.entries(d.cost)) c[g] = Math.max(1, Math.round(v * k));
+  return c;
 };
 
 G.unitsFor = (s, city) => [...DATA.races[s.empires[city.owner].race].units, ...DATA.commonUnits];
@@ -446,7 +493,8 @@ G.trainStatus = (s, city, unit) => {
   if (G.lvl(city, u.at) < u.req) return { ok: false, locked: true, reason: `Needs ${DATA.buildings[u.at].name} ${u.req}` };
   const pp = G.unitPop(unit);
   const byPop = pp ? Math.max(0, Math.floor((city.pop - 5) / pp)) : Infinity;
-  return { ok: true, max: Math.min(G.maxAffordable(s, city, u.cost), byPop), byPop, pop: pp, time: G.trainTime(s, city, unit) };
+  const cost = G.unitCost(s, city.owner, unit);
+  return { ok: true, max: Math.min(G.maxAffordable(s, city, cost), byPop), byPop, pop: pp, cost, time: G.trainTime(s, city, unit) };
 };
 
 G.queueTrain = (s, cityId, unit, count) => {
@@ -456,9 +504,10 @@ G.queueTrain = (s, cityId, unit, count) => {
   if (!(count > 0)) return 'Nothing to train';
   const st = G.trainStatus(s, city, unit);
   if (!st.ok) return st.reason;
-  if (!G.canAfford(s, city, u.cost, count)) return 'Not enough goods';
+  const cost = G.unitCost(s, city.owner, unit);
+  if (!G.canAfford(s, city, cost, count)) return 'Not enough goods';
   if (st.pop && city.pop - st.pop * count < 5) return `Not enough people to enrol (${Math.floor(city.pop)} citizens; each ${u.name} takes ${st.pop})`;
-  G.pay(s, city, u.cost, count);
+  G.pay(s, city, cost, count);
   city.pop -= st.pop * count;
   city.train[u.at] = city.train[u.at] || [];
   const q = city.train[u.at];
@@ -503,8 +552,10 @@ G.renown = (s, owner) => {
   let r = 0;
   for (const c of G.citiesOf(s, owner)) for (const L of Object.values(c.buildings)) r += L;
   const e = s.empires[owner];
-  return r + (e.wins || 0) * 3 + (e.conquests || 0) * 25 + (e.renownBonus || 0);
+  return r + G.winRenown(e.wins || 0) + (e.conquests || 0) * 25 + (e.renownBonus || 0);
 };
+// victories: 3 renown each for the first 25, then half as much (camp-farming shouldn't outrun building)
+G.winRenown = w => Math.round(w <= 25 ? w * 3 : 75 + (w - 25) * 1.5);
 G.power = (s, owner) => {
   let p = 0;
   for (const c of G.citiesOf(s, owner)) {
@@ -1281,6 +1332,7 @@ const aiBuildChoice = (s, city) => {
       case 'wall': w += L >= th + 1 ? -60 : 10 + (1 - emp.aggr) * 12 - L + G.aiPressure(s) * 10; break;
       case 'market': w += emp.gold > 800 && L < 3 ? 25 : -5; break;
       case 'academy': w += L < 3 ? 12 : -5; break;
+      case 'harbor': w += 18 - L + (aiWantsSea(s, city.owner) ? 30 : 0); break;
       default: w += 18 - L;
     }
     if (e.eff < 0.95 && t === 'houses') w += 50;
@@ -1315,7 +1367,7 @@ const aiDefend = (s, empId) => {
     const helpers = G.citiesOf(s, empId).filter(c => c !== target).sort((a, b) => dist(a, target) - dist(b, target));
     for (const c of helpers.slice(0, 2)) {
       const def = {};
-      for (const [u, n] of Object.entries(c.units)) { const d = DATA.units[u]; if (d.at && d.type !== 'civ' && d.type !== 'siege' && (d.defI + d.defC) / 2 >= d.atk * 0.9) def[u] = Math.floor(n * 0.5); }
+      for (const [u, n] of Object.entries(c.units)) { const d = DATA.units[u]; if (d.at && d.type !== 'civ' && d.type !== 'siege' && d.type !== 'ship' && (d.defI + d.defC) / 2 >= d.atk * 0.9) def[u] = Math.floor(n * 0.5); }
       if (!G.unitsCount(def)) continue;
       if (G.travelTime(s, empId, c, target, G.slowest(s, empId, def)) < left) G.sendArmy(s, c.id, target.x, target.y, 'reinforce', def);
     }
@@ -1330,20 +1382,20 @@ const aiTrain = (s, city) => {
   if (e.net.grain < 3 || city.starving || (emp.saving && emp.gold < 900) || (city.res.grain || 0) < Math.min(400, e.cap * 0.2)) return;
   const late = G.aiPressure(s) > 0.7;
   if (late && G.lvl(city, 'townhall') >= 8 && (city.units.herald || 0) < 2 && !(city.train.townhall || []).length && emp.gold > 2500 && Math.random() < 0.15) {
-    if (G.canAfford(s, city, DATA.units.herald.cost)) { G.queueTrain(s, city.id, 'herald', 1); return; }
+    if (G.canAfford(s, city, G.unitCost(s, city.owner, 'herald'))) { G.queueTrain(s, city.id, 'herald', 1); return; }
   }
   const opts = race.units.filter(u => G.trainStatus(s, city, u).ok);
   if (!opts.length) return;
   const wantAtk = Math.random() < emp.aggr * (0.5 + G.aiPressure(s));
   // value per unit of cost: attackers by attack; defenders by the defence that answers the nearby threat's cavalry share
   const cs = threatCavShare(s, city);
-  const price = u => Object.entries(DATA.units[u].cost).reduce((a, [g, v]) => a + v * (g === 'gold' ? 1 : DATA.goods[g].value), 0) || 1;
+  const price = u => Object.entries(G.unitCost(s, city.owner, u)).reduce((a, [g, v]) => a + v * (g === 'gold' ? 1 : DATA.goods[g].value), 0) || 1;
   const val = u => { const d = DATA.units[u]; return (wantAtk ? d.atk : d.defI * (1 - cs) + d.defC * cs) / price(u); };
   let pool = opts.filter(u => DATA.units[u].type !== 'siege');
   // siege engines: some, once the realm means business
   if (wantAtk && G.aiPressure(s) > 0.6 && Math.random() < 0.25) { const sg = opts.filter(u => DATA.units[u].type === 'siege'); if (sg.length) pool = sg; }
   const unit = pool.sort((a, b) => val(b) - val(a))
-    .find(u => G.maxAffordable(s, city, DATA.units[u].cost) >= 1 && !(city.train[DATA.units[u].at] || []).length);
+    .find(u => G.maxAffordable(s, city, G.unitCost(s, city.owner, u)) >= 1 && !(city.train[DATA.units[u].at] || []).length);
   if (!unit) return;
   const st = G.trainStatus(s, city, unit);
   // keep most people working: enrol at most a fifth of the citizens at once
@@ -1366,6 +1418,7 @@ const aiExpand = (s, empId) => {
   const cities = G.citiesOf(s, empId);
   const emp = s.empires[empId];
   if (!G.canFoundCity(s, empId) || cities.length >= 7) { emp.saving = false; return; }
+  const ov = emp.overseas;
   for (const c of cities) {
     if ((c.units.settlers || 0) > 0) {
       let best = null, bd = 1e9;
@@ -1375,17 +1428,156 @@ const aiExpand = (s, empId) => {
         if (d < 3 || d > 7) continue;
         if (Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
         if (!G.landReachable(s, c, t)) continue;
-        const score = d * 0.4 + rnd(0, 1) - 4 * G.siteFit(G.siteYield(s, t.x, t.y), emp.race);
+        let score = d * 0.4 + rnd(0, 1) - 4 * G.siteFit(G.siteYield(s, t.x, t.y), emp.race);
+        if (ov && ov.seas.length && G.coastal(s, t.x, t.y) && G.seasOf(s, t.x, t.y).some(w => ov.seas.includes(w))) score -= 3;   // a port on the water we need
         if (score < bd) { bd = score; best = t; }
       }
-      if (best) G.sendArmy(s, c.id, best.x, best.y, 'settle', { settlers: 1 });
+      // islands: a port with a transport may ship its settlers across the water
+      let sea = false;
+      if ((c.units.transport || 0) > 0 && ov && ov.settle.length) {
+        for (const i of ov.settle) {
+          const t = s.tiles[i];
+          if (t.city || t.camp || t.oasis || t.ruin || Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
+          const score = dist(t, c) * 0.4 + rnd(0, 1) - 4 * G.siteFit(G.siteYield(s, t.x, t.y), emp.race) - (best ? 0 : 2);
+          if (score < bd && G.planMarch(s, empId, c, t, { settlers: 1, transport: 1 }).ok) { bd = score; best = t; sea = true; }
+        }
+      }
+      if (best) G.sendArmy(s, c.id, best.x, best.y, 'settle', sea ? { settlers: 1, transport: 1 } : { settlers: 1 });
+      else if (ov && ov.settle.length && !(c.units.transport || 0)) {
+        // no land left nearby: walk the settlers to a port that has (or will have) a transport
+        const port = cities.find(p => p !== c && G.lvl(p, 'harbor') && G.landReachable(s, p, c));
+        if (port) G.sendArmy(s, c.id, port.x, port.y, 'reinforce', { settlers: c.units.settlers });
+      }
       return;
     }
   }
-  const src = cities.find(c => G.lvl(c, 'townhall') >= 5 && !(c.train.townhall || []).length);
+  const ready = cities.filter(c => G.lvl(c, 'townhall') >= 5 && !(c.train.townhall || []).length);
+  // with islands to claim, train the settlers in a port that has a transport waiting
+  const src = (ov && ov.settle.length && ready.find(c => (c.units.transport || 0) > 0)) || ready[0];
   const training = cities.some(c => (c.train.townhall || []).some(q => q.unit === 'settlers'));
   emp.saving = !!src && !training;
-  if (src && G.canAfford(s, src, DATA.units.settlers.cost)) { G.queueTrain(s, src.id, 'settlers', 1); emp.saving = false; }
+  if (src && G.canAfford(s, src, G.unitCost(s, empId, 'settlers'))) { G.queueTrain(s, src.id, 'settlers', 1); emp.saving = false; }
+};
+
+// ---- the AI at sea: islands to settle, rivals beyond the water ----------------
+const shipRoom = units => Object.entries(units || {}).reduce((a, [u, n]) => a + (DATA.units[u].capacity || 0) * n, 0);
+const passengerPop = units => Object.entries(units || {}).filter(([u]) => DATA.units[u].type !== 'ship').reduce((a, [u, n]) => a + Math.max(1, G.unitPop(u)) * n, 0);
+// what lies across the water from a realm (recomputed every few game-minutes; stored as tile indices, city ids and sea ids):
+//   settle: island shore tiles our ports can sail to; war: rival cities beyond the water our ports can reach;
+//   seas: waters where such targets lie but where we have no port yet (expansion leans toward their shores)
+G.aiOverseas = (s, empId, force) => {
+  const emp = s.empires[empId];
+  if (!force && emp.overseas && s.time - emp.overseas.t < 300 * G.pace(s).time) return emp.overseas;
+  const res = { t: s.time, settle: [], war: [], seas: [] };
+  emp.overseas = res;
+  const cities = G.citiesOf(s, empId);
+  if (!cities.length) return res;
+  const comp = G.landRegions(s), N = s.map;
+  const mine = new Set(cities.map(c => comp[c.y * N + c.x]));
+  const portSeas = new Set();
+  for (const c of cities) for (const w of G.seasOf(s, c.x, c.y)) portSeas.add(w);
+  const near = t => Math.min(...cities.map(c => dist(c, t)));
+  const want = new Set();
+  const consider = (t, list, val, limit) => {
+    const seas = G.seasOf(s, t.x, t.y);
+    if (seas.some(w => portSeas.has(w))) { if (list.length < limit) list.push(val); }
+    else for (const w of seas) want.add(w);
+  };
+  // islands: free shore tiles in a land region none of our cities stands on
+  if (cities.length < 7) {
+    const cands = [];
+    for (let i = 0; i < s.tiles.length; i++) {
+      const t = s.tiles[i];
+      if (G.isWater(t) || t.city || t.camp || t.oasis || t.ruin || DATA.terrain[t.terrain].impassable || mine.has(comp[i]) || !G.coastal(s, t.x, t.y)) continue;
+      const d = near(t);
+      if (d > 12 || Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
+      cands.push({ t, i, score: d * 0.4 - 4 * G.siteFit(G.siteYield(s, t.x, t.y), emp.race) });
+    }
+    cands.sort((a, b) => a.score - b.score);
+    for (const c of cands.slice(0, 8)) consider(c.t, res.settle, c.i, 3);
+  }
+  // rival cities no land route reaches (only coastal ones can be reached by ship)
+  const pressure = G.aiPressure(s);
+  for (const o of Object.values(s.cities)) {
+    if (o.owner === empId || mine.has(comp[o.y * N + o.x]) || !G.coastal(s, o.x, o.y) || G.hostility(s, empId, o.owner) <= 0) continue;
+    if ((o.owner === 'p' && pressure <= 0) || near(o) > 18) continue;
+    consider(o, res.war, o.id, 6);
+  }
+  res.seas = [...want];
+  return res;
+};
+// does this realm have reason to keep a harbor and ships?
+const aiWantsSea = (s, empId) => {
+  const ov = s.empires[empId].overseas;
+  if (!ov) return false;
+  return ov.settle.length > 0 || (ov.war.length > 0 && G.aiPressure(s) > 0.3);
+};
+const aiNaval = (s, empId) => {
+  const emp = s.empires[empId];
+  const ov = G.aiOverseas(s, empId);
+  const pressure = G.aiPressure(s);
+  const cities = G.citiesOf(s, empId);
+  const wantSettle = ov.settle.length > 0 && cities.length < 7 && G.renown(s, empId) >= 0.75 * G.nextCityRenown(s, empId);
+  const wantWar = ov.war.length > 0 && pressure > 0.3;
+  if (!wantSettle && !wantWar) return;
+  const useful = new Set();
+  if (wantSettle) for (const i of ov.settle) for (const w of G.seasOf(s, s.tiles[i].x, s.tiles[i].y)) useful.add(w);
+  if (wantWar) for (const id of ov.war) { const o = s.cities[id]; if (o) for (const w of G.seasOf(s, o.x, o.y)) useful.add(w); }
+  const ports = cities.filter(c => G.lvl(c, 'townhall') >= 4 && G.seasOf(s, c.x, c.y).some(w => useful.has(w))).sort((a, b) => G.lvl(b, 'harbor') - G.lvl(a, 'harbor') || G.lvl(b, 'townhall') - G.lvl(a, 'townhall'));
+  const port = ports[0];
+  if (!port) return;
+  if (!G.lvl(port, 'harbor')) {
+    if (!port.buildQueue.some(q => q.type === 'harbor') && G.buildStatus(s, port, 'harbor').ok) G.queueBuild(s, port.id, 'harbor');
+    return;
+  }
+  if (s.time < (emp.navyAt || 0)) return;           // one keel at a time: the player is not swamped by fleets
+  const e = G.econ(s, port);
+  if (e.net.grain < 3 || port.starving || (emp.saving && emp.gold < 900) || (port.train.harbor || []).length) return;
+  const afloat = u => (port.units[u] || 0) + s.moves.filter(m => m.owner === empId && m.from === port.id).reduce((a, m) => a + (m.units[u] || 0), 0);
+  let want = wantSettle ? 1 : 0;
+  if (wantWar) {
+    const army = {};
+    for (const [u, n] of Object.entries(port.units)) { const d = DATA.units[u]; if (d.type !== 'civ' && d.type !== 'hero' && d.type !== 'siege' && d.type !== 'ship' && !d.flying && !d.amphibious) army[u] = n; }
+    want = Math.max(want, Math.min(3, Math.ceil(passengerPop(army) * 0.8 / 30)));
+  }
+  let unit = null;
+  if (afloat('transport') < want) unit = 'transport';
+  else if (wantWar && pressure > 0.5 && G.lvl(port, 'harbor') >= 5 && afloat('warship') < Math.round(1 + emp.aggr * 3)) unit = 'warship';
+  if (!unit || !G.trainStatus(s, port, unit).ok || !G.canAfford(s, port, G.unitCost(s, empId, unit))) return;
+  if (!G.queueTrain(s, port.id, unit, 1)) emp.navyAt = s.time + 240 * G.pace(s).time;
+};
+
+// the army a city can send against a target: overland, by air or wading (fliers and amphibious troops), or aboard its ships.
+// Returns { units, naval } or null when the target cannot be reached with enough strength.
+const aiStrike = (s, c, off, t, wantConquer) => {
+  const empId = c.owner;
+  const tile = G.tileAt(s, t.x, t.y);
+  const atkOf = u => G.atkPower(s, empId, u) * G.mod(s, empId, null, 'atk');
+  const siege = {};
+  if (tile.city && G.lvl(s.cities[tile.city], 'wall') >= 4) for (const [u, n] of Object.entries(c.units)) if (DATA.units[u].type === 'siege' && n > 0) siege[u] = n;
+  if (G.landReachable(s, c, tile)) {
+    const army = { ...off, ...siege };
+    if (wantConquer) army.herald = 1;
+    return { units: army, type: t.type };
+  }
+  // across the water: fliers and swimmers go on their own
+  const wade = Object.fromEntries(Object.entries(off).filter(([u]) => DATA.units[u].flying || DATA.units[u].amphibious));
+  if (G.unitsCount(wade) && atkOf(wade) > t.d * 1.3 && G.planMarch(s, empId, c, tile, wade).ok) return { units: wade, type: t.type === 'conquer' ? 'raid' : t.type, air: true };
+  // or aboard the city's ships (one sea venture at a time per realm)
+  const emp = s.empires[empId];
+  const room = shipRoom({ transport: c.units.transport || 0 });
+  if (s.time < (emp.seaAt || 0) || (!room && !(c.units.warship || 0))) return null;
+  const army = {};
+  if (c.units.transport) army.transport = c.units.transport;
+  if (c.units.warship) army.warship = c.units.warship;
+  let left = room;
+  if (wantConquer && left >= 2) { army.herald = 1; left -= Math.max(1, G.unitPop('herald')); }
+  for (const [u, n] of Object.entries(off).sort((a, b) => DATA.units[b[0]].atk / Math.max(1, G.unitPop(b[0])) - DATA.units[a[0]].atk / Math.max(1, G.unitPop(a[0])))) {
+    const k = Math.min(n, Math.floor(left / Math.max(1, G.unitPop(u))));
+    if (k > 0) { army[u] = k; left -= k * Math.max(1, G.unitPop(u)); }
+  }
+  if (atkOf(army) <= t.d * 1.3 || !G.planMarch(s, empId, c, tile, army).ok) return null;
+  return { units: army, type: army.herald ? t.type : (t.type === 'conquer' ? 'raid' : t.type), naval: true };
 };
 
 const aiWar = (s, empId) => {
@@ -1395,19 +1587,19 @@ const aiWar = (s, empId) => {
     const off = {};
     for (const [u, n] of Object.entries(c.units)) {
       const d = DATA.units[u];
-      if (d.type !== 'civ' && d.type !== 'hero' && d.type !== 'siege' && n > 0 && d.atk >= (d.defI + d.defC) / 2 * 0.8) off[u] = Math.floor(n * 0.8);
+      if (d.type !== 'civ' && d.type !== 'hero' && d.type !== 'siege' && d.type !== 'ship' && n > 0 && d.atk >= (d.defI + d.defC) / 2 * 0.8) off[u] = Math.floor(n * 0.8);
     }
-    const A = G.atkPower(s, empId, off) * G.mod(s, empId, null, 'atk');
+    const A = G.atkPower(s, empId, off) * G.mod(s, empId, null, 'atk');   // overseas strikes re-check the strength of what actually sails
     if (A < 250) continue;
     const targets = [];
     for (const camp of Object.values(s.camps)) {
       const d = G.defPower(s, null, camp.units) + 5 * camp.tier;
-      if (A > d * 1.5) targets.push({ x: camp.x, y: camp.y, score: dist(c, camp) - 2, type: 'raid' });
+      if (A > d * 1.5) targets.push({ x: camp.x, y: camp.y, score: dist(c, camp) - 2, type: 'raid', d: d * 1.15 });
     }
     for (const t of s.special) {
       if (t.oasis && !t.oasis.owner && dist(c, t) <= G.cityReach(s, c) + 1.5 && (c.oases || []).length < G.oasisSlots(c)) {
         const d = G.defPower(s, null, t.oasis.units) + 5 * t.oasis.tier;
-        if (A > d * 1.6) targets.push({ x: t.x, y: t.y, score: dist(c, t) - 3, type: 'attack' });
+        if (A > d * 1.6) targets.push({ x: t.x, y: t.y, score: dist(c, t) - 3, type: 'attack', d: d * 1.2 });
       }
     }
     for (const o of Object.values(s.cities)) {
@@ -1422,25 +1614,25 @@ const aiWar = (s, empId) => {
       if (A > d * 1.3 && Math.random() < emp.aggr * hate * p) {
         const myN = G.citiesOf(s, empId).length, theirN = G.citiesOf(s, o.owner).length;
         const conquer = (c.units.herald || 0) > 0 && pressure > 0.7 && A > d * 2 && myN <= theirN + 2 && myN < 8;
-        targets.push({ x: o.x, y: o.y, score: dist(c, o) - (o.owner === 'p' ? 8 : 0), type: conquer ? 'conquer' : 'raid', far: o.owner === 'p' ? 17 : 13 });
+        targets.push({ x: o.x, y: o.y, score: dist(c, o) - (o.owner === 'p' ? 8 : 0), type: conquer ? 'conquer' : 'raid', far: o.owner === 'p' ? 17 : 13, d });
       }
     }
     if (!targets.length) continue;
     targets.sort((a, b) => a.score - b.score);
-    const t = targets.find(t => G.landReachable(s, c, t));
+    // the best target this city can actually reach (overland, by air, or by sea)
+    let t = null, strike = null;
+    for (const cand of targets) { strike = aiStrike(s, c, off, cand, cand.type === 'conquer'); if (strike) { t = cand; break; } }
     if (!t) continue;
-    if (dist(c, t) > (t.far || 13)) continue;
-    const army = { ...off };
-    if (t.type === 'conquer') army.herald = 1;
-    const tt0 = G.tileAt(s, t.x, t.y);
-    if (tt0.city && G.lvl(s.cities[tt0.city], 'wall') >= 4) for (const [u, n] of Object.entries(c.units)) if (DATA.units[u].type === 'siege' && n > 0) army[u] = n;
-    if (!G.sendArmy(s, c.id, t.x, t.y, t.type, army)) {
+    if (dist(c, t) > (t.far || 13) + (strike.naval || strike.air ? 3 : 0)) continue;
+    if (!G.sendArmy(s, c.id, t.x, t.y, strike.type, strike.units)) {
       const tt = G.tileAt(s, t.x, t.y);
       if (tt.city) { s.cities[tt.city].lastRaided = s.time; if (s.cities[tt.city].owner === 'p') emp.lastHitP = s.time; }
+      if (strike.naval) emp.seaAt = s.time + 900 * G.pace(s).time / Math.max(0.4, pressure);
     }
     return;
   }
 };
+G.aiWar = aiWar; G.aiNaval = aiNaval; G.aiExpand = aiExpand;
 
 const aiThink = (s, dtMin) => {
   for (const emp of Object.values(s.empires)) {
@@ -1450,6 +1642,8 @@ const aiThink = (s, dtMin) => {
       if (Math.random() < 0.5) aiTrain(s, city);
       aiMarket(s, city);
     }
+    emp.navyClock = (emp.navyClock || 0) + dtMin;
+    if (emp.navyClock > 1 * G.pace(s).time) { emp.navyClock = 0; aiNaval(s, emp.id); }
     aiExpand(s, emp.id);
     aiDefend(s, emp.id);
     emp.warClock = (emp.warClock || 0) + dtMin;
@@ -1528,7 +1722,7 @@ G.newGame = (opts) => {
   const classic = others.filter(r => ['hearth', 'delver', 'sylvan', 'ash'].includes(r)).sort(() => Math.random() - 0.5);
   const fresh = others.filter(r => !classic.includes(r)).sort(() => Math.random() - 0.5);
   const chosen = (opts.rivalRaces && opts.rivalRaces.length ? opts.rivalRaces : (rivals <= 3 ? [...classic, ...fresh] : [...classic, ...fresh].sort(() => Math.random() - 0.5))).slice(0, rivals);
-  const AGGR = { ash: 0.75, delver: 0.4, sylvan: 0.45, hearth: 0.35 };
+  const AGGR = { ash: 0.65, delver: 0.4, sylvan: 0.45, hearth: 0.35 };   // ash was 0.75: its camp-raiding renown ran ~30% above the other peoples (tests/parity.js)
   chosen.forEach((r, i) => {
     const id = 'a' + (i + 1);
     s.empires[id] = { id, name: DATA.aiRulers[r], race: r, gold: 250, color: DATA.races[r].color, aggr: DATA.races[r].aggr ?? AGGR[r] ?? 0.45 };

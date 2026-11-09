@@ -55,9 +55,9 @@ DATA.races = {
   delver: {
     name: 'Deepdelvers', adj: 'Deepdelver', color: '#7f5539',
     blurb: 'Stubborn miners from beneath the mountains. Nobody digs deeper or forges better; their runesteel arms the toughest shield-walls in the land, but their fields are poor.',
-    perks: ['+40% ore, +25% stone', '+30% refining output', 'Walls 50% stronger, +15% storage, deep cellars hide 20% more', 'Runeforge: iron + stone → runesteel', '−15% grain'],
+    perks: ['+40% ore, +25% stone', '+30% refining output', 'Walls 50% stronger, +15% storage, deep cellars hide 20% more', 'Master masons: build 8% faster', 'Runeforge: iron + stone → runesteel', '−15% grain'],
     mult: { ore: 1.4, stone: 1.25, grain: 0.85 },
-    bonus: { refine: 1.3, wall: 1.5, protect: 0.2, storage: 1.15 },
+    bonus: { refine: 1.3, wall: 1.5, protect: 0.2, storage: 1.15, buildTime: 0.92 },
     unique: 'runeforge',
     units: ['axeguard', 'ironshield', 'boltcaster', 'goatrider', 'boarrider', 'runeguard', 'ram_d', 'treb_d'],
     recipes: {},
@@ -65,9 +65,9 @@ DATA.races = {
   sylvan: {
     name: 'Sylvani', adj: 'Sylvan', color: '#2e7d32',
     blurb: 'Long-lived wardens of the deep woods. They grow quickly and shape weapons from living wood rather than iron, and their riders are the swiftest anywhere — but ore is scarce to them.',
-    perks: ['+40% timber', '+30% pop growth, +10% housing', 'See 30% farther, march 10% faster', 'Armory works timber, not iron', 'Heartgrove: timber → heartwood', '−25% ore'],
-    mult: { timber: 1.4, ore: 0.75 },
-    bonus: { popGrowth: 1.3, housing: 1.1, vision: 1.3, travel: 1.1 },
+    perks: ['+30% timber', '+20% pop growth, +3% housing', 'See 30% farther, march 10% faster', 'Armory works timber, not iron', 'Heartgrove: timber → heartwood', '−25% ore'],
+    mult: { timber: 1.3, ore: 0.75 },
+    bonus: { popGrowth: 1.2, housing: 1.03, vision: 1.3, travel: 1.1 },
     unique: 'heartgrove',
     units: ['warden', 'thornguard', 'longbow', 'winddancer', 'stagrider', 'groveguard', 'ram_s', 'treb_s'],
     recipes: {

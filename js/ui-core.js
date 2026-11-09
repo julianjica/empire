@@ -24,7 +24,8 @@ const TOP_EXTRAS = [];
 //   TILE_EXTRAS (city, tile) — html added to the world-map tile panel (before the send form)
 //   TILE_PANELS (city, tile, vis) — return a whole tile panel to take over a tile (e.g. a free city), or '' to pass
 //   EMPIRE_EXTRAS () — cards appended to the Empire tab · ENDGAME_EXTRAS () — html shown under the endgame banner
-const CITY_EXTRAS = [], REALM_EXTRAS = [], MARKET_EXTRAS = [], TILE_EXTRAS = [], TILE_PANELS = [], EMPIRE_EXTRAS = [], ENDGAME_EXTRAS = [];
+const CITY_EXTRAS = [], REALM_EXTRAS = [], MARKET_EXTRAS = [], TILE_EXTRAS = [], TILE_PANELS = [], EMPIRE_EXTRAS = [], ENDGAME_EXTRAS = [],
+  START_EXTRAS = [], DEFEAT_EXTRAS = [];   // START_EXTRAS () — cards on the start screen · DEFEAT_EXTRAS () — html under 'your last city has fallen'
 if (G.seasonChip) CITY_EXTRAS.push(G.seasonChip);
 const extras = (list, ...a) => list.map(f => { try { return f(...a) || ''; } catch (e) { console.error(e); return ''; } }).join('');
 const runMountHooks = () => { for (const h of MOUNT_HOOKS) { try { h(UI.tab); } catch (e) { console.error(e); } } };
@@ -119,6 +120,7 @@ const renderStart = () => {
       </select></label>
       <button class="primary" data-act="begin" style="padding:10px">Found your realm</button>
     </div>
+    ${extras(START_EXTRAS)}
     ${savesHtml(false)}
   </div>`;
 };
@@ -345,7 +347,7 @@ const renderMilitary = city => {
           <div class="row"><span style="font-size:24px">${d.icon}</span><b>${d.name}</b><span class="pill">${{ cav: 'cavalry', ranged: 'ranged', civ: 'civilian', inf: 'infantry', siege: 'siege', ship: 'ship' }[d.type]}</span>${upBadge(u)}<span class="spacer"></span><span class="muted">have ${city.units[u] || 0}</span></div>
           <div class="desc muted" style="font-size:12.5px">${d.desc}</div>
           ${statLine(G.unitStats(S, 'p', u))}${d.wallBreak ? `<div class="stats"><span>🧱 negates ${d.wallBreak} wall levels each</span></div>` : ''}${d.wreck ? `<div class="stats"><span>🏚️ wrecks buildings after a won assault</span></div>` : ''}
-          ${costHtml(d.cost, city)}<div class="muted" style="font-size:12px">👥 takes ${G.unitPop(u)} citizen${G.unitPop(u) === 1 ? '' : 's'}${!st.locked && st.byPop < Infinity && st.byPop <= G.maxAffordable(S, city, d.cost) ? ' · <span class="warn">limited by population</span>' : ''}</div>
+          ${costHtml(G.unitCost(S, city.owner, u), city)}<div class="muted" style="font-size:12px">👥 takes ${G.unitPop(u)} citizen${G.unitPop(u) === 1 ? '' : 's'}${!st.locked && st.byPop < Infinity && st.byPop <= G.maxAffordable(S, city, G.unitCost(S, city.owner, u)) ? ' · <span class="warn">limited by population</span>' : ''}</div>
           ${st.locked ? `<div class="warn" style="font-size:12px">${st.reason}</div>` : `<div class="row">
             <input type="number" min="1" data-k="${key}" value="${esc(UI.form[key] || 1)}">
             <button class="small" data-act="maxTrain" data-u="${u}" data-k="${key}">max ${st.max}</button>
@@ -378,6 +380,7 @@ const MOVE_LABEL = { preach: '📿 Preaching', raid: 'Raid', attack: 'Attack', c
 const placeName = (x, y) => {
   const t = G.tileAt(S, x, y);
   if (t.city) return esc(S.cities[t.city].name);
+  if (t.minor && S.minors && S.minors[t.minor]) return '🏰 ' + esc(S.minors[t.minor].name);
   if (t.camp) return 'brigand camp';
   if (t.oasis) return 'oasis';
   if (t.ruin) return 'ruins';
@@ -445,7 +448,7 @@ const renderEmpire = () => {
   const goods = visibleGoods().slice(0, 7);
   return `<div class="card"><h3>👑 ${esc(emp.name)}</h3>
     <p>${R.name}: ${R.perks.join(' · ')}</p>
-    <p>⭐ Renown <b>${ren}</b> — from building levels, victories (${emp.wins || 0} × 3) and conquests (${emp.conquests || 0} × 25).
+    <p>⭐ Renown <b>${ren}</b> — from building levels, victories (${emp.wins || 0} → ${G.winRenown(emp.wins || 0)}; 3 each for the first 25, then 1.5) and conquests (${emp.conquests || 0} × 25).
     ${need === Infinity ? 'You have reached the greatest size a realm can hold.' : `Your next city needs <b>${need}</b> renown. Train Settlers at a Town Hall of level 5+ and send them to open land.`}</p>
     <p class="muted">${DATA.pace[S.settings.pace].name} pace · ${DATA.modes[S.settings.mode].name}: ${DATA.modes[S.settings.mode].desc} · Rival pressure ${Math.round(G.aiPressure(S) * 100)}%</p>
   </div>
@@ -527,7 +530,8 @@ const render = (force) => {
   if (!S) { if (force) renderStart(); return; }
   const city = curCity();
   if (!city) {
-    $app.innerHTML = `<div class="start"><div class="banner lose">Your last city has fallen. The ${DATA.races[S.empires.p.race].name} chronicle ends here.</div><p style="text-align:center"><button class="primary" data-act="newgame">Begin anew</button></p></div>`;
+    $app.innerHTML = `<div class="start"><div class="banner lose">Your last city has fallen. The ${DATA.races[S.empires.p.race].name} chronicle ends here.</div><p style="text-align:center"><button class="primary" data-act="newgame">Begin anew</button></p>${extras(DEFEAT_EXTRAS)}</div>`;
+    runMountHooks();
     return;
   }
   const active = document.activeElement;
@@ -581,7 +585,7 @@ Object.assign(act, {
   cancelBuild: d => { G.cancelBuild(S, UI.city, +d.i); render(true); },
   toggleRefine: d => { const c = curCity(); c.refineOff[d.b] = !c.refineOff[d.b]; render(true); },
   rename: () => { const c = curCity(); const n = prompt('New name for ' + c.name, c.name); if (n && n.trim()) { c.name = n.trim().slice(0, 30); render(true); } },
-  maxTrain: d => { UI.form[d.k] = G.maxAffordable(S, curCity(), DATA.units[d.u].cost); render(true); },
+  maxTrain: d => { UI.form[d.k] = G.maxAffordable(S, curCity(), G.unitCost(S, curCity().owner, d.u)); render(true); },
   train: d => {
     const n = parseInt(UI.form[d.k] || 1, 10);
     const err = G.queueTrain(S, UI.city, d.u, n);

@@ -267,7 +267,7 @@
       const i = y * N + x, t = S.tiles[i];
       if (!S.explored[i] || t.terrain === 'lake') continue;
       const r = rng(i * 7919 + 101), cx = X(x + 0.5), cy = X(y + 0.5);
-      if (t.city || t.camp || t.oasis || t.ruin) { stipple(g, cx, cy, r, 4, 'rgba(70,50,30,.35)'); continue; } // keep sites clear
+      if (t.city || t.camp || t.oasis || t.ruin || t.minor) { stipple(g, cx, cy, r, 4, 'rgba(70,50,30,.35)'); continue; } // keep sites clear
       switch (t.terrain) {
         case 'plains': stipple(g, cx, cy, r, 6, 'rgba(80,60,30,.4)'); if (r() < 0.4) tuft(g, cx + (r() - 0.5) * P * 0.5, cy + (r() - 0.5) * P * 0.5, r, pal.tuft, 0.8); break;
         case 'fertile': fertile(g, cx, cy, r, pal); break;
@@ -785,6 +785,51 @@
     palm(c, 14, 10, 0.75, lw, 6);
     palm(c, -12, 14, 1, lw, -7);
   }
+  // free cities (minors.js): a walled town of its own, a tall banner in its patron's colours and its emblem on a shield
+  const MINOR_ROOF = { mercenary: '#7c2f22', merchant: '#a8743a', mage: '#5b4a8c', temple: '#b08a3a', maritime: '#3f6f8f', forge: '#5d5048' };
+  function drawMinor(c, mi, lw, t, winter, lights) {
+    const k = DATA.minorKinds && DATA.minorKinds[mi.kind];
+    const roof = winter ? '#eef1f3' : (MINOR_ROOF[mi.kind] || '#8a4b30');
+    const lord = mi.subject || mi.patron;
+    const col = lord ? colorOf(lord) : '#efe6cf';
+    // territory hint: a faint dashed ring in the patron's colour
+    if (lord) { c.save(); c.setLineDash([4, 5]); c.lineDashOffset = -t * 4; c.strokeStyle = col; c.globalAlpha = 0.7; c.lineWidth = lw * 1.6; c.beginPath(); c.ellipse(0, 12, 46, 30, 0, 0, TAU); c.stroke(); c.restore(); }
+    c.fillStyle = 'rgba(60,40,20,.16)'; c.beginPath(); c.ellipse(2, 14, 44, 26, 0, 0, TAU); c.fill();
+    wallArc(c, 'stone', 40, 24, 13, true, lw, true);
+    house(c, -22, 4, 0.75, roof, lw, lights);
+    house(c, 22, 6, 0.75, roof, lw, lights);
+    if (mi.kind === 'mage') tower(c, 0, 4, 1.2, lw, lights, true, winter ? '#eef1f3' : null);
+    else if (mi.kind === 'maritime') { tower(c, 2, 2, 1.05, lw, lights, false); c.fillStyle = '#ffd36a'; c.beginPath(); c.arc(2, -32, 3, 0, TAU); c.fill(); lights.push([2, -32, 2.2]); }
+    else hall(c, 0, 8, 1, roof, lw, lights);
+    house(c, -12, 24, 0.7, roof, lw, lights);
+    house(c, 13, 26, 0.7, roof, lw, lights);
+    wallArc(c, 'stone', 40, 24, 13, false, lw, true);
+    // the banner: a tall swallow-tailed standard
+    const wv = Math.sin(t * 2.6 + mi.x) * 2.4, wv2 = Math.sin(t * 2.6 + mi.x + 1.1) * 2.4;
+    const bx = 26, by = -6;
+    c.strokeStyle = INK; c.lineWidth = lw * 1.2; c.beginPath(); c.moveTo(bx, by + 10); c.lineTo(bx, by - 40); c.stroke();
+    c.fillStyle = '#c9a43c'; c.beginPath(); c.arc(bx, by - 41, 2, 0, TAU); c.fill(); c.lineWidth = lw * 0.7; c.stroke();
+    c.beginPath(); c.moveTo(bx, by - 38); c.quadraticCurveTo(bx + 12, by - 39 + wv, bx + 24, by - 36 + wv2); c.lineTo(bx + 18, by - 29 + wv * 0.5); c.lineTo(bx + 24, by - 22 + wv2);
+    c.quadraticCurveTo(bx + 12, by - 25 + wv, bx, by - 24); c.closePath();
+    c.fillStyle = col; c.fill(); c.strokeStyle = INK; c.lineWidth = lw * 0.8; c.stroke();
+    if (!lord) { c.strokeStyle = 'rgba(59,42,26,.45)'; c.lineWidth = lw * 0.6; c.beginPath(); c.moveTo(bx + 3, by - 31); c.lineTo(bx + 16, by - 31 + wv * 0.6); c.stroke(); }
+    if (mi.subject) { c.strokeStyle = INK; c.lineWidth = lw; c.beginPath(); c.moveTo(bx + 2, by - 36); c.lineTo(bx + 20, by - 25 + wv2); c.stroke(); }
+    // the shield with the city's emblem
+    const sy = 30;
+    c.beginPath(); c.moveTo(-10, sy - 11); c.lineTo(10, sy - 11); c.lineTo(10, sy - 2); c.quadraticCurveTo(10, sy + 7, 0, sy + 11); c.quadraticCurveTo(-10, sy + 7, -10, sy - 2); c.closePath();
+    c.fillStyle = 'rgba(251,244,224,.96)'; c.fill(); c.strokeStyle = lord ? col : INK; c.lineWidth = lw * 1.6; c.stroke();
+    if (k) { c.font = '12px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = INK; c.fillText(k.icon, 0, sy + 0.5); }
+    // an active request: a small bobbing scroll
+    if (mi.req && !mi.subject) {
+      const b = Math.sin(t * 3 + mi.y) * 1.5;
+      c.save(); c.translate(-30, -24 + b);
+      c.fillStyle = '#f6ecd0'; c.strokeStyle = INK; c.lineWidth = lw * 0.8;
+      c.beginPath(); c.rect(-6, -7, 12, 14); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(-3.5, -3); c.lineTo(3.5, -3); c.moveTo(-3.5, 0); c.lineTo(3.5, 0); c.moveTo(-3.5, 3); c.lineTo(2, 3); c.lineWidth = lw * 0.5; c.stroke();
+      c.fillStyle = '#b3261e'; c.beginPath(); c.arc(0, 8, 2.2, 0, TAU); c.fill();
+      c.restore();
+    }
+  }
   function drawRuin(c, ru, lw, t) {
     const ready = ru.readyAt <= S.time;
     c.globalAlpha = ready ? 1 : 0.45;
@@ -969,6 +1014,8 @@
     if (t.camp) { const cp = S.camps[t.camp]; if (cp && cp.kind) return ({ wyrm: "The Wyrm's lair", undead: 'Horde of the restless dead', star: 'Crater of a fallen star', rift: 'Demon rift' }[cp.kind] || 'Strange camp') + pos; return `Brigand camp${cp ? ', tier ' + cp.tier : ''}` + pos; }
     if (t.oasis) { const o = t.oasis, oc = o.owner && S.cities[o.owner]; return `Oasis (+25% ${DATA.goods[o.bonus] ? DATA.goods[o.bonus].name : o.bonus})${oc ? ' · held by ' + oc.name : ''}` + pos; }
     if (t.ruin) return `Ruins, tier ${t.ruin.tier}${t.ruin.readyAt > S.time ? ' (plundered)' : ''}` + pos;
+    const mi = G.minorAt ? G.minorAt(S, t) : null;
+    if (mi) { const k = DATA.minorKinds[mi.kind], lord = mi.subject || mi.patron, e = lord && S.empires[lord]; return `${mi.name} · free ${k ? k.name.toLowerCase() : 'city'}${mi.subject ? ' · tribute to ' + (lord === 'p' ? 'you' : e.name) : lord ? ' · patron: ' + (lord === 'p' ? 'you' : e.name) : ''} · your influence ${Math.round(G.minorInf(S, mi, 'p'))}${mi.req && !mi.subject ? ' · has a request' : ''}` + pos; }
     return (DATA.terrain[t.terrain] ? DATA.terrain[t.terrain].name : t.terrain) + pos;
   }
 
@@ -1108,7 +1155,8 @@
     drawLey(c, t, tp, SX, SY, x0, x1, y0, y1, lights);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = y * N + x, tile = S.tiles[i];
-      if (!S.explored[i] || !(tile.city || tile.camp || tile.oasis || tile.ruin)) continue;
+      const fcity = tile.minor && G.minorAt ? G.minorAt(S, tile) : null;
+      if (!S.explored[i] || !(tile.city || tile.camp || tile.oasis || tile.ruin || fcity)) continue;
       const cx = SX(x + 0.5), cy = SY(y + 0.5), lp = [];
       c.save(); c.translate(cx, cy); c.scale(k, k); c.lineCap = 'round'; c.lineJoin = 'round';
       if (tile.city && S.cities[tile.city]) {
@@ -1120,6 +1168,11 @@
       } else if (tile.camp) { const cp = S.camps[tile.camp]; if (cp && cp.kind) drawMonster(c, cp, lw, t, lp); else drawCamp(c, cp, lw, t, winter, lp); }
       else if (tile.oasis) drawOasis(c, tile.oasis, lw, t);
       else if (tile.ruin) drawRuin(c, tile.ruin, lw, t);
+      else if (fcity) {
+        drawMinor(c, fcity, lw, t, winter, lp);
+        if (cam.z >= 0.8 || tp >= 22) { const k = DATA.minorKinds[fcity.kind], lord = fcity.subject || fcity.patron; labels.push({ x: cx, y: cy + tp * 0.5, text: fcity.name, mine: false, cur: false, sub: `${k ? k.icon + ' ' + k.name : 'Free city'}${lord ? ' · ' + (lord === 'p' ? 'yours' : (S.empires[lord] || {}).name) : ''}` }); }
+        if (vis[i]) smokes.push([cx, cy, hash(fcity.id) % 100 / 100]);
+      }
       if ((tile.oasis || tile.ruin) && !tile.city && !tile.camp) drawHoly(c, tile, lw, t, lp);
       c.restore();
       for (const l of lp) lights.push([cx + l[0] * k, cy + l[1] * k, l[2] || 1]);
@@ -1325,7 +1378,7 @@
     vis = G.visibleSet(S);
     updateDim();
     let ex = 0; for (let i = 0; i < S.explored.length; i++) ex += S.explored[i] ? 1 : 0;
-    const key = S.map + '|' + ex + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0);
+    const key = S.map + '|' + ex + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0) + '|' + (S.minors ? Object.keys(S.minors).join(',') : '');
     if (key !== layerKey && (!layer || force || now - lastBake > 1000)) { bake(); layerKey = key; lastBake = now; }
     refreshMagic(now);
   }
@@ -1508,7 +1561,7 @@
           <button data-act="wmCenter" title="Center on ${esc(city.name)}" aria-label="Center on city" class="wide">Center</button>
         </div>
       </div>
-      <div class="maplegend">${legend}<span class="muted">${window.matchMedia && matchMedia('(hover: none)').matches ? 'Drag to pan · pinch to zoom · tap a place to select it' : 'Drag to pan · scroll or pinch to zoom · click a place to select it'}</span></div></div>`;
+      <div class="maplegend">${legend}${S.minors && Object.values(S.minors).some(mi => S.explored[mi.y * S.map + mi.x]) ? '<span><i style="background:#efe6cf;border:1px solid #3b2a1a"></i>🏰 Free city (banner: its patron)</span>' : ''}<span class="muted">${window.matchMedia && matchMedia('(hover: none)').matches ? 'Drag to pan · pinch to zoom · tap a place to select it' : 'Drag to pan · scroll or pinch to zoom · click a place to select it'}</span></div></div>`;
   };
 
   Object.assign(act, {

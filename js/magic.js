@@ -116,7 +116,7 @@ G.genLey = s => {
   const nodes = [];
   for (let tries = 0; nodes.length < want && tries < 500; tries++) {
     const t = s.tiles[G.rint(0, s.tiles.length - 1)];
-    if (G.isWater(t) || t.camp || t.oasis || t.ruin) continue;
+    if (G.isWater(t) || t.camp || t.oasis || t.ruin || t.minor) continue;
     if (nodes.some(n => Math.hypot(n.x - t.x, n.y - t.y) < 4.5)) continue;
     nodes.push({ id: nodes.length, x: t.x, y: t.y, power: G.pick([1, 1, 2, 2, 3]) });
   }

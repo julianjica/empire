@@ -50,6 +50,9 @@ node tests/traderoutes.js         # internal and foreign routes, ambushes, escor
 node tests/espionage.js           # spies, missions, counter-intelligence
 node tests/minors.js              # free cities: influence, patronage, quests, conquest
 node tests/chronicle.js           # history, statistics, feats, end-of-game summary
+node tests/council.js             # advisors and city governors
+node tests/storylets.js           # story event chains and their choices
+node tests/battle.js              # terrain, roles and battle reports
 node tests/parity.js              # AI-vs-AI fairness across the eight peoples
 node tests/sim.js standard 6 army # balance: a bot player vs the AI for 6 game-hours (paces: quick, standard, long)
 node tests/late.js                # 12-hour run: AI expansion, conquests, snowballing

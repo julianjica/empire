@@ -21,7 +21,10 @@ const TOP_EXTRAS = [];
 // More extension points, each an array of fn(...) -> html:
 //   CITY_EXTRAS (city) — chips in the city header · REALM_EXTRAS (empire) — lines on Diplomacy realm cards
 //   MARKET_EXTRAS (city) — cards appended to the Market tab
-const CITY_EXTRAS = [], REALM_EXTRAS = [], MARKET_EXTRAS = [];
+//   TILE_EXTRAS (city, tile) — html added to the world-map tile panel (before the send form)
+//   TILE_PANELS (city, tile, vis) — return a whole tile panel to take over a tile (e.g. a free city), or '' to pass
+//   EMPIRE_EXTRAS () — cards appended to the Empire tab · ENDGAME_EXTRAS () — html shown under the endgame banner
+const CITY_EXTRAS = [], REALM_EXTRAS = [], MARKET_EXTRAS = [], TILE_EXTRAS = [], TILE_PANELS = [], EMPIRE_EXTRAS = [], ENDGAME_EXTRAS = [];
 if (G.seasonChip) CITY_EXTRAS.push(G.seasonChip);
 const extras = (list, ...a) => list.map(f => { try { return f(...a) || ''; } catch (e) { console.error(e); return ''; } }).join('');
 const runMountHooks = () => { for (const h of MOUNT_HOOKS) { try { h(UI.tab); } catch (e) { console.error(e); } } };
@@ -449,6 +452,7 @@ const renderEmpire = () => {
   <div class="card"><h3>Cities</h3><table><tr><th>City</th><th>Tier</th><th>People</th>${goods.map(g => `<th>${DATA.goods[g].icon}</th>`).join('')}<th>Troops</th></tr>
     ${cities.map(c => `<tr><td><button class="link" data-act="city" data-c="${c.id}">${esc(c.name)}</button></td><td>${G.tier(c).name}</td><td>${fmt(c.pop)}</td>${goods.map(g => `<td>${fmt(c.res[g] || 0)}</td>`).join('')}<td>${G.unitsCount(c.units)}</td></tr>`).join('')}</table></div>
   ${wondersHtml()}
+  ${extras(EMPIRE_EXTRAS)}
   ${savesHtml(true)}`;
 };
 const wondersHtml = () => {
@@ -543,7 +547,7 @@ const render = (force) => {
   const navScroll = navEl ? navEl.scrollLeft : 0;
   const cardScroll = [...$app.querySelectorAll('main .card')].map(c => c.scrollLeft);
   const tab = TABS[UI.tab] || TABS.city;
-  $app.innerHTML = renderTop(city) + `<div class="layout">${renderSide(city)}<main>${endgameBanner()}${tab.render(city)}</main>${renderRight()}</div>`;
+  $app.innerHTML = renderTop(city) + `<div class="layout">${renderSide(city)}<main>${endgameBanner()}${S.gameOver || S.victory ? extras(ENDGAME_EXTRAS) : ''}${tab.render(city)}</main>${renderRight()}</div>`;
   window.scrollTo(0, scroll);
   const logEl2 = $app.querySelector('.log');
   if (logEl2) logEl2.scrollTop = logScroll;

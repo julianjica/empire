@@ -47,6 +47,10 @@ node tests/heroes.js              # rival heroes, duels, arcana
 node tests/religion.js            # faiths, spread, priests, miracles, holy war, religious victory
 node tests/races.js               # the eight peoples: units, buildings, goods, flying/amphibious, raising the dead
 node tests/traderoutes.js         # internal and foreign routes, ambushes, escorts
+node tests/espionage.js           # spies, missions, counter-intelligence
+node tests/minors.js              # free cities: influence, patronage, quests, conquest
+node tests/chronicle.js           # history, statistics, feats, end-of-game summary
+node tests/parity.js              # AI-vs-AI fairness across the eight peoples
 node tests/sim.js standard 6 army # balance: a bot player vs the AI for 6 game-hours (paces: quick, standard, long)
 node tests/late.js                # 12-hour run: AI expansion, conquests, snowballing
 node tests/early.js hearth        # first hours: idle builders, quest timing, stockpiles

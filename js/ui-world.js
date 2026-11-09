@@ -64,7 +64,9 @@ const renderTilePanel = (city, t, vis) => {
   const cals = G.calamitiesAt ? G.calamitiesAt(S, t.x, t.y) : [];
   const calHtml = cals.map(q => { const def = DATA.calamities[q.kind]; return `<div class="calam ${def.bad ? 'bad' : 'good'}">${def.icon} <b>${def.name}</b> · ${fmtTime(realSecs(q.end - S.time))} left<br><span style="font-size:12px">${def.text}</span></div>`; }).join('');
   if (terr.impassable) return head + calHtml + '<p class="muted">Open water. Nothing can be built here, but ships sail across it.</p>';
-  if (t.x === city.x && t.y === city.y) return head + '<p>This is your selected city.</p>';
+  if (t.x === city.x && t.y === city.y) return head + '<p>This is your selected city.</p>' + extras(TILE_EXTRAS, city, t);
+  const takeover = extras(TILE_PANELS, city, t, vis);
+  if (takeover) return takeover;
 
   let info = '', modes = [];
   if (c) {
@@ -97,7 +99,7 @@ const renderTilePanel = (city, t, vis) => {
     modes = ['settle', 'scout'];
   }
   if (camp && camp.kind) info = `<p>${{ wyrm: 'An Elder Wyrm broods here on its hoard. It is immensely strong — bring a great army and your hero.', undead: 'A horde of the restless dead. Destroy every horde to end the rising.', star: 'A fallen star, its crater guarded by star-touched beasts. Its star-iron goes to whoever claims it.', rift: 'A tear in the weave. Rift demons raid the nearest city now and then; sealing it gives +15 renown and its mana.' }[camp.kind]}</p>${intelHtml(t)}`;
-  return head + islandNote + calHtml + info + (modes.length ? sendForm(city, t, modes) : '');
+  return head + islandNote + calHtml + info + extras(TILE_EXTRAS, city, t) + (modes.length ? sendForm(city, t, modes) : '');
 };
 
 const MODE_LABEL = { raid: '💰 Raid', attack: '⚔️ Attack', conquer: '📯 Conquer', settle: '🧺 Settle', reinforce: '🛡️ Reinforce', trade: '🐪 Caravan', scout: '🦅 Scout', adventure: '🦸 Adventure' };

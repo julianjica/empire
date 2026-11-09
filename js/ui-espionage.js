@@ -19,6 +19,7 @@
   const chance = p => `<span class="${p >= 0.6 ? 'good' : p >= 0.35 ? '' : 'bad'}">${Math.round(p * 100)}%</span>`;
   const empName = o => o === OWNER ? 'you' : (S.empires[o] ? S.empires[o].name : 'a realm');
 
+  const spySpec = sp => ({ race: S.empires[OWNER].race, kind: 'spy', seed: sp.name, color: S.empires[OWNER].color, rank: Math.min(10, sp.level || 0), era: G.techEra(S, OWNER) });
   const spyRow = sp => {
     const t = sp.task, tgt = t && S.cities[t.target];
     const next = G.spyXpNext(sp);
@@ -27,7 +28,8 @@
       : esc((S.cities[sp.home] || {}).name || '');
     const btn = sp.status === 'idle' || sp.status === 'training' ? `<button class="small" data-act="esDismiss" data-id="${sp.id}" title="Send this spy back to ordinary life (returns ${G.SPY_POP} citizens)">Dismiss</button>`
       : sp.status !== 'return' ? `<button class="small" data-act="esRecall" data-id="${sp.id}">Recall</button>` : '';
-    return `<tr><td><b>${esc(sp.name)}</b><div class="muted" style="font-size:11.5px">level ${sp.level}${next ? ` · ${sp.xp}/${next} xp` : ' · master'}</div></td><td>${STATUS[sp.status] || sp.status}<div class="muted" style="font-size:11.5px">${where}</div></td><td>${btn}</td></tr>`;
+    const pic = ptHtml(spySpec(sp), 40, 'pt-card', sp.name);
+    return `<tr><td>${pic ? `<div class="pt-champ">${pic}<div>` : ''}<b>${esc(sp.name)}</b><div class="muted" style="font-size:11.5px">level ${sp.level}${next ? ` · ${sp.xp}/${next} xp` : ' · master'}</div>${pic ? '</div></div>' : ''}</td><td>${STATUS[sp.status] || sp.status}<div class="muted" style="font-size:11.5px">${where}</div></td><td>${btn}</td></tr>`;
   };
 
   const missionPicker = (target, compact) => {
@@ -37,7 +39,7 @@
       return `<p class="muted" style="font-size:12.5px">${n ? 'All your spies are busy.' : "You have no spies. Build a Spymaster's Den (Town Hall 3) and recruit some in the 🕵️ Espionage tab."}</p>`;
     }
     const idle = idleSpies();
-    const sel = idle.length > 1 ? `<select data-k="es_spy">${idle.map(x => `<option value="${x.id}" ${x.id === sp.id ? 'selected' : ''}>${esc(x.name)} (level ${x.level})</option>`).join('')}</select>` : `<span>${esc(sp.name)} (level ${sp.level})</span>`;
+    const sel = idle.length > 1 ? `<select data-k="es_spy">${idle.map(x => `<option value="${x.id}" ${x.id === sp.id ? 'selected' : ''}>${esc(x.name)} (level ${x.level})</option>`).join('')}</select>` : `<span>${ptHtml(spySpec(sp), 28, 'pt-inline', sp.name)} ${esc(sp.name)} (level ${sp.level})</span>`;
     const rows = DATA.missionOrder.map(k => {
       const md = DATA.missions[k];
       const st = G.missionStatus(S, sp.id, target.id, k);

@@ -77,9 +77,9 @@ DATA.races = {
   ash: {
     name: 'Ashborn', adj: 'Ashborn', color: '#6d4c8d',
     blurb: 'Hardy clans from the scorched steppe who would rather take than make. They train fast, carry off more plunder, and hammer crude weapons straight from ore and stone.',
-    perks: ['+40% plunder carried', '−25% training time, troops eat 15% less', 'Armory: ore + stone → weapons (skips iron)', 'War Pit: faster training, +attack', '−15% stone'],
+    perks: ['+40% plunder carried', '−15% training time, troops eat 15% less', 'Armory: ore + stone → weapons (skips iron)', 'War Pit: faster training, +attack', '−15% stone'],
     mult: { stone: 0.85 },
-    bonus: { carry: 1.4, trainTime: 0.75, upkeep: 0.85 },
+    bonus: { carry: 1.4, trainTime: 0.85, upkeep: 0.85 },
     unique: 'warpit',
     units: ['raider', 'slinger', 'brute', 'shaman', 'wolfrider', 'warlordblade', 'ram_a', 'treb_a'],
     recipes: {
@@ -330,11 +330,11 @@ DATA.modes = {
 // forest is rich in timber but may be poor in ore. Rivers and lakes add prosperity.
 // ---------------------------------------------------------------------
 DATA.terrainYield = {
-  plains:   { grain: 0.6, timber: 0.2, stone: 0.25, ore: 0.1 },
-  fertile:  { grain: 1.0, timber: 0.25, stone: 0.1, ore: 0.05 },
-  forest:   { grain: 0.2, timber: 1.0, stone: 0.15, ore: 0.1 },
-  hills:    { grain: 0.25, timber: 0.15, stone: 1.0, ore: 0.45 },
-  mountain: { grain: 0.05, timber: 0.1, stone: 0.6, ore: 1.0 },
+  plains:   { grain: 0.62, timber: 0.12, stone: 0.2, ore: 0.08 },    // open steppe and heath: some grain, little else
+  fertile:  { grain: 1.0, timber: 0.18, stone: 0.05, ore: 0.03 },
+  forest:   { grain: 0.15, timber: 1.0, stone: 0.1, ore: 0.05 },
+  hills:    { grain: 0.2, timber: 0.1, stone: 1.0, ore: 0.5 },       // hill country: stone and iron together
+  mountain: { grain: 0.03, timber: 0.05, stone: 0.55, ore: 1.0 },
   lake:     { grain: 0.4, timber: 0, stone: 0, ore: 0 },
 };
 // Homelands painted around each race's capital, and the goods each race looks for when settling

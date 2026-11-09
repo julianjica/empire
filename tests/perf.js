@@ -1,13 +1,14 @@
-// Performance: headless timings of G.advance in a crowded (7-rival, 47x47) world.  node tests/perf.js [hours] [--long]
+// Performance: headless timings of G.advance in a crowded 7-rival world (normal size: 80x80).  node tests/perf.js [hours] [--long] [--world=small|normal|large]
 // (--long also times a 12-hour offline catch-up, which takes about a minute on its own)
 // Prints ms per game-minute for successive hours, plus the cost of a few per-render engine calls.
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const hours=+(process.argv.find(a=>/^[0-9]+$/.test(a))||4);
 const now=()=>Number(process.hrtime.bigint())/1e6;
-const s=G.newGame({name:'Perf',race:'hearth',rivals:7,difficulty:'normal'});
+const world=((process.argv.find(a=>a.startsWith('--world='))||'').split('=')[1])||'normal';
+const s=G.newGame({name:'Perf',race:'hearth',rivals:7,difficulty:'normal',worldSize:world});
 console.log('map '+s.map+'x'+s.map+', empires '+Object.keys(s.empires).length);
 for(let h=1;h<=hours;h++){
   const t0=now();

@@ -285,7 +285,8 @@ const EFFECTS = {
   },
   tech(s, spy, city) {
     const mine = G.research(s, spy.owner).done, theirs = G.research(s, city.owner).done;
-    const opts = Object.keys(theirs).filter(id => DATA.techs[id] && !mine[id] && (!DATA.techs[id].req || mine[DATA.techs[id].req]));
+    const myRace = s.empires[spy.owner].race;
+    const opts = Object.keys(theirs).filter(id => { const t = DATA.techs[id]; return t && !mine[id] && (t.reqs || (t.req ? [t.req] : [])).every(r => mine[r]) && (!t.race || t.race === myRace); });
     if (opts.length) {
       const id = G.pick(opts);
       mine[id] = true;

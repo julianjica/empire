@@ -144,7 +144,7 @@
     for (const t of s.special) { if (t.ruin) delete t.ruin.holy; if (t.oasis) delete t.oasis.holy; }
     const cands = s.special.filter(t => (t.ruin || t.oasis) && !Object.values(s.cities).some(c => G.dist(c, t) < 2));
     const picked = [];
-    const want = Math.max(4, Object.keys(s.empires).length);   // ~4, more in crowded worlds
+    const want = Math.round(Math.max(4, Object.keys(s.empires).length) * Math.max(1, Math.sqrt((s.map * s.map) / 961)));   // ~4 on the classic world, more in crowded or bigger ones
     const ruins = cands.filter(t => t.ruin).sort(() => Math.random() - 0.5);
     const oases = cands.filter(t => t.oasis).sort(() => Math.random() - 0.5);
     const pool = [];

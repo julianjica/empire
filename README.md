@@ -23,7 +23,7 @@ Then open http://localhost:8765. Progress autosaves to your browser's localStora
 - Feature modules that plug into the engine through hook arrays (`G.modSources`, `G.stepHooks`, `G.battleHooks`, `G.aiHooks`, `G.aiBuildFilters`, …):
   - `js/research.js` (Academy tech tree), `js/forge.js` (unit upgrades), `js/hero.js` (hero, items, adventures)
   - `js/diplomacy.js` (relations, treaties, AI trade, AI-to-AI wars), `js/events.js` (quests, world events, Endless rebirths)
-  - `js/calamities.js` (regional calamities and wonders), `js/culture.js` (happiness, tax policy, revolts, culture, traditions)
+  - `js/calamities.js` (regional calamities and wonders), `js/culture.js / traditions.js` (happiness, tax policy, revolts, culture, traditions)
 - `js/ui-core.js`, `js/ui-world.js`, `js/ui-realm.js`, `js/ui-culture.js`, `js/ui-boot.js`: rendering, input and the main loop.
 - `js/worldmap.js`: the inked-parchment world map (canvas, pan/zoom, fog, armies, weather). `js/cityview.js`: the isometric town, drawn from the city's race, buildings and surrounding terrain.
 - `css/style.css`: theme (follows the system light/dark setting).
@@ -53,6 +53,11 @@ node tests/chronicle.js           # history, statistics, feats, end-of-game summ
 node tests/council.js             # advisors and city governors
 node tests/storylets.js           # story event chains and their choices
 node tests/battle.js              # terrain, roles and battle reports
+node tests/autoexplore.js         # scouts mapping the unknown on their own
+node tests/world.js               # world sizes, regional biomes and scarcity, deposits, capitals, city limits, AI expansion, old saves
+node tests/economy.js             # upkeep, shortages, resource breakdowns, building activity
+node tests/research.js            # the technology tree, eras and research queue
+node tests/portraits.js           # procedural portraits
 node tests/parity.js              # AI-vs-AI fairness across the eight peoples
 node tests/sim.js standard 6 army # balance: a bot player vs the AI for 6 game-hours (paces: quick, standard, long)
 node tests/late.js                # 12-hour run: AI expansion, conquests, snowballing

@@ -104,7 +104,8 @@
     const k = kindOf(mi);
     const race = DATA.races[mi.race];
     const ring = mi.subject ? ownerColor(mi.subject) : mi.patron ? ownerColor(mi.patron) : 'var(--line)';
-    return `<div class="fc-head"><span class="fc-emblem" style="border-color:${ring}">${k.icon}</span>
+    const pic = ptHtml({ race: mi.race, kind: 'ruler', seed: mi.name, color: k.color, era: Math.max(1, Math.min(3, mi.size || 1)) }, 56, 'pt-card', `Ruler of ${mi.name}`);
+    return `<div class="fc-head">${pic ? `<div class="pt-badged">${pic}<span class="pt-badge" style="border-color:${ring}" title="${esc(k.name)}">${k.icon}</span></div>` : `<span class="fc-emblem" style="border-color:${ring}">${k.icon}</span>`}
       <div style="min-width:0"><${tag}>${esc(mi.name)}</${tag}>
         <div class="muted fc-sub">${esc(k.name)} · ${esc(race ? race.adj || race.name : '')} folk · (${mi.x}, ${mi.y}) · ${G.dist(city, mi).toFixed(1)} tiles from ${esc(city.name)}</div></div></div>`;
   };

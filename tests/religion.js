@@ -1,7 +1,7 @@
 // Religion: pantheon, founding, faith, spread, priests, miracles, effects, victory.  node tests/religion.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js'].filter(f=>fs.existsSync(f)).filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js'].filter(f=>fs.existsSync(f)).filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:'')); };
@@ -23,7 +23,8 @@ ok('5 miracles', DATA.miracleOrder.length===5);
 
 // ---- holy sites ----
 { const s=fresh(); const hs=G.holySites(s);
-  ok('~4 holy sites marked at new game', hs.length===4 && hs.every(t=>G.holySiteInfo(s,t)), ''+hs.length);
+  const wantHS=Math.round(Math.max(4,Object.keys(s.empires).length)*Math.max(1,Math.sqrt(s.map*s.map/961)));
+  ok('~4 holy sites (scaled with the world) marked at new game', hs.length===wantHS && hs.every(t=>G.holySiteInfo(s,t)), ''+hs.length);
   ok('no stray holy flags on other tiles', s.special.filter(t=>(t.ruin||t.oasis).holy).length===hs.length, ''+s.special.filter(t=>(t.ruin||t.oasis).holy).length);
   const oasis=s.special.find(t=>t.oasis); oasis.oasis.holy='oru'; if(!s.holySites.includes(G.tileIdx(s,oasis))) s.holySites.push(G.tileIdx(s,oasis));
   const c=G.capital(s,'p'); oasis.oasis.owner=c.id;
@@ -271,7 +272,7 @@ ok('5 miracles', DATA.miracleOrder.length===5);
   for(const t of old.tiles){ if(t.ruin) delete t.ruin.holy; if(t.oasis) delete t.oasis.holy; }
   const s3=G.deserialize(JSON.stringify(old));
   let err=null; try{ G.advance(s3,1200,120); G.faithWorld(s3); G.happiness(s3,G.capital(s3,'p')); }catch(e){ err=e; }
-  ok('an older save without religion loads and runs', s3 && !err && s3.faiths && G.holySites(s3).length===4 && Object.values(s3.cities).every(c=>c.faiths&&c.faiths.none!==undefined), err&&err.stack);
+  ok('an older save without religion loads and runs', s3 && !err && s3.faiths && G.holySites(s3).length>=4 && Object.values(s3.cities).every(c=>c.faiths&&c.faiths.none!==undefined), err&&err.stack);
 }
 // ---- integration APIs: patron, state faith, spells, unknown races ----
 { const s=fresh(); ok('no patron without a faith', G.patronOf(s,'p')===null && G.stateFaith(s,'p')===null);

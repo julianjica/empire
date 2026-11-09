@@ -101,6 +101,59 @@ const unitsHtml = units => {
   const e = Object.entries(units || {}).filter(([, n]) => n > 0);
   return e.length ? e.map(([u, n]) => `${DATA.units[u].icon} ${n} ${DATA.units[u].name}`).join(', ') : '<span class="muted">none</span>';
 };
+// ---- portraits (js/portraits.js) -------------------------------------
+// Every helper returns '' (or the plain text fallback) when portraits are not loaded, e.g. in node tests.
+// Specs are only built here so their key order stays stable for G.portrait's cache; nothing that changes
+// every tick goes into a spec (hero wounds are quantized).
+const PT_MONSTER = { beast: 'beast', brigand: 'brigand', risen: 'undead', restless: 'undead', wyrm: 'wyrm', starbeast: 'beast', elemental: 'elemental', demon: 'demon' };
+let ptRaceMap = null;
+const unitRace = u => {
+  if (!ptRaceMap) { ptRaceMap = {}; for (const r of DATA.raceOrder) for (const x of DATA.races[r].units || []) ptRaceMap[x] = r; }
+  return ptRaceMap[u];
+};
+// technology era 0..3 from research progress (share of all techniques researched × 4); part of every portrait spec
+G.techEra = G.techEra || ((s, owner) => {
+  const e = s && s.empires && s.empires[owner];
+  if (!e || !G.research) return 0;
+  const done = Object.keys(G.research(s, owner).done || {}).filter(k => DATA.techs[k]).length;
+  const total = Object.keys(DATA.techs).length || 1;
+  return Math.max(0, Math.min(3, Math.floor(done / total * 4)));
+});
+const ptEra = owner => (typeof S !== 'undefined' && S ? G.techEra(S, owner) : 0);
+const ptOn = () => typeof G.portraitHtml === 'function';
+// a portrait wrapped in a token span; tip = hover label (also the accessible name)
+const ptHtml = (spec, size, cls = '', tip = '') => {
+  if (!ptOn() || !spec) return '';
+  try { return `<span class="pt-tok ${cls}"${tip ? ` data-tip="${esc(tip)}" aria-label="${esc(tip)}"` : ' aria-hidden="true"'}>${G.portraitHtml(spec, size)}</span>`; } catch (e) { console.error(e); return ''; }
+};
+const ptEmp = id => (typeof S !== 'undefined' && S && S.empires && S.empires[id]) || null;
+const ptEmpByName = name => (typeof S !== 'undefined' && S && S.empires && name) ? Object.values(S.empires).find(e => e.name === name) || null : null;
+const heroSpec = (h, owner) => {
+  const e = ptEmp(owner) || {};
+  const gear = {};
+  for (const sl of ['weapon', 'armor', 'horse', 'trinket']) { const it = h && h.eq && h.eq[sl]; if (it) gear[sl] = [it.icon, it.name].filter(Boolean).join(' '); }
+  return { race: e.race || 'hearth', kind: 'hero', seed: (h && h.name) || 'hero', color: e.color, rank: Math.min(10, Math.round(((h && h.level) || 1) / 2)), era: ptEra(owner),
+    gear: Object.keys(gear).length ? gear : undefined, wounded: h && !h.dead ? Math.round(Math.max(0, 100 - h.hp) / 25) / 4 : 0, dead: !!(h && h.dead) };
+};
+const rulerSpec = e => ({ race: e.race, kind: 'ruler', seed: e.name, color: e.color, era: ptEra(e.id) });
+const unitSpec = (u, owner) => {
+  if (PT_MONSTER[u]) return { kind: 'monster', role: PT_MONSTER[u], seed: u };
+  const e = ptEmp(owner);
+  if (u === 'hero') { const h = e && (owner === 'p' ? e.hero : (G.heroOf ? G.heroOf(S, owner) : e.hero)); return heroSpec(h || { name: 'hero', level: 1, hp: 100 }, owner); }
+  const rank = e && G.upgradeLevel ? Math.max(G.upgradeLevel(S, owner, u, 'a'), G.upgradeLevel(S, owner, u, 'd')) : 0;
+  return { race: unitRace(u) || (e && e.race) || 'hearth', kind: 'unit', unit: u, color: e ? e.color : undefined, rank, era: e ? ptEra(owner) : 1 };
+};
+const unitName = u => (DATA.units[u] ? DATA.units[u].name : u);
+// one unit token: portrait + count badge (+ red loss badge)
+const unitTok = (u, owner, size, n, lost) => ptHtml(unitSpec(u, owner), size, 'pt-unit',
+  `${unitName(u)}${n != null ? ` × ${n}` : ''}${lost ? ` (lost ${lost})` : ''}`).replace(/<\/span>$/, `${n != null ? `<b class="pt-n">${fmt(n)}</b>` : ''}${lost ? `<i class="pt-lost">−${fmt(lost)}</i>` : ''}</span>`);
+// a row of unit tokens with counts (and losses); falls back to the plain text list
+const unitTokens = (units, owner, lost, size = 30) => {
+  const e = Object.entries(units || {}).filter(([, n]) => n > 0);
+  if (!ptOn()) return unitsHtml(units);
+  if (!e.length) return '<span class="muted">none</span>';
+  return `<span class="pt-row">${e.map(([u, n]) => unitTok(u, owner, size, n, lost && lost[u])).join('')}</span>`;
+};
 const goodsHtml = goods => {
   const e = Object.entries(goods || {}).filter(([, n]) => n > 0);
   return e.length ? e.map(([g, n]) => `${gIcon(g)} ${fmt(n)}`).join(' ') : '<span class="muted">nothing</span>';
@@ -133,8 +186,10 @@ const renderStart = () => {
     <h3>Choose your people</h3>
     <div class="races">${DATA.raceOrder.map(r => {
       const R = DATA.races[r];
+      const champ = (R.heroNames || (DATA.heroNames || {})[r] || [R.name])[0];
+      const pic = ptHtml({ race: r, kind: 'hero', seed: champ, color: R.color, rank: 3, era: 1 }, 72, 'pt-card', `A champion of the ${R.name}`);
       return `<div class="card race ${st.race === r ? 'sel' : ''}" data-act="pickRace" data-r="${r}">
-        <h3><span class="dot" style="background:${R.color}"></span>${R.name}</h3>
+        ${pic ? `<div class="pt-racehead">${pic}<h3><span class="dot" style="background:${R.color}"></span>${R.name}</h3></div>` : `<h3><span class="dot" style="background:${R.color}"></span>${R.name}</h3>`}
         <p>${R.blurb}</p>
         <ul>${R.perks.map(p => `<li>${p}</li>`).join('')}</ul>
         <p style="margin-top:8px">Troops: ${R.units.map(u => DATA.units[u].icon + ' ' + DATA.units[u].name).join(', ')}</p>
@@ -147,6 +202,7 @@ const renderStart = () => {
       ${choice('sPace', DATA.pace, st.pace, 'Pace')}
       ${choice('sMode', DATA.modes, st.mode, 'Mode')}
       <label>Rival realms<select id="sRivals">${[1, 2, 3, 4, 5, 6, 7].filter(n => n < DATA.raceOrder.length).map(n => `<option value="${n}" ${String(st.rivals || 3) === String(n) ? 'selected' : ''}>${n} rival${n > 1 ? 's' : ''}${n === 3 ? ' — classic' : n >= 6 ? ' — a crowded, larger world' : ''}</option>`).join('')}</select></label>
+      <label title="Grows with the number of rivals. Small: 31×31 with 3 rivals · Normal: 52×52 · Large: 64×64">World size<select id="sWorld">${Object.entries(G.WORLD_SIZES || {}).map(([k, w]) => `<option value="${k}" ${(st.world || 'normal') === k ? 'selected' : ''}>${w.name}${{ small: ' — the classic map, close quarters', normal: ' — room for many cities in different lands', large: ' — vast frontiers, long marches' }[k] || ''}</option>`).join('')}</select></label>
       <label>Rivals<select id="sDiff">
         ${['easy', 'normal', 'hard'].map(d => `<option value="${d}" ${st.difficulty === d ? 'selected' : ''}>${{ easy: 'Gentle — slow, peaceful rivals', normal: 'Fair — rivals grow as you do', hard: 'Harsh — fast, warlike rivals' }[d]}</option>`).join('')}
       </select></label>
@@ -172,7 +228,7 @@ const clockOf = t => {
   return `${Math.floor(t / 3600)}h ${Math.floor(t % 3600 / 60)}m played`; };
 const readStart = () => {
   const v = id => document.getElementById(id).value;
-  Object.assign(UI.start, { name: v('sName'), city: v('sCity'), hero: v('sHero'), pace: v('sPace'), mode: v('sMode'), difficulty: v('sDiff'), rivals: +v('sRivals') });
+  Object.assign(UI.start, { name: v('sName'), city: v('sCity'), hero: v('sHero'), pace: v('sPace'), mode: v('sMode'), difficulty: v('sDiff'), rivals: +v('sRivals'), world: document.getElementById('sWorld') ? v('sWorld') : 'normal' });
 };
 
 // ---------------------------------------------------------------------
@@ -183,6 +239,7 @@ const incoming = () => S.moves.filter(m => m.owner !== 'p' && ['raid', 'attack',
 
 const SPEEDS = [1, 2, 5, 10, 25];
 const renderTop = city => {
+  if (UI.resTip) queueMicrotask(renderResTip);   // the top bar is about to be replaced: redraw the open tooltip on the new anchor
   const emp = S.empires.p;
   const e = G.econ(S, city);
   const ren = G.renown(S, 'p'), next = G.nextCityRenown(S, 'p');
@@ -190,7 +247,7 @@ const renderTop = city => {
     <div class="top-1">
       <span class="brand">🔥 Ember &amp; Crown</span>
       <span class="pill" style="border-color:${DATA.races[emp.race].color}">${esc(emp.name)} · ${DATA.races[emp.race].name}</span>
-      <span title="Gold (shared by your whole realm)">🪙 <b>${fmt(emp.gold)}</b> <span class="muted">${fmtRate(G.citiesOf(S, 'p').reduce((a, c) => a + G.econ(S, c).tax, 0))}/min</span></span>
+      <span class="res-gold" data-good="gold" tabindex="0" aria-label="Gold: hover or tap for income and upkeep">🪙 <b>${fmt(emp.gold)}</b> <span class="muted">${fmtRate(G.citiesOf(S, 'p').reduce((a, c) => { const ce = G.econ(S, c); return a + ce.tax - (ce.wages || 0); }, 0))}/min</span></span>
       <span title="Renown: total building levels + victories. Unlocks new cities.">⭐ <b>${ren}</b> <span class="muted">${next === Infinity ? '' : '/ ' + next + ' for next city'}</span></span>
       <span class="spacer"></span>
       <span class="muted" title="${DATA.pace[S.settings.pace].name} pace · ${DATA.modes[S.settings.mode].name}">${calendar()} · ${clock(S.time)}</span>
@@ -207,8 +264,8 @@ const renderTop = city => {
         <span class="muted">👥 People</span><span class="v">${fmt(city.pop)} / ${e.civCap}</span><span class="r ${e.eff < 1 ? 'bad' : 'muted'}">${e.eff < 1 ? 'Short of workers ' + Math.round(e.eff * 100) + '%' : 'idle ' + fmt(e.idle)}${e.soldiers ? ' · 🛡️' + fmt(e.soldiers) : ''}</span></div>
       ${visibleGoods().map(g => {
         const v = city.res[g] || 0, r = e.net[g] || 0;
-        const full = v >= e.cap * 0.98;
-        return `<div class="res ${full ? 'full' : ''}" title="${DATA.goods[g].name}: ${Math.floor(v)} / ${e.cap}${full ? ' — storage full!' : ''}">
+        const full = v >= e.cap * 0.98, short = city.short && city.short[g];
+        return `<div class="res ${full ? 'full' : ''} ${short ? 'short' : ''} ${UI.resTip && UI.resTip.g === g ? 'tip-on' : ''}" data-good="${g}" tabindex="0" aria-label="${DATA.goods[g].name}: ${Math.floor(v)} of ${e.cap}${short ? ', shortage' : ''}. Hover or tap for production and use.">
           <span class="muted">${DATA.goods[g].icon} ${DATA.goods[g].name}</span>
           <span class="v">${fmt(v)}</span>
           <span class="r ${r < -0.05 ? 'bad' : r > 0.05 ? 'good' : 'muted'}">${fmtRate(r)}/min</span>
@@ -219,6 +276,106 @@ const renderTop = city => {
     </div>
   </div>`;
 };
+
+// ---------------------------------------------------------------------
+// Resource tooltips: hover (or tap) a good in the top bar for where it comes from and where it goes.
+// The popover lives outside the re-rendered top bar (#ecResPop on <body>) and is redrawn after every
+// render from UI.resTip = { g, pinned }, so it stays open while the numbers tick.
+// ---------------------------------------------------------------------
+let resPopEl = null;
+const resKey = l => l.replace(/\s*\(.*\)$/, '').replace(/\s+\d+$/, '');
+const resTipHtml = (g) => {
+  const city = curCity();
+  if (!city) return '';
+  const realm = !!UI.resRealm;
+  const cities = realm ? G.citiesOf(S, 'p') : [city];
+  const isGold = g === 'gold';
+  const lines = new Map();
+  let net = 0, stock = 0, cap = 0, shortN = 0;
+  for (const c of cities) {
+    const e = G.econ(S, c), parts = G.econParts(S, c, e);
+    for (const p of parts[g] || []) {
+      const k = (realm ? resKey(p.label) : p.label) + '|' + (p.amount >= 0 ? '+' : '-');
+      const l = lines.get(k) || { label: realm ? resKey(p.label) : p.label, amount: 0, ext: p.ext };
+      l.amount += p.amount; lines.set(k, l);
+    }
+    net += isGold ? e.tax - (e.wages || 0) : (e.net[g] || 0);
+    if (!isGold) { stock += c.res[g] || 0; cap += e.cap; }
+    if (c.short && c.short[g]) shortN++;
+  }
+  if (isGold) stock = S.empires.p.gold;
+  const all = [...lines.values()].filter(l => Math.abs(l.amount) >= 0.005);
+  const prod = all.filter(l => l.amount > 0).sort((a, b) => b.amount - a.amount);
+  const used = all.filter(l => l.amount < 0).sort((a, b) => a.amount - b.amount);
+  const row = (l, cls) => `<tr><td>${esc(l.label)}${l.ext ? ' <span class="muted">(at the slow tick)</span>' : ''}</td><td class="${cls}">${fmtRate(l.amount)}</td></tr>`;
+  const name = isGold ? 'Gold' : DATA.goods[g].name, icon = isGold ? '🪙' : DATA.goods[g].icon;
+  let mult = '';
+  if (!realm && !isGold && (DATA.goods[g].raw || g === 'mana' || (DATA.goods[g].race && prod.length))) {
+    const m = G.prodMults(S, city, g);
+    if (m.list.length) mult = `<div class="rt-mult"><span class="muted">Output multipliers ×${m.total.toFixed(2)}:</span> ${m.list.map(x => `<span class="${x.mult < 1 ? 'bad' : ''}">${esc(x.label)} ×${x.mult.toFixed(2)}</span>`).join(' · ')}</div>`;
+  }
+  let eta = '';
+  if (isGold) eta = net < -0.05 ? `empty in ${fmtTime(realSecs(stock / -net * 60))}` : '';
+  else if (net > 0.05) eta = stock >= cap * 0.999 ? '<span class="bad">full — new goods are lost</span>' : `full in ${fmtTime(realSecs((cap - stock) / net * 60))}`;
+  else if (net < -0.05) eta = stock <= 0.5 ? '<span class="bad">empty</span>' : `empty in ${fmtTime(realSecs(stock / -net * 60))}`;
+  else eta = 'steady';
+  const hint = shortN ? `<div class="rt-short">⚠️ ${realm ? shortN + ' cit' + (shortN > 1 ? 'ies are' : 'y is') + ' short. ' : ''}${esc(G.SHORT_TEXT[g] || 'Shortage.')}</div>` : '';
+  const wear = !shortN && !realm && city.wear && city.wear[g] > 0 ? `<div class="rt-warn">Upkeep went unpaid for ${city.wear[g].toFixed(1)} min — a shortage starts after ${G.SINK.grace[g]} min.</div>` : '';
+  const multiCity = G.citiesOf(S, 'p').length > 1;
+  return `<div class="hd"><span>${icon} ${esc(name)} <span class="muted rt-where">${realm ? 'whole realm' : esc(city.name)}${isGold && !realm ? ' (gold is shared)' : ''}</span></span>
+      ${multiCity ? `<button class="small" data-restip-realm aria-pressed="${realm}">${realm ? 'This city' : 'Realm'}</button>` : ''}</div>
+    ${prod.length ? `<div class="rt-h">Produced</div><table>${prod.map(l => row(l, 'good')).join('')}</table>` : '<div class="rt-h muted">Nothing makes this here.</div>'}
+    ${mult}
+    ${used.length ? `<div class="rt-h">Used</div><table>${used.map(l => row(l, 'bad')).join('')}</table>` : ''}
+    <table class="rt-sum"><tr><td>Net per minute</td><td class="${net < -0.05 ? 'bad' : net > 0.05 ? 'good' : ''}"><b>${fmtRate(net)}</b></td></tr>
+      <tr><td>${isGold ? 'Treasury' : 'Stock'}</td><td>${fmt(stock)}${isGold ? '' : ' / ' + fmt(cap)}</td></tr>
+      <tr><td></td><td class="muted">${eta}</td></tr></table>
+    ${hint}${wear}`;
+};
+const renderResTip = () => {
+  if (!resPopEl) { resPopEl = document.createElement('div'); resPopEl.id = 'ecResPop'; resPopEl.setAttribute('role', 'tooltip'); document.body.appendChild(resPopEl); }
+  const t = UI.resTip;
+  const anchor = t && S && $app.querySelector(`.top [data-good="${t.g}"]`);
+  let html = '';
+  if (anchor) { try { html = resTipHtml(t.g); } catch (e) { console.error(e); } }
+  if (!html) { resPopEl.classList.remove('on'); resPopEl.innerHTML = ''; return; }
+  if (html !== resPopEl._html) { resPopEl.innerHTML = html; resPopEl._html = html; }
+  resPopEl.classList.add('on');
+  resPopEl.classList.toggle('pinned', !!t.pinned);
+  $app.querySelectorAll('.top [data-good]').forEach(el => el.classList.toggle('tip-on', el === anchor));
+  if (window.innerWidth <= 700) { resPopEl.classList.add('sheet'); resPopEl.style.top = ''; resPopEl.style.left = ''; return; }
+  resPopEl.classList.remove('sheet');
+  const r = anchor.getBoundingClientRect(), w = resPopEl.offsetWidth || 320, h = resPopEl.offsetHeight || 200;
+  const below = r.bottom - 1, top = below + h > window.innerHeight - 8 && r.top - h > 8 ? r.top - h + 1 : below;
+  resPopEl.style.top = Math.round(Math.max(8, top)) + 'px';
+  resPopEl.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.left))) + 'px';
+};
+const closeResTip = () => { if (!UI.resTip) return; UI.resTip = null; renderResTip(); $app.querySelectorAll('.top .tip-on').forEach(el => el.classList.remove('tip-on')); };
+const resAnchorOf = t => t && t.closest && t.closest('.top [data-good]');
+document.addEventListener('pointerover', ev => {
+  if (ev.pointerType === 'touch') return;
+  const a = resAnchorOf(ev.target);
+  if (a) { if (!UI.resTip || !UI.resTip.pinned || UI.resTip.g !== a.dataset.good) { if (!(UI.resTip && UI.resTip.pinned)) { UI.resTip = { g: a.dataset.good, pinned: false }; renderResTip(); } } return; }
+  if (UI.resTip && !UI.resTip.pinned && !(resPopEl && resPopEl.contains(ev.target))) closeResTip();
+});
+document.addEventListener('pointerout', ev => { if (!ev.relatedTarget && UI.resTip && !UI.resTip.pinned && ev.pointerType !== 'touch') closeResTip(); });
+document.addEventListener('click', ev => {
+  if (resPopEl && resPopEl.contains(ev.target)) {
+    if (ev.target.closest('[data-restip-realm]')) { UI.resRealm = !UI.resRealm; if (UI.resTip) UI.resTip.pinned = true; resPopEl._html = ''; renderResTip(); }
+    return;
+  }
+  const a = resAnchorOf(ev.target);
+  if (a) { const g = a.dataset.good; if (UI.resTip && UI.resTip.g === g && UI.resTip.pinned) closeResTip(); else { UI.resTip = { g, pinned: true }; renderResTip(); } return; }
+  if (UI.resTip) closeResTip();
+});
+document.addEventListener('focusout', ev => { if (resAnchorOf(ev.target) && UI.resTip && !UI.resTip.pinned && !resAnchorOf(ev.relatedTarget)) closeResTip(); });
+document.addEventListener('focusin', ev => { const a = resAnchorOf(ev.target); if (a && !(UI.resTip && UI.resTip.pinned)) { UI.resTip = { g: a.dataset.good, pinned: false }; renderResTip(); } });
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && UI.resTip) { closeResTip(); ev.preventDefault(); return; }
+  if ((ev.key === 'Enter' || ev.key === ' ') && resAnchorOf(document.activeElement)) { ev.preventDefault(); ev.stopPropagation(); const g = document.activeElement.dataset.good; if (UI.resTip && UI.resTip.g === g && UI.resTip.pinned) closeResTip(); else { UI.resTip = { g, pinned: true }; renderResTip(); } }
+}, true);
+window.addEventListener('resize', () => { if (UI.resTip) renderResTip(); });
+window.addEventListener('scroll', () => { if (UI.resTip && window.innerWidth > 700) renderResTip(); }, { passive: true });
 
 const renderSide = city => `<aside class="side">
     <div class="nav">${Object.entries(TABS).map(([k, t]) => { const b = t.badge ? t.badge() : 0; return `<button class="${UI.tab === k ? 'on' : ''} ${b ? 'has-badge' : ''}" data-act="tab" data-t="${k}">${t.label}${b ? `<span class="badge">${b}</span>` : ''}</button>`; }).join('')}</div>
@@ -273,9 +430,10 @@ const prodLine = (city, type, e) => {
 const siteHtml = (site, compact) => {
   const star = m => '★'.repeat(G.stars(m)) + '<span class="dimstar">' + '★'.repeat(5 - G.stars(m)) + '</span>';
   const goods = ['grain', 'timber', 'stone', 'ore'].map(g => `<span class="site-g" title="${DATA.goods[g].name}: ×${site[g].toFixed(2)} production">${DATA.goods[g].icon} ${star(site[g])}</span>`).join('');
-  const extra = [site.river ? '🏞️ river' : '', site.lake ? '💧 lakeside' : ''].filter(Boolean).join(' · ');
+  const DEP = { ore: '⛏️ rich ore vein', stone: '🪨 fine quarry stone', timber: '🌲 ancient grove', grain: '🌾 black earth' };
+  const extra = [site.river ? '🏞️ river' : '', site.lake ? '💧 lakeside' : '', ...(site.deposits || []).map(g => DEP[g] || g)].filter(Boolean).join(' · ');
   const best = DATA.raceOrder.map(r => [r, G.siteFit(site, r)]).sort((a, b) => b[1] - a[1])[0];
-  return `<div class="site ${compact ? 'compact' : ''}">${goods}${extra ? `<span class="site-g good" title="+10% taxes and growth by a river, +5% by a lake; more grain">${extra}</span>` : ''}${compact ? '' : `<span class="site-g muted">Best suited to the ${DATA.races[best[0]].name}</span>`}</div>`;
+  return `<div class="site ${compact ? 'compact' : ''}">${goods}${extra ? `<span class="site-g good" title="+10% taxes and growth by a river, +5% by a lake; more grain. Deposits strongly lift one good (up to +50%).">${extra}</span>` : ''}${compact ? '' : `<span class="site-g muted">Best suited to the ${DATA.races[best[0]].name}</span>`}</div>`;
 };
 const GOOD_IF_LOW = { buildTime: 1, researchTime: 1, trainTime: 1, upkeep: 1 };
 const renderCity = city => {
@@ -306,7 +464,7 @@ const renderCity = city => {
     ${mods.length ? `<div class="row" style="margin-top:6px">${mods.map(m => `<span class="pill ${(m.mult >= 1) !== !!GOOD_IF_LOW[m.key] ? 'good' : 'bad'}">${esc(m.label)} · ${fmtTime(realSecs(m.until - S.time))}</span>`).join('')}</div>` : ''}
   </div>`);
 
-  parts.push(`<div class="card"><h3>Construction <span class="muted" style="font-size:13px">(${city.buildQueue.length}/${G.buildSlots(city)} slots)</span></h3>
+  parts.push(`<div class="card"><h3>Construction <span class="muted" style="font-size:13px">(${city.buildQueue.length} queued${city.buildQueue.length ? ' · done in ' + fmtTime(realSecs(city.buildQueue[city.buildQueue.length - 1].end - S.time)) : ''})</span></h3>
     ${city.buildQueue.length ? city.buildQueue.map((q, i) => {
       const b = DATA.buildings[q.type];
       const active = q.start <= S.time;
@@ -350,7 +508,7 @@ const renderMilitary = city => {
   const garrison = Object.entries(city.units).filter(([, n]) => n > 0);
   const cd = G.cityDefense(S, city);
   parts.push(`<div class="card"><h3>Garrison of ${esc(city.name)}</h3>
-    ${garrison.length ? `<table><tr><th>Unit</th><th>Count</th><th>Attack</th><th>Defense</th><th></th></tr>${garrison.map(([u, n]) => { const d = G.unitStats(S, 'p', u); const pp = G.unitPop(u); return `<tr><td>${d.icon} ${d.name}</td><td>${n}</td><td>${fmt(d.atk * n)}</td><td>${fmt((d.defI + d.defC) / 2 * n)}</td><td>${pp ? `<button class="small" data-act="dismiss" data-u="${u}" data-n="${Math.min(n, 10)}" title="Send ${Math.min(n, 10)} back to work (+${Math.min(n, 10) * pp} citizens)">Dismiss ${Math.min(n, 10)}</button>` : ''}</td></tr>`; }).join('')}</table>` : '<p class="muted">No troops stationed here. Build a Barracks and an Armory to start training.</p>'}
+    ${garrison.length ? `<table><tr><th>Unit</th><th>Count</th><th>Attack</th><th>Defense</th><th></th></tr>${garrison.map(([u, n]) => { const d = G.unitStats(S, 'p', u); const pp = G.unitPop(u); return `<tr><td class="pt-cell">${ptHtml(unitSpec(u, 'p'), 30, '', d.name) || d.icon} ${d.name}</td><td>${n}</td><td>${fmt(d.atk * n)}</td><td>${fmt((d.defI + d.defC) / 2 * n)}</td><td>${pp ? `<button class="small" data-act="dismiss" data-u="${u}" data-n="${Math.min(n, 10)}" title="Send ${Math.min(n, 10)} back to work (+${Math.min(n, 10) * pp} citizens)">Dismiss ${Math.min(n, 10)}</button>` : ''}</td></tr>`; }).join('')}</table>` : '<p class="muted">No troops stationed here. Build a Barracks and an Armory to start training.</p>'}
     ${(() => { const e = G.econ(S, city); return `<p style="font-size:12.5px;margin:6px 0 0">🛡️ <b>${e.soldiers}</b> citizens are enrolled (stationed, marching or in training). Barracks, Stable and War Pit quarters house <b>${e.quarters}</b>; the rest take homes from civilians — housing for civilians is <b>${e.civCap}</b> of ${e.popCap}. Recruits come out of the ${Math.floor(city.pop)} citizens, who are also your workers and taxpayers.</p>`; })()}
     <details class="counters"><summary>How battles work</summary>
       <ul>
@@ -374,14 +532,14 @@ const renderMilitary = city => {
     const q = city.train[bt] || [];
     units.sort((a, c) => DATA.units[a].req - DATA.units[c].req);
     parts.push(`<div><div class="group-title">${b.icon} ${b.name} ${L ? 'level ' + L : '(not built)'}</div>
-      ${q.length ? `<div class="card" style="margin-bottom:10px">${q.map(it => `<div class="queue-item"><div>${DATA.units[it.unit].icon} ${it.left} × ${DATA.units[it.unit].name}<div class="bar"><i style="width:${it.next ? pct(it.each - (it.next - S.time), it.each) : 0}%"></i></div></div><span class="muted">${it.next ? 'next in ' + fmtTime(realSecs(it.next - S.time)) + ' · all in ' + fmtTime(realSecs(it.next - S.time + (it.left - 1) * it.each)) : 'waiting'}</span><span></span></div>`).join('')}</div>` : ''}
+      ${q.length ? `<div class="card" style="margin-bottom:10px">${q.map(it => `<div class="queue-item"><div>${ptHtml(unitSpec(it.unit, 'p'), 26, 'pt-inline') || DATA.units[it.unit].icon} ${it.left} × ${DATA.units[it.unit].name}<div class="bar"><i style="width:${it.next ? pct(it.each - (it.next - S.time), it.each) : 0}%"></i></div></div><span class="muted">${it.next ? 'next in ' + fmtTime(realSecs(it.next - S.time)) + ' · all in ' + fmtTime(realSecs(it.next - S.time + (it.left - 1) * it.each)) : 'waiting'}</span><span></span></div>`).join('')}</div>` : ''}
       <div class="grid">${units.map(u => {
         const d = DATA.units[u];
         const st = G.trainStatus(S, city, u);
         const key = 'train_' + city.id + '_' + u;
         return `<div class="card unit ${st.locked ? 'locked' : ''}">
-          <div class="row"><span style="font-size:24px">${d.icon}</span><b>${d.name}</b><span class="pill">${{ cav: 'cavalry', ranged: 'ranged', civ: 'civilian', inf: 'infantry', siege: 'siege', ship: 'ship' }[d.type]}</span>${upBadge(u)}<span class="spacer"></span><span class="muted">have ${city.units[u] || 0}</span></div>
-          <div class="desc muted" style="font-size:12.5px">${d.desc}</div>
+          <div class="pt-unithead">${ptHtml(unitSpec(u, 'p'), 64, 'pt-card') || `<span style="font-size:24px">${d.icon}</span>`}<div class="pt-unittitle"><div class="row"><b>${d.name}</b><span class="pill">${{ cav: 'cavalry', ranged: 'ranged', civ: 'civilian', inf: 'infantry', siege: 'siege', ship: 'ship' }[d.type]}</span>${upBadge(u)}<span class="spacer"></span><span class="muted">have ${city.units[u] || 0}</span></div>
+          <div class="desc muted" style="font-size:12.5px">${d.desc}</div></div></div>
           ${statLine(G.unitStats(S, 'p', u))}${d.wallBreak ? `<div class="stats"><span>🧱 negates ${d.wallBreak} wall levels each</span></div>` : ''}${d.wreck ? `<div class="stats"><span>🏚️ wrecks buildings after a won assault</span></div>` : ''}
           ${costHtml(G.unitCost(S, city.owner, u), city)}<div class="muted" style="font-size:12px">👥 takes ${G.unitPop(u)} citizen${G.unitPop(u) === 1 ? '' : 's'}${!st.locked && st.byPop < Infinity && st.byPop <= G.maxAffordable(S, city, G.unitCost(S, city.owner, u)) ? ' · <span class="warn">limited by population</span>' : ''}</div>
           ${st.locked ? `<div class="warn" style="font-size:12px">${st.reason}</div>` : `<div class="row">
@@ -401,11 +559,11 @@ const renderForge = city => {
   const units = DATA.races[S.empires.p.race].units;
   if (!L) return `<div class="card"><h3>⚒️ Forge upgrades</h3><p class="muted">Build an Armory in ${esc(city.name)} to improve your troops' weapons and armour (+4% per level, up to 10, for the whole realm). The Armory level caps the upgrade level.</p></div>`;
   return `<div class="card"><h3>⚒️ Forge upgrades <span class="muted" style="font-size:13px">Armory ${L} · +4% per level for the whole realm</span></h3>
-    ${f ? `<div class="queue-item"><div>${DATA.units[f.unit].icon} ${DATA.units[f.unit].name} ${f.kind === 'a' ? 'weapons' : 'armour'} → ${f.level}<div class="bar"><i style="width:${pct(S.time - f.start, f.end - f.start)}%"></i></div></div><span class="muted">${fmtTime(realSecs(f.end - S.time))}</span><button class="small" data-act="cancelForge" title="Refund 50%">✕</button></div>` : ''}
+    ${f ? `<div class="queue-item"><div>${ptHtml(unitSpec(f.unit, 'p'), 26, 'pt-inline') || DATA.units[f.unit].icon} ${DATA.units[f.unit].name} ${f.kind === 'a' ? 'weapons' : 'armour'} → ${f.level}<div class="bar"><i style="width:${pct(S.time - f.start, f.end - f.start)}%"></i></div></div><span class="muted">${fmtTime(realSecs(f.end - S.time))}</span><button class="small" data-act="cancelForge" title="Refund 50%">✕</button></div>` : ''}
     <table class="forge"><tr><th>Unit</th><th>⚔️ Weapons</th><th>🛡️ Armour</th></tr>
     ${units.map(u => { const d = DATA.units[u]; const cell = kind => { const st = G.forgeStatus(S, city.id, u, kind); const lv = G.upgradeLevel(S, 'p', u, kind);
         return `<td><b>${lv}</b>/10 ${st.maxed ? '' : `<button class="small ${st.ok ? 'primary' : ''}" data-act="forge" data-u="${u}" data-k="${kind}" ${st.ok ? '' : 'disabled'} title="${esc(st.reason || '')} · ${Object.entries(st.cost).map(([g, v]) => gName(g) + ' ' + v).join(', ')} · ${fmtTime(realSecs(st.time))}">+1</button>`}</td>`; };
-      return `<tr><td>${d.icon} ${d.name}</td>${cell('a')}${cell('d')}</tr>`; }).join('')}</table>
+      return `<tr><td class="pt-cell">${ptHtml(unitSpec(u, 'p'), 28, '', d.name) || d.icon} ${d.name}</td>${cell('a')}${cell('d')}</tr>`; }).join('')}</table>
     <p class="muted" style="font-size:12px;margin-bottom:0">Hover a +1 button for its cost and time. One upgrade at a time per Armory; any city with an Armory can forge.</p></div>`;
 };
 
@@ -425,8 +583,8 @@ const placeName = (x, y) => {
 const renderMoves = () => {
   const mine = S.moves.filter(m => m.owner === 'p').sort((a, b) => a.arrive - b.arrive);
   const inc = incoming();
-  return `<div class="card"><h3>⚠️ Incoming</h3>${inc.length ? `<table><tr><th>From</th><th>Target</th><th>Arrives</th></tr>${inc.map(m => `<tr><td>${esc(S.empires[m.owner].name)}</td><td>${placeName(m.x, m.y)}</td><td class="bad">${fmtTime(realSecs(m.arrive - S.time))}</td></tr>`).join('')}</table>` : '<p class="muted">No hostile armies are marching on your lands.</p>'}</div>
-  <div class="card"><h3>Your movements</h3>${mine.length ? `<table><tr><th>Type</th><th>To</th><th>Troops / cargo</th><th>Arrives</th></tr>${mine.map(m => `<tr><td>${MOVE_LABEL[m.type]}</td><td>${m.type === 'return' ? esc((S.cities[m.from] || {}).name || 'home') : placeName(m.x, m.y)} (${m.x}, ${m.y})</td><td>${unitsHtml(m.units)}${Object.keys(m.cargo).length ? ' · ' + goodsHtml(m.cargo) : ''}</td><td>${fmtTime(realSecs(m.arrive - S.time))}</td></tr>`).join('')}</table>` : '<p class="muted">Nothing on the roads.</p>'}</div>`;
+  return `<div class="card"><h3>⚠️ Incoming</h3>${inc.length ? `<table><tr><th>From</th><th>Target</th><th>Arrives</th></tr>${inc.map(m => `<tr><td class="pt-cell">${ptHtml(rulerSpec(S.empires[m.owner]), 28, '', 'Ruler of ' + S.empires[m.owner].name)} ${esc(S.empires[m.owner].name)}</td><td>${placeName(m.x, m.y)}</td><td class="bad">${fmtTime(realSecs(m.arrive - S.time))}</td></tr>`).join('')}</table>` : '<p class="muted">No hostile armies are marching on your lands.</p>'}</div>
+  <div class="card"><h3>Your movements</h3>${mine.length ? `<table><tr><th>Type</th><th>To</th><th>Troops / cargo</th><th>Arrives</th></tr>${mine.map(m => `<tr><td>${MOVE_LABEL[m.type]}</td><td>${m.type === 'return' ? esc((S.cities[m.from] || {}).name || 'home') : placeName(m.x, m.y)} (${m.x}, ${m.y})</td><td>${G.unitsCount(m.units) ? unitTokens(m.units, 'p', null, 26) : Object.keys(m.cargo).length ? '' : '<span class="muted">none</span>'}${Object.keys(m.cargo).length ? (G.unitsCount(m.units) ? ' · ' : '') + goodsHtml(m.cargo) : ''}</td><td>${fmtTime(realSecs(m.arrive - S.time))}</td></tr>`).join('')}</table>` : '<p class="muted">Nothing on the roads.</p>'}</div>`;
 };
 
 const renderMarket = city => {
@@ -447,7 +605,7 @@ const reportBody = r => {
   const b = r.body;
   if (b.adventure) return `<div style="margin-top:8px">
       <p>${b.success ? 'The hero returned victorious.' : 'The hero was driven back.'} Wounds: −${b.dmg} health. Experience: +${b.xp}.</p>
-      ${Object.values(b.attLost || {}).some(n => n) ? `<p>Escort losses: ${unitsHtml(b.attLost)}</p>` : ''}
+      ${Object.values(b.attLost || {}).some(n => n) ? `<p>Escort losses: ${unitTokens(b.attLost, 'p', null, 28)}</p>` : ''}
       ${Object.keys(b.loot).length ? `<p>Treasure: ${goodsHtml(b.loot)}</p>` : ''}
       ${b.item ? `<p>Found: <b style="color:${DATA.rarity[b.item.rarity].color}">${b.item.icon} ${esc(b.item.name)}</b> (${DATA.rarity[b.item.rarity].name}) — ${G.itemText(b.item)}</p>` : ''}
       ${b.extra ? `<p>${esc(b.extra)}</p>` : ''}</div>`;
@@ -455,19 +613,30 @@ const reportBody = r => {
     if (b.failed) return `<p>${esc(b.extra)}</p>`;
     const i = b.intel;
     return `<table style="margin-top:8px">
-      <tr><td>Troops</td><td>${unitsHtml(i.units)}</td></tr>
+      <tr><td>Troops</td><td>${unitTokens(i.units, (ptEmpByName(b.def) || {}).id, null, 28)}</td></tr>
       ${i.res ? `<tr><td>Stores</td><td>${goodsHtml(i.res)}</td></tr>` : ''}
       ${i.wall !== undefined ? `<tr><td>Defenses</td><td>Wall ${i.wall} · Town Hall ${i.th} · Loyalty ${i.loyalty}%</td></tr>` : ''}
     </table>`;
   }
   if (!b.attSent) return b.extra ? `<p>${esc(b.extra)}</p>` : '';
-  return `<table style="margin-top:8px">
+  const aId = (ptEmpByName(b.att) || {}).id, dId = (ptEmpByName(b.def) || {}).id;
+  return `${duelHtml(b, aId, dId)}<table style="margin-top:8px">
       <tr><th></th><th>Attacker: ${esc(b.att)}</th><th>Defender: ${esc(b.def)}</th></tr>
       <tr><td>Strength</td><td>⚔️ ${fmt(b.A)}</td><td>🛡️ ${fmt(b.D)}</td></tr>
-      <tr><td>Troops</td><td>${unitsHtml(b.attSent)}</td><td>${unitsHtml(b.defHad)}</td></tr>
+      <tr><td>Troops</td><td>${unitTokens(b.attSent, aId, b.attLost)}</td><td>${unitTokens(b.defHad, dId, b.defLost)}</td></tr>
       <tr><td>Losses</td><td class="bad">${unitsHtml(b.attLost)}</td><td class="bad">${unitsHtml(b.defLost)}</td></tr>
       <tr><td>Plunder</td><td colspan="2">${goodsHtml(b.loot)}</td></tr>
     </table>${tacticsHtml(b)}${b.extra ? `<p>${esc(b.extra)}</p>` : ''}`;
+};
+// the two champions of a hero duel (from the report's note), each side's current hero
+const duelHtml = (b, aId, dId) => {
+  if (!ptOn() || !b.extra || !/Duel:/.test(b.extra) || !(b.attSent || {}).hero || !(b.defHad || {}).hero) return '';
+  const ea = ptEmp(aId), ed = ptEmp(dId);
+  const ha = ea && (G.heroOf ? G.heroOf(S, aId) : ea.hero), hd = ed && (G.heroOf ? G.heroOf(S, dId) : ed.hero);
+  if (!ha || !hd) return '';
+  const m = b.extra.match(/Duel: (.+?) \(/), winner = m ? m[1] : '';
+  const side = (h, id, lost, cls) => `<div class="pt-duelist ${cls} ${h.name === winner ? 'won' : 'lost'}">${ptHtml({ ...heroSpec(h, id), wounded: 0, dead: !!lost }, 56, 'pt-card', h.name)}<b>${esc(h.name)}</b><span class="muted">${h.name === winner ? 'won the duel' : lost ? 'fell' : 'wounded'}</span></div>`;
+  return `<div class="pt-duel">${side(ha, aId, (b.attLost || {}).hero, 'att')}<span class="pt-vs">⚔️</span>${side(hd, dId, (b.defLost || {}).hero, 'def')}</div>`;
 };
 // the battle breakdown (reports from before tactical battles have none)
 const tacticsHtml = b => {
@@ -484,13 +653,14 @@ const tacticsHtml = b => {
   };
   const roles = side => Object.entries((t.roles || {})[side] || {}).sort((a, c) => c[1] - a[1])
     .map(([r, v]) => `<span title="${esc((DATA.roleInfo[r] || { name: r }).name)}">${(DATA.roleInfo[r] || {}).icon || ''} ${v}%</span>`).join(' ') || '<span class="muted">—</span>';
-  const lost = u => Object.values(u || {}).some(n => n > 0) ? unitsHtml(u) : '<span class="muted">—</span>';
+  const aId = (ptEmpByName(b.att) || {}).id, dId = (ptEmpByName(b.def) || {}).id;
+  const lost = (u, id) => Object.values(u || {}).some(n => n > 0) ? unitTokens(u, id, null, 24) : '<span class="muted">—</span>';
   return `<div style="margin-top:10px;font-size:12.5px">
     <div>⛰️ Battlefield: ${ground || '<span class="muted">open field</span>'}${bt && bt.text ? ` <span class="muted">— ${esc(bt.text)}</span>` : ''}</div>
     <table style="margin-top:6px"><tr><th></th><th>${esc(b.att)}</th><th>${esc(b.def)}</th></tr>
       <tr><td>Army mix</td><td>${roles('att')}</td><td>${roles('def')}</td></tr>
       <tr><td>Modifiers</td><td style="vertical-align:top">${mods('att')}</td><td style="vertical-align:top">${mods('def')}</td></tr>
-      ${t.phases.map(ph => `<tr><td>${ph.icon || ''} ${esc(ph.name)}</td><td class="bad">${lost(ph.attLost)}</td><td class="bad">${lost(ph.defLost)}</td></tr>`).join('')}
+      ${t.phases.map(ph => `<tr><td>${ph.icon || ''} ${esc(ph.name)}</td><td class="bad">${lost(ph.attLost, aId)}</td><td class="bad">${lost(ph.defLost, dId)}</td></tr>`).join('')}
     </table></div>`;
 };
 const renderReports = () => {
@@ -537,6 +707,7 @@ const renderHelp = () => `<div class="card help"><h2>How to play</h2>
     <li><b>Grow the basics.</b> Farms, Lumber Camps, Quarries and the Mine produce raw goods every minute. Every field and workshop needs workers, so build <b>Houses</b>. Idle citizens pay taxes in gold.</li>
     <li><b>People are everything.</b> Citizens work the fields and workshops (too few and everything slows) and idle ones pay taxes. Soldiers are enrolled citizens: training takes recruits from the population, and soldiers beyond your barracks quarters take homes from civilians. Fallen soldiers are people lost. Dismiss troops to send them back to work. A city's reach (how far it sees and which oases it can hold) grows with its population.</li>
     <li><b>Feed your people.</b> Citizens and soldiers eat grain. If grain runs out, people leave and troops desert.</li>
+    <li><b>Everything gets used.</b> People burn firewood (three times as much in winter, more on hills and mountains); buildings need timber and stone for repairs; workers wear out tools, soldiers wear out weapons and armour and draw wages; towers and battle mages draw mana; each people wears its own luxury, which cheers them while stocked. Upkeep left unpaid for a few minutes becomes a shortage: cold and unrest, crumbling walls, rusting armour, −15% raw goods, −10% attack, deserters. <b>Hover or tap any good in the top bar</b> to see what makes and uses it, the net rate and when it fills or runs dry.</li>
     <li><b>Smith.</b> The <b>Smelter</b> turns ore into iron; the <b>Toolsmith</b> makes tools (needed for building levels 6+, settlers and research); the <b>Armory</b> forges weapons for soldiers. Each people has its own twist — check your race perks. Workshops can be paused.</li>
     <li><b>Your hero</b> 🦸 starts in your capital. Spend attribute points, send them to <b>ruins</b> 🏚️ on adventures for treasure, experience and items, or march with your armies for leadership bonuses. A fallen hero can be revived.</li>
     <li><b>Research</b> 📚 at the Academy: empire-wide upgrades to production, building speed, storage, attack, defense and more.</li>
@@ -678,7 +849,7 @@ Object.assign(act, {
   begin: () => {
     readStart();
     const st = UI.start;
-    S = G.newGame({ name: st.name.trim(), cityName: st.city.trim(), heroName: st.hero.trim(), race: st.race, difficulty: st.difficulty, pace: st.pace, mode: st.mode, rivals: st.rivals || 3 });
+    S = G.newGame({ name: st.name.trim(), cityName: st.city.trim(), heroName: st.hero.trim(), race: st.race, difficulty: st.difficulty, pace: st.pace, mode: st.mode, rivals: st.rivals || 3, worldSize: st.world || 'normal' });
     UI.city = G.citiesOf(S, 'p')[0].id; UI.tab = 'city'; UI.form = {}; UI.sel = null;
     G.save(S); render(true);
   },

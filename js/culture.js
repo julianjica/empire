@@ -50,84 +50,28 @@
     raidedLost: 12, raidedHeld: 4, raidedMins: 10,
     tax: { low: { tax: 0.7, happy: 10 }, normal: { tax: 1, happy: 0 }, high: { tax: 1.35, happy: -15 } },
     jubilant: 75, discontent: 40, unrest: 20,
+    cultureBase: 1, cultureHall: 0.2,   // culture per minute from every city, and per Town Hall level
   };
   G.TAX_POLICIES = ['low', 'normal', 'high'];
 
   // -------------------------------------------------------------------
-  // Traditions: permanent per-realm perks bought with culture.
-  //   fx: modifier multipliers (through G.mod), happy: flat happiness,
-  //   and named effects read by the happiness formula.
+  // Traditions live in traditions.js (the cultural web). Until it loads —
+  // or if it is left out — they are inert, so this file stands alone.
+  //   tFx(emp, prop, 'mul'|'add'): the named effects the formulas below read
   // -------------------------------------------------------------------
-  DATA.traditions = Object.assign({}, {
-    // ---- shared ----
-    criers:    { name: 'Town Criers',        icon: '📣', tier: 1, happy: 4, desc: '+4 happiness in every city.' },
-    tongue:    { name: 'Common Tongue',      icon: '🗣️', tier: 1, size: 1, fx: { tax: 1.05 }, desc: 'Empire-size unrest −1 per extra city; +5% taxes.' },
-    patronage: { name: 'Patronage of the Arts', icon: '🎨', tier: 2, culture: 1.3, fx: { researchTime: 0.9 }, desc: '+30% culture; research 10% faster.' },
-    pageantry: { name: 'Martial Pageantry',  icon: '🎖️', tier: 2, weary: 0.5, fx: { def: 1.05 }, desc: 'War weariness halved; +5% defense.' },
-    // ---- Hearthfolk ----
-    harvest:   { name: 'Harvest Festivals',  icon: '🌾', race: 'hearth', tier: 1, bread: 5, fx: { grain: 1.1 }, desc: '+10% grain; bread lifts happiness by a further +5.' },
-    guilds:    { name: 'Guild Charters',     icon: '📜', race: 'hearth', tier: 2, fx: { tax: 1.1, refine: 1.1 }, desc: '+10% taxes and refining.' },
-    greens:    { name: 'Village Greens',     icon: '🌳', race: 'hearth', tier: 2, crowd: 0.5, fx: { housing: 1.1 }, desc: 'Crowding unrest halved; +10% housing.' },
-    hearthoath:{ name: 'Hearthfire Oaths',   icon: '🔥', race: 'hearth', tier: 3, happy: 5, loyalty: 0.5, fx: { popGrowth: 1.15 }, desc: '+5 happiness, +15% growth; unrest erodes loyalty half as fast.' },
-    // ---- Deepdelvers ----
-    ancestors: { name: 'Ancestor Halls',     icon: '🗿', race: 'delver', tier: 1, happy: 5, temple: 1.5, desc: '+5 happiness; Temples make 50% more culture.' },
-    deepforge: { name: 'Deep Forges',        icon: '⚒️', race: 'delver', tier: 2, fx: { refine: 1.1, ore: 1.1 }, desc: '+10% ore and refining.' },
-    sagas:     { name: 'Stone Sagas',        icon: '🪨', race: 'delver', tier: 2, fx: { storage: 1.15, buildTime: 0.9 }, desc: '+15% storage; construction 10% faster.' },
-    oathhold:  { name: 'Oathbound Holds',    icon: '🛡️', race: 'delver', tier: 3, loyalty: 0.5, size: 1, fx: { def: 1.1 }, desc: '+10% defense; empire-size unrest −1 per extra city; unrest erodes loyalty half as fast.' },
-    // ---- Sylvani ----
-    grovesong: { name: 'Song of the Grove',  icon: '🎶', race: 'sylvan', tier: 1, happy: 5, fx: { timber: 1.1 }, desc: '+5 happiness, +10% timber.' },
-    revels:    { name: 'Moonlit Revels',     icon: '🌙', race: 'sylvan', tier: 2, festival: 2, amenity: 1.3, desc: 'Taverns, Temples and Theatres give 30% more happiness; festivals twice as joyful.' },
-    starwatch: { name: 'Starwatchers',       icon: '🔭', race: 'sylvan', tier: 2, fx: { researchTime: 0.85, vision: 1.15 }, desc: 'Research 15% faster; +15% vision.' },
-    eldertree: { name: 'The Elder Tree',     icon: '🌲', race: 'sylvan', tier: 3, culture: 1.25, crowd: 0.5, fx: { popGrowth: 1.1 }, desc: '+25% culture, +10% growth; crowding unrest halved.' },
-    // ---- Ashborn ----
-    bloodfeast:{ name: 'Blood Feasts',       icon: '🍖', race: 'ash', tier: 1, weary: 0.5, fx: { atk: 1.05 }, desc: 'War weariness halved; +5% attack.' },
-    spoils:    { name: 'Spoils of the Steppe', icon: '💰', race: 'ash', tier: 2, raided: 0.5, fx: { carry: 1.2, tax: 1.05 }, desc: '+20% plunder carried, +5% taxes; raids on our towns upset people half as much.' },
-    emberrite: { name: 'Ember Rites',        icon: '🕯️', race: 'ash', tier: 2, happy: 5, fx: { trainTime: 0.9 }, desc: '+5 happiness; training 10% faster.' },
-    warchant:  { name: 'War Chants',         icon: '🥁', race: 'ash', tier: 3, fx: { atk: 1.1, upkeep: 0.9 }, desc: '+10% attack; troops eat 10% less.' },
-  }, DATA.traditions || {});
-  DATA.traditionOrder = Object.keys(DATA.traditions);
-
-  const trads = emp => (emp && emp.traditions) || [];
-  const tFx = (emp, prop, combine = 'mul') => {
-    let v = combine === 'mul' ? 1 : 0;
-    for (const id of trads(emp)) {
-      const t = DATA.traditions[id];
-      if (t && t[prop] !== undefined) v = combine === 'mul' ? v * t[prop] : v + t[prop];
-    }
-    return v;
-  };
-  G.traditionFx = tFx;
-  G.traditionsFor = (s, owner) => DATA.traditionOrder.filter(id => { const r = DATA.traditions[id].race; return !r || r === s.empires[owner].race; });
-  G.traditionCost = (s, owner) => {
-    const n = trads(s.empires[owner]).length;
-    return Math.round(300 * Math.pow(1.9, n) / 50) * 50;
-  };
-  G.traditionStatus = (s, owner, id) => {
-    const emp = s.empires[owner];
-    const t = DATA.traditions[id];
-    if (!t || (t.race && t.race !== emp.race)) return { ok: false, reason: 'Not for your people' };
-    if (trads(emp).includes(id)) return { ok: false, have: true, reason: 'Adopted' };
-    // tier gate: tier 2 needs one tradition, tier 3 needs three
-    const need = { 1: 0, 2: 1, 3: 3 }[t.tier] || 0;
-    const cost = G.traditionCost(s, owner);
-    if (trads(emp).length < need) return { ok: false, cost, locked: true, reason: `Needs ${need} tradition${need > 1 ? 's' : ''} first` };
-    if ((emp.culture || 0) < cost) return { ok: false, cost, poor: true, reason: 'Not enough culture' };
-    return { ok: true, cost };
-  };
-  G.adoptTradition = (s, owner, id) => {
-    const st = G.traditionStatus(s, owner, id);
-    if (!st.ok) return st.reason;
-    const emp = s.empires[owner];
-    emp.culture -= st.cost;
-    emp.traditions = [...trads(emp), id];
-    for (const c of G.citiesOf(s, owner)) G.updateHappiness(s, c);
-    G.log(s, owner, `${DATA.traditions[id].icon} The realm embraces a new tradition: ${DATA.traditions[id].name}.`, 'good');
-    return null;
-  };
+  DATA.traditions = DATA.traditions || {};
+  DATA.traditionOrder = DATA.traditionOrder || Object.keys(DATA.traditions);
+  const tFx = (emp, prop, combine = 'mul') => G.traditionFx ? G.traditionFx(emp, prop, combine) : (combine === 'mul' ? 1 : 0);
+  G.traditionsFor = G.traditionsFor || (() => []);
+  G.traditionStatus = G.traditionStatus || (() => ({ ok: false, reason: 'Traditions are not available' }));
+  G.traditionCost = G.traditionCost || (() => 0);
+  G.adoptTradition = G.adoptTradition || (() => 'Traditions are not available');
 
   // -------------------------------------------------------------------
   // Happiness
   // -------------------------------------------------------------------
+  // bigger worlds allow more cities, so more of them come without unrest (3 on a 9-city world, 5 on 12, 6 on 14)
+  G.sizeFreeOf = s => C.sizeFree + Math.max(0, Math.floor(((G.cityLimit ? G.cityLimit(s) : 9) - 9) / 1.5));
   const sizeSoften = emp => Math.min(C.sizeSoftMax, Math.floor((emp.cultureTotal || 0) / C.sizeCulture));
   G.sizePenaltyPer = (s, owner) => {
     const emp = s.empires[owner];
@@ -142,11 +86,12 @@
     const amen = (G.lvl(city, 'tavern') * C.tavern + G.lvl(city, 'temple') * C.temple + G.lvl(city, 'theatre') * C.theatre) * tFx(emp, 'amenity');
     add('Taverns, temples & theatres', Math.min(C.amenityCap, amen));
     if (emp.race === 'hearth' && (city.res.bread || 0) > 1) add('Fresh bread', C.bread + tFx(emp, 'bread', 'add'));
-    if ((city.units.hero || 0) > 0) add('Hero in residence', C.hero);
+    if ((city.units.hero || 0) > 0) add('Hero in residence', C.hero + tFx(emp, 'heroHappy', 'add'));
     if ((city.mods || []).some(m => m.label === 'Festival' && m.until > s.time)) add('Festival', C.festival * tFx(emp, 'festival'));
     if ((city.placated || 0) > s.time) add('Bread and circuses', C.placate);
-    const th = tFx(emp, 'happy', 'add');
+    const th = tFx(emp, 'happy', 'add') + (G.traditionSeasonHappy ? G.traditionSeasonHappy(s, emp) : 0);
     if (th) add('Traditions', th);
+    if (G.ceremonyHappy) { const ch = G.ceremonyHappy(s, city); if (ch.value) add(ch.label || 'Ceremonies', ch.value); }
     // pressures
     const e = G.econ(s, city);
     const ratio = city.pop / Math.max(1, e.civCap);
@@ -154,11 +99,12 @@
     const share = e.soldiers / Math.max(1, city.pop + e.soldiers);
     if (share > C.wearyFree) add('War weariness', -Math.min(C.wearyMax, (share - C.wearyFree) * C.wearyK) * tFx(emp, 'weary'));
     const n = G.citiesOf(s, city.owner).length;
-    if (n > C.sizeFree) add(`Empire size (${n} cities)`, -(n - C.sizeFree) * G.sizePenaltyPer(s, city.owner));
-    if (city.starving) add('Famine', -C.starving);
+    const free = G.sizeFreeOf(s);
+    if (n > free) add(`Empire size (${n} cities)`, -(n - free) * G.sizePenaltyPer(s, city.owner));
+    if (city.starving) add('Famine', -C.starving * tFx(emp, 'famine'));
     if (G.calamitiesAt) {
       const bad = G.calamitiesAt(s, city.x, city.y).filter(c => DATA.calamities[c.kind] && DATA.calamities[c.kind].bad).length;
-      if (bad) add('Calamity', -Math.min(C.calamityMax, bad * C.calamity));
+      if (bad) add('Calamity', -Math.min(C.calamityMax, bad * C.calamity) * tFx(emp, 'calamity'));
     }
     const hit = city.lastHit;
     if (hit && s.time - hit.t < paceMin(s, C.raidedMins)) add(hit.lost ? 'Recently sacked' : 'Recently attacked', -(hit.lost ? C.raidedLost : C.raidedHeld) * tFx(emp, 'raided'));
@@ -183,13 +129,9 @@
     : v >= C.unrest ? '−10% goods and refining, −20% growth'
     : '−25% goods and refining, −20% growth, −50% taxes, loyalty falling';
 
-  // happiness, tax policy and traditions as modifiers
+  // happiness and tax policy as modifiers (traditions add their own source in traditions.js)
   G.modSources.push((s, owner, city, key) => {
-    const emp = s.empires[owner];
     let m = 1;
-    if (emp && emp.traditions && emp.traditions.length) {
-      for (const id of emp.traditions) { const t = DATA.traditions[id]; if (t && t.fx && t.fx[key]) m *= t.fx[key]; }
-    }
     if (!city) return m;
     if (key === 'tax' && city.taxPolicy && city.taxPolicy !== 'normal') m *= (C.tax[city.taxPolicy] || C.tax.normal).tax;
     const h = city.happy;
@@ -215,10 +157,10 @@
   // -------------------------------------------------------------------
   G.cultureRate = (s, city) => {
     const emp = s.empires[city.owner];
-    let r = 0.5 + 0.1 * G.happyOf(city) / 10
+    let r = C.cultureBase + 0.1 * G.happyOf(city) / 10
       + 2 * G.lvl(city, 'temple') * tFx(emp, 'temple')
       + 3 * G.lvl(city, 'theatre')
-      + 0.1 * G.lvl(city, 'townhall') + 0.25 * G.lvl(city, 'academy');
+      + C.cultureHall * G.lvl(city, 'townhall') + 0.25 * G.lvl(city, 'academy');
     if (G.happyOf(city) >= C.jubilant) r *= 1.25;
     return r * tFx(emp, 'culture') * G.pace(s).prod;
   };
@@ -227,7 +169,7 @@
   // -------------------------------------------------------------------
   // Placating and revolts
   // -------------------------------------------------------------------
-  G.placateCost = (s, city) => Math.round((80 + city.pop * 1.5) * (s.time / (3600 * G.pace(s).time) * 0.15 + 1) / 10) * 10;
+  G.placateCost = (s, city) => Math.round((80 + city.pop * 1.5) * (s.time / (3600 * G.pace(s).time) * 0.15 + 1) * tFx(s.empires[city.owner], 'placate') / 10) * 10;
   // keepPending: called from the decision itself (resolvePending removes it by index afterwards)
   G.placate = (s, cityId, keepPending) => {
     const city = s.cities[cityId];
@@ -361,14 +303,6 @@
       }
       // buy calm before it is too late
       if (city.happy < C.unrest && (city.loyalty ?? 100) < 50 && !((city.placated || 0) > s.time) && emp.gold >= G.placateCost(s, city)) G.placate(s, city.id);
-    }
-    // traditions: happiness first when struggling, otherwise any
-    const avail = G.traditionsFor(s, emp.id).filter(id => G.traditionStatus(s, emp.id, id).ok);
-    if (avail.length) {
-      const unhappy = cities.some(c => G.happyOf(c) < 50);
-      const score = id => { const t = DATA.traditions[id]; return (unhappy ? (t.happy || 0) * 3 + (t.size || 0) * 8 + (t.weary ? 6 : 0) + (t.crowd ? 6 : 0) + (t.amenity ? 6 : 0) : 0) + Math.random() * 5; };
-      avail.sort((a, b) => score(b) - score(a));
-      G.adoptTradition(s, emp.id, avail[0]);
     }
   });
 

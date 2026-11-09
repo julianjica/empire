@@ -29,7 +29,7 @@ const renderHero = city => {
   const ruins = S.special.filter(t => t.ruin && S.explored[G.tileIdx(S, t)])
     .map(t => ({ t, d: where ? G.dist(where, t) : 0 })).sort((a, b) => a.d - b.d).slice(0, 8);
 
-  return `<div class="card"><div class="row"><span style="font-size:40px">🦸</span><div><h2 style="margin:0">${esc(h.name)} <button class="small" data-act="renameHero">Rename</button></h2>
+  return `<div class="card"><div class="row pt-herohead">${ptHtml(heroSpec(h, 'p'), 112, 'pt-card pt-big', h.name) || '<span style="font-size:40px">🦸</span>'}<div><h2 style="margin:0">${esc(h.name)} <button class="small" data-act="renameHero">Rename</button></h2>
       <div class="muted">Level ${h.level} · ${h.adventures || 0} adventures</div></div></div>
     <div style="margin-top:8px">Experience ${fmt(h.xp)} / ${fmt(G.xpNeed(h.level))}<div class="bar"><i style="width:${pct(h.xp, G.xpNeed(h.level))}%"></i></div></div>
     <div style="margin-top:6px">Health ${Math.floor(h.hp)} / 100<div class="bar hp"><i style="width:${h.hp}%"></i></div></div>
@@ -93,7 +93,7 @@ const renderDiplomacy = city => {
     const ratio = G.power(S, e.id) / Math.max(1, pPow);
     const comp = e.dead ? '' : ratio > 2 ? 'far stronger than you' : ratio > 1.2 ? 'stronger than you' : ratio > 0.8 ? 'about as strong as you' : ratio > 0.5 ? 'weaker than you' : 'far weaker than you';
     const k = 'gift_' + e.id;
-    return `<div class="card"><div class="row"><span class="dot" style="background:${e.color};width:14px;height:14px;border-radius:50%;display:inline-block"></span><h3 style="margin:0">${esc(e.name)}</h3><span class="pill">${DATA.races[e.race].name}</span><span class="pill ${si.color}">${e.dead ? 'Fallen' : si.name}</span><span class="spacer"></span>${e.dead ? '' : `<span class="muted">${G.citiesOf(S, e.id).length} cities · ${comp}</span>`}</div>
+    return `<div class="card"><div class="row">${ptHtml({ ...rulerSpec(e), dead: !!e.dead }, 52, 'pt-card', `Ruler of ${e.name}`)}<span class="dot" style="background:${e.color};width:14px;height:14px;border-radius:50%;display:inline-block"></span><h3 style="margin:0">${esc(e.name)}</h3><span class="pill">${DATA.races[e.race].name}</span><span class="pill ${si.color}">${e.dead ? 'Fallen' : si.name}</span><span class="spacer"></span>${e.dead ? '' : `<span class="muted">${G.citiesOf(S, e.id).length} cities · ${comp}</span>`}</div>
       ${e.dead ? '<p class="muted">This realm has fallen.' + (S.settings.mode === 'endless' ? ' A new dynasty may rise in time.' : '') + '</p>' : `
       ${extras(REALM_EXTRAS, e)}
       <div style="margin:8px 0">Opinion of you: <b>${G.opinionWord(r.opinion)}</b> (${Math.round(r.opinion)})<div class="bar opinion"><i style="width:${(r.opinion + 100) / 2}%;background:${r.opinion >= 0 ? 'var(--good)' : 'var(--bad)'}"></i></div></div>

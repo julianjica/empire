@@ -1,7 +1,7 @@
 // The four later peoples (races2.js): Tidekin, Veilborn, Gravebound, Windkin.  node tests/races.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js'].filter(f=>fs.existsSync(f)).filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js'].filter(f=>fs.existsSync(f)).filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 initRaces2(); initRaces2();   // idempotent
 let fails=0;
@@ -156,7 +156,7 @@ for(const r of NEW){
 for(const r of NEW){
   const s=fresh(r); const c=G.capital(s,'p');
   const mine=G.traditionsFor(s,'p').filter(id=>DATA.traditions[id].race===r);
-  ok(r+': four traditions, tiers 1-3', mine.length===4 && [1,2,3].every(t=>mine.some(id=>DATA.traditions[id].tier===t)));
+  ok(r+': own traditions (six, tiers 1-3+), ', mine.length>=4 && [1,2,3].every(t=>mine.some(id=>DATA.traditions[id].tier===t)));
   ok(r+': no foreign traditions offered', G.traditionsFor(s,'p').every(id=>!DATA.traditions[id].race||DATA.traditions[id].race===r));
   const t1=mine.find(id=>DATA.traditions[id].tier===1); s.empires.p.culture=1e6;
   const fx=DATA.traditions[t1].fx||{}; const k=Object.keys(fx)[0]; const before=k?G.mod(s,'p',c,k):0;

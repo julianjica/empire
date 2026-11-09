@@ -1,7 +1,7 @@
 // Seas, islands, ships and paths. Run from the repo root: node tests/naval.js
 const fs = require('fs');
 global.localStorage = { _: {}, getItem(k) { return this._[k] ?? null; }, setItem(k, v) { this._[k] = String(v); }, removeItem(k) { delete this._[k]; } };
-eval(['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js'].filter(f=>fs.existsSync(f)).map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
+eval(['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js'].filter(f=>fs.existsSync(f)).map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
 let fails = 0;
 const ok = (n, c, x) => { if (!c) fails++; console.log((c ? 'PASS ' : 'FAIL ') + n + (x ? ' ' + x : '')); };
 // find a game with an island and a coastal player-reachable shore
@@ -89,7 +89,7 @@ const noCamps = w => { for (const k of Object.values(w.camps)) w.tiles[k.y * w.m
     for (const c of G.citiesOf(w, 'a2')) if (c !== port) delete c.units.settlers;
     w.moves = w.moves.filter(m => !(m.owner === 'a2' && m.type === 'settle'));
     const blocked = [];
-    for (const t of w.tiles) if (!t.ruin && !G.isIsland(w, t) && G.dist(t, port) <= 7.5 && !t.city) { t.ruin = { tier: 1, readyAt: 0, units: null }; blocked.push(t); }
+    for (const t of w.tiles) if (!t.ruin && !G.isIsland(w, t) && G.dist(t, port) <= (G.AI_SETTLE_RANGE || 7) + 0.5 && !t.city) { t.ruin = { tier: 1, readyAt: 0, units: null }; blocked.push(t); }
     G.aiOverseas(w, 'a2', true);
     G.aiExpand(w, 'a2');
     for (const t of blocked) delete t.ruin;

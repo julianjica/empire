@@ -51,14 +51,46 @@
       <b>${esc(c.text)}</b><span class="tale-meta">${meta.join('')}</span></button>`;
   };
 
+  // the character a tale is about (portrait beside the text); tales without one keep only the vignette
+  const TALE_PT = {
+    plague_doctor: { kind: 'citizen', seed: 'beaked physician' },
+    deserters: { kind: 'unit', race: 'rival' },
+    relic: { kind: 'citizen', seed: 'ploughman' },
+    famine: { kind: 'citizen', seed: 'empty bowls' },
+    strange_child: { kind: 'citizen', seed: 'child who knew names' },
+    heretic: { kind: 'citizen', seed: 'barefoot preacher' },
+    dragon_egg: { kind: 'citizen', seed: 'egg merchant' },
+    hearth_millers: { kind: 'citizen', seed: 'miller' },
+    delver_grudge: { kind: 'ruler', race: 'rival' },
+    ash_challenge: { kind: 'hero', seed: 'blood challenger' },
+    veil_mortal: { kind: 'citizen', race: 'hearth', seed: 'mortal at court' },
+    grave_king: { kind: 'ruler', seed: 'king who would not lie down' },
+    wild_apprentice: { kind: 'citizen', role: 'mage', seed: 'boy who burned' },
+    succession: { kind: 'ruler', race: 'minor' },
+    double_agent: { kind: 'spy', seed: 'man with two masters' },
+  };
+  const taleSpec = p => {
+    const t = p && p.data && TALE_PT[p.data.id];
+    if (!t) return null;
+    const ctx = p.data.ctx || {}, me = S.empires.p;
+    const ai = ctx.ai && S.empires[ctx.ai], mi = ctx.minor && S.minors && S.minors[ctx.minor];
+    const race = t.race === 'rival' ? (ai ? ai.race : me.race) : t.race === 'minor' ? (mi ? mi.race : me.race) : t.race || me.race;
+    const color = t.race === 'rival' && ai ? ai.color : t.race === 'minor' ? undefined : me.color;
+    const era = G.techEra(S, t.race === 'rival' && ai ? ai.id : 'p');
+    if (t.kind === 'unit') return { race, kind: 'unit', unit: DATA.races[race].units[0], color, era };
+    const seed = t.seed || (t.race === 'rival' && ai ? ai.name : t.race === 'minor' && mi ? mi.name : p.data.id);
+    return t.role ? { race, kind: t.kind, role: t.role, seed, color, era } : { race, kind: t.kind, seed, color, era };
+  };
+
   const cardHtml = p => {
     const card = G.story.card(S, p);
     if (!card) return '';
+    const pic = ptHtml(taleSpec(p), 96, 'pt-card pt-tale');
     const def = card.choices.find(c => c.key === card.def);
     return `<div class="card tale-card">
       <div class="tale-art" aria-hidden="true">${esc(card.art)}</div>
       <h3>${esc(card.title)}</h3>
-      <p class="tale-text">${esc(card.text)}</p>
+      ${pic ? `<div class="pt-talebody">${pic}<p class="tale-text">${esc(card.text)}</p></div>` : `<p class="tale-text">${esc(card.text)}</p>`}
       <div class="tale-choices">${card.choices.map(c => choiceHtml(card, c)).join('')}</div>
       <div class="tale-foot muted">Decide within <b>${fmtTime(realSecs(card.expires - S.time))}</b>, or: ${esc(def ? def.text.toLowerCase() : 'nothing')}.</div>
     </div>`;

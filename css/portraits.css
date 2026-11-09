@@ -1,3 +1,86 @@
-/* portraits: .pt wrappers — see js/portraits.js */
+/* =====================================================================
+   Portraits: .pt wrappers (js/portraits.js) and the layouts that place them
+   (helpers ptHtml / unitTokens in js/ui-core.js).
+   Sizes are set inline in px by G.portraitHtml; this sheet only frames,
+   lays out and badges them. Tokens 24–30px in lists and tables, 34–40px in
+   roster rows, 52–64px on cards and panels, 72–112px for the hero / start
+   screen / tale characters.
+   ===================================================================== */
 .pt{display:inline-block;flex:none;vertical-align:middle;line-height:0}
 .pt svg{display:block;width:100%;height:100%}
+
+/* token wrapper: holds the portrait plus its count / loss badges and tooltip */
+.pt-tok{position:relative;display:inline-flex;flex:none;vertical-align:middle;line-height:0;
+  filter:drop-shadow(0 1px 1.5px rgba(43,29,18,.35))}
+.pt-tok .pt{border-radius:22%}
+/* larger portraits sit on parchment cards: a slightly deeper, softer shadow */
+.pt-tok.pt-card{filter:drop-shadow(0 2px 3px rgba(43,29,18,.32))}
+.pt-tok.pt-inline{margin-right:2px;vertical-align:-8px}
+@media (prefers-color-scheme: dark){
+  .pt-tok{filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+  .pt-tok.pt-card{filter:drop-shadow(0 2px 4px rgba(0,0,0,.55))}
+}
+
+/* count and loss badges on unit tokens */
+.pt-n,.pt-lost{position:absolute;font:700 10px/1 var(--ui);padding:2px 3px;border-radius:6px;pointer-events:none;white-space:nowrap}
+.pt-n{right:-4px;bottom:-4px;background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+.pt-lost{right:-4px;top:-5px;background:var(--bad);color:#fff;font-style:normal}
+
+/* a tidy, wrapping row of unit tokens */
+.pt-row{display:inline-flex;flex-wrap:wrap;gap:7px 9px;align-items:center;padding:4px 4px 4px 0;max-width:100%;vertical-align:middle}
+td .pt-row{display:flex}
+td.pt-cell{white-space:nowrap}
+td.pt-cell .pt-tok{margin-right:4px}
+
+/* hover tooltip (unit / character name); hover-capable pointers only, so taps never open it */
+@media (hover: hover){
+  .pt-tok[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);
+    background:var(--ink);color:var(--panel);font:600 11.5px/1.3 var(--ui);padding:3px 7px;border-radius:6px;white-space:nowrap;
+    z-index:30;pointer-events:none;box-shadow:var(--shadow)}
+  .pt-tok.pt-big[data-tip]:hover::after,.pt-tok.pt-tale[data-tip]:hover::after{display:none}
+}
+
+/* disabled / locked contexts */
+.unit.locked .pt-tok{filter:grayscale(.85) opacity(.65)}
+
+/* ---- Military tab unit cards ---- */
+.pt-unithead{display:flex;gap:10px;align-items:flex-start}
+.pt-unittitle{flex:1;min-width:0}
+.pt-unittitle .desc{margin-top:3px}
+
+/* ---- portrait + role / emblem badge (council advisors, free cities) ---- */
+.pt-badged{position:relative;flex:none;line-height:0}
+.pt-badge{position:absolute;right:-5px;bottom:-5px;width:24px;height:24px;display:grid;place-items:center;font-size:14px;line-height:1;
+  background:var(--panel);border:1.5px solid var(--line);border-radius:50%;box-shadow:var(--shadow)}
+
+/* ---- portrait beside a short block of text (champion line, spy roster, panel heads) ---- */
+.pt-champ{display:flex;gap:8px;align-items:center}
+.pt-champ > div{min-width:0}
+.pt-panelhead{display:flex;gap:10px;align-items:center;margin-bottom:6px}
+.pt-panelhead h3{margin:0 0 2px}
+.pt-herohead{gap:14px;align-items:center}
+.pt-racehead{display:flex;gap:10px;align-items:center;margin-bottom:6px}
+.pt-racehead h3{margin:0}
+.cn-gov > .pt-tok,.cn-cityrow > .pt-tok{margin-right:-2px}
+
+/* ---- tale character ---- */
+.pt-talebody{display:flex;gap:12px;align-items:flex-start;margin:8px 0 12px}
+.pt-talebody .tale-text{margin:0;flex:1;min-width:0}
+
+/* ---- hero duel in battle reports ---- */
+.pt-duel{display:flex;align-items:center;justify-content:center;gap:14px;margin:10px 0 4px;padding:8px;border:1px dashed var(--line);border-radius:var(--radius);flex-wrap:wrap}
+.pt-duelist{display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;font-size:12px;min-width:90px}
+.pt-duelist b{font-size:13px}
+.pt-duelist.won b{color:var(--good)}
+.pt-vs{font-size:22px}
+
+/* ---- phones ---- */
+@media (max-width: 700px){
+  .pt-herohead > .pt-tok{width:88px;height:88px}
+  .pt-herohead > .pt-tok .pt{width:88px !important;height:88px !important}
+  .pt-talebody > .pt-tok{width:72px;height:72px}
+  .pt-talebody > .pt-tok .pt{width:72px !important;height:72px !important}
+  .pt-unithead > .pt-tok .pt{width:52px !important;height:52px !important}
+  .pt-racehead > .pt-tok .pt{width:60px !important;height:60px !important}
+  .pt-row{gap:6px 8px}
+}

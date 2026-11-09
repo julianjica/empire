@@ -144,31 +144,100 @@ G.tier = city => {
 
 const BASE_YIELD = { grain: 6, timber: 8, stone: 7, ore: 3 };
 const REFINE_ORDER = ['smelter', 'smithy', 'armory', 'runeforge', 'bakery', 'heartgrove'];
+G.BASE_YIELD = BASE_YIELD;
+
+// ---------------------------------------------------------------------
+// Upkeep and wear: every good is used up by something in the game.
+// Rates are per game-minute and scale with pace (like production).
+// A good is "short" once its upkeep has gone unpaid for `grace` minutes;
+// shortage effects read city.short[good].
+// ---------------------------------------------------------------------
+G.SINK = {
+  firewood: 0.05,            // timber burnt per citizen (× season × cold site)
+  coldSite: { mountain: 1.5, hills: 1.25 },
+  repairTimber: 0.015,       // timber per building level (walls apart)
+  repairStone: 0.012,        // stone per building level (walls apart)
+  wallStone: 0.1,            // stone × wall level^1.3
+  armour: 0.006,             // iron per armoured soldier (average defence ≥ armourDef; not the undead)
+  armourDef: 40,
+  grandFrom: 10,             // building levels above this cost iron and gold to keep up
+  grandIron: 0.02, grandGold: 0.05,
+  tools: 0.006, toolsFree: 20, toolsTh: 4,   // tools worn per worker beyond the first 20, from Town Hall 4 or with a Toolsmith
+  weapons: 0.003, campaign: 3,               // per weapon carried by soldiers; ×3 while on the march (from Town Hall 4 or with an Armory)
+  wages: 0.02,               // gold per enrolled soldier
+  towerMana: 0.2, mageMana: 0.05, wardMana: 0.5,
+  binding: 0.006,            // bonedust per undead soldier (Gravebound)
+  luxury: 0.003, luxuryHappy: 4,             // race luxuries per citizen; happiness while stocked
+  toolsPenalty: 0.85, weaponsPenalty: 0.9, rustPenalty: 0.92, crumblePenalty: 0.9,
+  coldHappy: 6, coldWinterHappy: 10, coldPopLoss: 0.005,
+  unpaidHappy: 8, unpaidDesert: 0.01, unboundDesert: 0.01,
+  wallDecayMins: 30,
+  grace: { timber: 3, stone: 10, iron: 5, tools: 5, weapons: 5, mana: 1, gold: 2, bonedust: 3 },
+};
+// the peoples' luxuries (pearls are worn in races2.js, bread is eaten in place of grain)
+G.LUXURY = {
+  dreamsilk: { race: 'veil', label: 'Dreamsilk finery' }, heartwood: { race: 'sylvan', label: 'Heartwood carvings' },
+  runesteel: { race: 'delver', label: 'Runesteel heirlooms' }, stormglass: { race: 'wind', label: 'Stormglass charms' },
+};
+// what each shortage does, in a line (tooltips, advice)
+G.SHORT_TEXT = {
+  timber: 'No firewood: the people shiver (unhappy; in winter some die of cold).',
+  stone: 'No stone for repairs: walls crumble (−10% defence, a wall level lost every half hour).',
+  iron: 'No iron for repairs: armour rusts (−8% garrison defence).',
+  tools: 'Worn-out tools: raw goods −15%.',
+  weapons: 'Blunted weapons: armies from here attack at −10%.',
+  mana: 'No mana: battle mages lend no spells and wards fail.',
+  gold: 'The treasury is empty: soldiers go unpaid (unhappy, some desert).',
+  bonedust: 'No bonedust: unbound dead crumble away.',
+};
+const isUndead = u => u === 'risen' || !!(DATA.units[u] && DATA.units[u].cost && DATA.units[u].cost.bonedust);
+G.isUndead = isUndead;
+const isArmoured = u => { const d = DATA.units[u]; return !!d && !!d.at && (d.type === 'inf' || d.type === 'ranged' || d.type === 'cav') && (d.defI + d.defC) / 2 >= G.SINK.armourDef && !isUndead(u); };
+// firewood multiplier for the season (DATA.firewoodSeason lives in seasons.js), felt as each people feels winter
+G.firewoodSeason = (s, owner) => {
+  const tab = DATA.firewoodSeason;
+  if (!tab || !G.season) return 1;
+  const se = G.season(s).index;
+  const k = DATA.seasonRace && s.empires[owner] ? (DATA.seasonRace[s.empires[owner].race] || [1, 1, 1, 1])[se] : 1;
+  return 1 + (tab[se] - 1) * k;
+};
+G.coldSite = city => G.SINK.coldSite[city.terrain] || 1;
 
 // Full economic picture of a city (nominal rates per minute).
+//   raw/refiners/net as before; rawParts[g] = production lines; sinks[g] = upkeep & wear lines (negative amounts);
+//   use[g] = upkeep & wear stepCity takes; wages = gold upkeep. G.econParts(s, city, e) gives the full breakdown.
 G.econ = (s, city, awayUnits) => {
   const emp = s.empires[city.owner];
   const cap = G.storageCap(s, city);
   const popCap = G.popCap(s, city);
   const workersReq = G.workersReq(city);
   const eff = workersReq > 0 ? Math.min(1, city.pop / workersReq) : 1;
+  const rawParts = {};
+  const addRaw = (g, label, v, type) => { if (v > 1e-9) (rawParts[g] = rawParts[g] || []).push({ label, amount: v, type }); };
 
   // every settlement's commons yield a little of each raw good, independent of buildings
   const raw = {};
-  for (const [g, v] of Object.entries(BASE_YIELD)) raw[g] = v * G.mod(s, city.owner, city, g);
+  for (const [g, v] of Object.entries(BASE_YIELD)) { raw[g] = v * G.mod(s, city.owner, city, g); addRaw(g, 'Commons', raw[g]); }
   for (const [t, L] of Object.entries(city.buildings)) {
     const b = DATA.buildings[t];
     if (!b || !b.prod || L <= 0) continue;
     for (const [g, base] of Object.entries(b.prod)) {
-      raw[g] = (raw[g] || 0) + base * L * Math.pow(1.12, L - 1) * eff * G.mod(s, city.owner, city, g);
+      const v = base * L * Math.pow(1.12, L - 1) * eff * G.mod(s, city.owner, city, g);
+      raw[g] = (raw[g] || 0) + v;
+      addRaw(g, `${b.name} ${L}`, v, t);
     }
   }
 
+  const before = { ...raw };
   for (const h of G.econHooks) h(s, city, raw, eff);
+  for (const g of Object.keys(raw)) {
+    const d = raw[g] - (before[g] || 0);
+    if (d > 1e-9) addRaw(g, g === 'mana' ? (G.lvl(city, 'magetower') ? 'The land, ley & Mage Tower' : 'The land & ley lines') : 'Other sources', d, g === 'mana' && G.lvl(city, 'magetower') ? 'magetower' : undefined);
+  }
   // harbor fishing: more open water nearby, more fish; the 'fishing' key (Tidekin, traditions, wonders) scales the catch
   const hb = G.lvl(city, 'harbor');
   const fishing = hb ? 5 * hb * Math.pow(1.12, hb - 1) * Math.min(4, G.site(s, city).water || 0) / 2 * eff * G.mod(s, city.owner, city, 'grain') * G.mod(s, city.owner, city, 'fishing') : 0;
-  if (fishing) raw.grain = (raw.grain || 0) + fishing;
+  if (fishing) { raw.grain = (raw.grain || 0) + fishing; addRaw('grain', `Harbor fishing ${hb}`, fishing, 'harbor'); }
   const refiners = [];
   const refMod = G.mod(s, city.owner, city, 'refine');
   for (const t of REFINE_ORDER) {
@@ -201,16 +270,187 @@ G.econ = (s, city, awayUnits) => {
     for (const [g, v] of Object.entries(r.in)) net[g] -= v;
     for (const [g, v] of Object.entries(r.out)) net[g] += v;
   }
-  let grainFood = popFood;
-  if (emp.race === 'hearth' && (city.res.bread || 0) > 1) { net.bread -= popFood / 3; grainFood = 0; }
+  let grainFood = popFood, breadFood = 0;
+  if (emp.race === 'hearth' && (city.res.bread || 0) > 1) { breadFood = popFood / 3; net.bread -= breadFood; grainFood = 0; }
   net.grain -= grainFood + upkeep;
+
+  // ---- upkeep and wear ----
+  const K = G.SINK, P = G.pace(s).prod;
+  const sinks = {}, use = {};
+  const sink = (g, label, v, ext) => {
+    if (!(v > 1e-9)) return;
+    (sinks[g] = sinks[g] || []).push({ label, amount: -v, ext: !!ext });
+    if (g === 'gold') return;
+    net[g] = (net[g] || 0) - v;
+    if (!ext) use[g] = (use[g] || 0) + v;
+  };
+  // soldiers at home and on the march (stepCity passes the marching armies; elsewhere they are looked up)
+  let away = awayUnits ? awayUnits[city.id] : null;
+  if (!awayUnits) { for (const m of s.moves) if (m.from === city.id && m.owner === city.owner && G.unitsCount(m.units)) away = G.addUnits(away || {}, m.units); }
+  let armoured = 0, kitHome = 0, kitAway = 0, undead = 0, mages = 0;
+  const tally = (units, out) => {
+    for (const [u, n] of Object.entries(units || {})) {
+      const d = DATA.units[u];
+      if (!d || !(n > 0)) continue;
+      if (isArmoured(u)) armoured += n;
+      const w = (d.cost && d.cost.weapons) || 0;
+      if (w) { if (out) kitAway += w * n; else kitHome += w * n; }
+      if (isUndead(u)) undead += n;
+      if (d.mage) mages += n;
+    }
+  };
+  tally(city.units, false); tally(away, true);
+  let levels = 0, grand = 0;
+  for (const [t, L] of Object.entries(city.buildings)) {
+    const b = DATA.buildings[t];
+    if (!b || b.wonder || !(L > 0)) continue;
+    if (t !== 'wall') levels += L;
+    grand += Math.max(0, L - K.grandFrom);
+  }
+  const wallL = G.lvl(city, 'wall');
+  const seasonF = G.firewoodSeason(s, city.owner), coldF = G.coldSite(city);
+  sink('timber', `Firewood (${Math.floor(city.pop)} people${Math.abs(seasonF - 1) > 0.01 ? ', season ×' + seasonF.toFixed(1) : ''}${coldF > 1 ? ', cold site ×' + coldF : ''})`, K.firewood * city.pop * seasonF * coldF * P);
+  sink('timber', `Repairs (${levels} building levels)`, K.repairTimber * levels * P);
+  sink('stone', `Repairs (${levels} building levels)`, K.repairStone * levels * P);
+  if (wallL) sink('stone', `Wall upkeep (level ${wallL})`, K.wallStone * Math.pow(wallL, 1.3) * P);
+  sink('iron', `Armour repair (${armoured} armoured soldiers)`, K.armour * armoured * P);
+  if (grand) { sink('iron', `Grand buildings (${grand} levels above ${K.grandFrom})`, K.grandIron * grand * P); }
+  const employed = Math.min(city.pop, workersReq);
+  if (G.lvl(city, 'townhall') >= K.toolsTh || G.lvl(city, 'smithy')) sink('tools', `Worn by ${Math.floor(employed)} workers (first ${K.toolsFree} free)`, K.tools * Math.max(0, employed - K.toolsFree) * P);
+  if (G.lvl(city, 'townhall') >= K.toolsTh || G.lvl(city, 'armory')) {
+    sink('weapons', 'Soldiers\' kit wear', K.weapons * kitHome * P);
+    sink('weapons', 'Kit wear on campaign (×' + K.campaign + ')', K.weapons * K.campaign * kitAway * P);
+  }
+  const tower = G.lvl(city, 'magetower');
+  if (tower) {      // only where a tower draws mana, so upkeep never outruns the land's own trickle
+    sink('mana', `Mage Tower upkeep (level ${tower})`, K.towerMana * tower * P);
+    sink('mana', `Battle mages (${mages})`, K.mageMana * mages * P);
+    if ((city.ward || 0) > s.time) sink('mana', 'Ward of Weaving', K.wardMana * P);
+  }
+  if (emp.race === 'grave') sink('bonedust', `Binding the dead (${undead} undead)`, K.binding * undead * P);
+  for (const [g, L] of Object.entries(G.LUXURY)) if (emp.race === L.race) sink(g, `${L.label} (${Math.floor(city.pop)} people)`, K.luxury * city.pop * P);
+  if (emp.race === 'tide' && (city.res.pearls || 0) > 0) sink('pearls', `Worn & traded (${Math.floor(city.pop)} people)`, city.pop * (G.RACES2 ? G.RACES2.pearlEat : 0.01), true);
+  const soldiers = G.soldiers(s, city, awayUnits);
+  sink('gold', `Soldiers' wages (${soldiers})`, K.wages * soldiers * P);
+  if (grand) sink('gold', `Grand buildings (${grand} levels above ${K.grandFrom})`, K.grandGold * grand * P);
+  const wages = (sinks.gold || []).reduce((a, l) => a - l.amount, 0);
 
   const protect = cap * (0.1 + (G.mod(s, city.owner, city, 'protect') - 1));
   // soldiers are enrolled citizens: they take housing (beyond barracks quarters) away from civilians
-  const soldiers = G.soldiers(s, city, awayUnits);
   const quarters = G.quarters(city);
   const civCap = Math.max(5, popCap - Math.max(0, soldiers - quarters));
-  return { cap, protect, popCap, civCap, soldiers, quarters, workersReq, eff, raw, refiners, popFood, upkeep, tax, net, idle, fishing };
+  return { cap, protect, popCap, civCap, soldiers, quarters, workersReq, eff, raw, refiners, popFood, upkeep, tax, net, idle, fishing,
+    grainFood, breadFood, rawParts, sinks, use, wages };
+};
+
+// The full breakdown of a city's goods: parts[g] = [{label, amount, kind}] (kind 'prod' | 'use'), summing to e.net[g].
+// Built from the final econ object, so refiners added by wrappers (the new peoples' workshops) are included.
+G.econParts = (s, city, e) => {
+  e = e || G.econ(s, city);
+  const parts = {};
+  const add = (g, label, amount, kind, extra) => { if (Math.abs(amount) > 1e-9) (parts[g] = parts[g] || []).push({ label, amount, kind, ...(extra || {}) }); };
+  for (const [g, list] of Object.entries(e.rawParts || {})) for (const l of list) add(g, l.label, l.amount, 'prod');
+  for (const r of e.refiners) {
+    const b = DATA.buildings[r.type], L = G.lvl(city, r.type);
+    for (const [g, v] of Object.entries(r.out)) add(g, `${b.name} ${L}`, v, 'prod');
+    for (const [g, v] of Object.entries(r.in)) add(g, `${b.name} ${L} (makes ${Object.keys(r.out).map(o => DATA.goods[o].name.toLowerCase()).join(', ')})`, -v, 'use');
+  }
+  if (e.grainFood) add('grain', `People eat (${Math.floor(city.pop)})`, -e.grainFood, 'use');
+  if (e.breadFood) add('bread', `People eat (${Math.floor(city.pop)}, in place of grain)`, -e.breadFood, 'use');
+  if (e.upkeep) add('grain', 'Troops\' rations', -e.upkeep, 'use');
+  for (const [g, list] of Object.entries(e.sinks || {})) if (g !== 'gold') for (const l of list) add(g, l.label, l.amount, 'use', l.ext ? { ext: true } : null);
+  const gold = [{ label: 'Taxes', amount: e.tax, kind: 'prod' }];
+  for (const l of (e.sinks && e.sinks.gold) || []) gold.push({ label: l.label, amount: l.amount, kind: 'use' });
+  parts.gold = gold;
+  return parts;
+};
+
+// production multipliers for a good, as named factors (the rest of G.mod: research, traditions, wonders, mood…)
+G.prodMults = (s, city, g) => {
+  const emp = s.empires[city.owner], race = DATA.races[emp.race];
+  const total = G.mod(s, city.owner, city, g);
+  const out = [];
+  const push = (label, m) => { if (Math.abs(m - 1) > 0.005) out.push({ label, mult: m }); };
+  push(race.name, (race.mult[g] || 1) * (race.bonus[g] !== undefined ? race.bonus[g] : 1));
+  push('Pace', G.pace(s).prod);
+  if (city.owner !== 'p') push('Difficulty', s.settings.aiMult);
+  const site = G.site(s, city);
+  if (site[g] !== undefined) push('Site & terrain', site[g]);
+  let add = 0;
+  for (const oi of city.oases || []) { const o = s.tiles[oi].oasis; if (o && o.bonus === g) add += o.mult; }
+  push('Oases', 1 + add);
+  let season = 1;
+  if (DATA.seasonFx && G.season) {
+    const se = G.season(s).index, f = DATA.seasonFx[se].fx[g];
+    if (f) season = 1 + (f - 1) * ((DATA.seasonRace && DATA.seasonRace[emp.race]) || [1, 1, 1, 1])[se];
+    push(DATA.seasonFx[se].name, season);
+  }
+  const tools = city.short && city.short.tools && DATA.goods[g] && DATA.goods[g].raw ? G.SINK.toolsPenalty : 1;
+  push('Worn-out tools', tools);
+  const known = out.reduce((a, o) => a * o.mult, 1);
+  push('Research, traditions, wonders, mood…', known > 0 ? total / known : 1);
+  return { total, list: out };
+};
+
+// What every building is doing, for the city view: type -> { state: 'working'|'slow'|'idle'|'blocked', reason, rate }
+// rate = output per minute (main good). Derived from the same econ numbers as the tooltips.
+const ACT_CACHE = new WeakMap();
+G.buildingActivity = (s, city, e) => {
+  const sig = s.time + '|' + Object.keys(city.buildings).length + '|' + Object.keys(city.refineOff || {}).filter(k => city.refineOff[k]).join(',') + '|' + Math.round(city.pop);
+  const c = ACT_CACHE.get(city);
+  if (!e && c && c.sig === sig) return c.out;
+  e = e || G.econ(s, city);
+  const out = {};
+  const short = city.short || {};
+  const full = g => (city.res[g] || 0) >= e.cap * 0.999;
+  const workers = e.eff;
+  const toolsLow = short.tools;
+  for (const [t, L] of Object.entries(city.buildings)) {
+    const b = DATA.buildings[t];
+    if (!b || !(L > 0)) continue;
+    if (b.prod) {
+      const g = Object.keys(b.prod)[0];
+      const rate = ((e.rawParts[g] || []).find(p => p.type === t) || {}).amount || 0;
+      let state = 'working', reason = '';
+      if (workers <= 0.001 || city.pop < 1) { state = 'idle'; reason = 'No workers'; }
+      else if (full(g)) { state = 'blocked'; reason = 'Storage full'; }
+      else if (workers < 0.6) { state = 'slow'; reason = `Few workers (${Math.round(workers * 100)}%)`; }
+      else if (toolsLow) { state = 'slow'; reason = 'Tools shortage'; }
+      out[t] = { state, reason, rate };
+    }
+  }
+  if (G.lvl(city, 'harbor')) {
+    const rate = e.fishing || 0;
+    out.harbor = rate <= 0 ? { state: 'idle', reason: G.site(s, city).water ? 'No workers' : 'No open water', rate: 0 }
+      : full('grain') ? { state: 'blocked', reason: 'Storage full', rate } : workers < 0.6 ? { state: 'slow', reason: `Few workers (${Math.round(workers * 100)}%)`, rate } : { state: 'working', reason: '', rate };
+  }
+  for (const r of e.refiners) {
+    const main = Object.keys(r.out)[0];
+    const nominal = r.out[main] || 0;
+    const f = city.refineEff && city.refineEff[r.type] !== undefined ? city.refineEff[r.type] : 1;
+    const rate = nominal * f;
+    let state = 'working', reason = '';
+    if (r.off) { state = 'idle'; reason = 'Paused'; }
+    else if (workers <= 0.001 || nominal <= 0) { state = 'idle'; reason = 'No workers'; }
+    else if (Object.keys(r.out).some(full)) { state = 'blocked'; reason = 'Storage full'; }
+    else if (f < 0.05) {
+      const lack = Object.keys(r.in).filter(g => (city.res[g] || 0) < r.in[g] / 60 * 10);
+      state = 'blocked'; reason = lack.length ? 'No ' + lack.map(g => DATA.goods[g].name.toLowerCase()).join(' or ') : 'Short of inputs';
+    } else if (f < 0.6) {
+      const lack = Object.keys(r.in).filter(g => (city.res[g] || 0) < r.in[g] / 60 * 10);
+      state = 'slow'; reason = lack.length ? 'Short of ' + lack.map(g => DATA.goods[g].name.toLowerCase()).join(' and ') : 'Short of inputs';
+    } else if (workers < 0.6) { state = 'slow'; reason = `Few workers (${Math.round(workers * 100)}%)`; }
+    out[r.type] = { state, reason, rate };
+  }
+  if (G.lvl(city, 'magetower')) {
+    const rate = ((e.rawParts.mana || []).find(p => p.type === 'magetower') || {}).amount || 0;
+    out.magetower = full('mana') ? { state: 'blocked', reason: 'Mana stores full', rate } : { state: 'working', reason: '', rate };
+  }
+  // military buildings work while they train
+  for (const [at, q] of Object.entries(city.train || {})) if (q && q.length && G.lvl(city, at) && !out[at]) out[at] = { state: 'working', reason: 'Training ' + DATA.units[q[0].unit].name, rate: 0 };
+  if (G.lvl(city, 'wall') && short.stone) out.wall = { state: 'blocked', reason: 'Crumbling: no stone', rate: 0 };
+  ACT_CACHE.set(city, { sig, out });
+  return out;
 };
 
 // ---------------------------------------------------------------------
@@ -242,21 +482,35 @@ G.slowest = (s, owner, units) => Math.min(...Object.entries(units).filter(([, n]
 const PATHS = new WeakMap();
 G.isWater = t => !!t && t.terrain === 'lake';
 G.coastal = (s, x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && G.isWater(G.tileAt(s, x + dx, y + dy))) return true; return false; };
-G.clearPaths = s => { PATHS.delete(s.tiles); COMPS.delete(s.tiles); SEAS.delete(s.tiles); };
+G.clearPaths = s => { PATHS.delete(s.tiles); COMPS.delete(s.tiles); SEAS.delete(s.tiles); WATER.delete(s.tiles); };
 // shortest path (8 directions). Land paths avoid water; sea paths stay on water except the two end tiles.
 // returns { len, path:[[x,y],...] } or null
 G.path = (s, from, to, naval) => {
   let cache = PATHS.get(s.tiles); if (!cache) { cache = new Map(); PATHS.set(s.tiles, cache); }
   const key = from.x + ',' + from.y + '>' + to.x + ',' + to.y + (naval === 'any' ? 'a' : naval ? 's' : 'l');
   if (cache.has(key)) return cache.get(key);
-  const N = s.map, start = from.y * N + from.x, goal = to.y * N + to.x;
-  const ok = i => { if (i === start || i === goal || naval === 'any') return true; return naval ? G.isWater(s.tiles[i]) : !G.isWater(s.tiles[i]); };
-  const D = new Float64Array(N * N).fill(Infinity), prev = new Int32Array(N * N).fill(-1), done = new Uint8Array(N * N);
-  D[start] = 0;
-  const open = [start];
-  while (open.length) {
-    let bi = 0; for (let k = 1; k < open.length; k++) if (D[open[k]] < D[open[bi]]) bi = k;
-    const u = open[bi]; open[bi] = open[open.length - 1]; open.pop();
+  if (cache.size > 6000) cache.clear();      // long games in large worlds: keep the memo bounded
+  const N = s.map, NN = N * N, start = from.y * N + from.x, goal = to.y * N + to.x;
+  if (start < 0 || goal < 0 || start >= NN || goal >= NN) { cache.set(key, null); return null; }
+  // a land path to another land region (or a sea path to another sea) cannot exist: answer without searching
+  if (!naval && start !== goal) { const c = G.landRegions(s); if (c[start] >= 0 && c[goal] >= 0 && c[start] !== c[goal]) { cache.set(key, null); return null; } }
+  const water = WATER.get(s.tiles) || G.waterMask(s);
+  const ok = i => { if (i === start || i === goal || naval === 'any') return true; return naval ? water[i] === 1 : water[i] === 0; };
+  // A* with an octile-distance heuristic over a binary heap (same costs as before: 1 straight, 1.4142 diagonal)
+  const D = new Float64Array(NN).fill(Infinity), prev = new Int32Array(NN).fill(-1), done = new Uint8Array(NN);
+  const gx = to.x, gy = to.y;
+  const h = i => { const x = i % N, y = (i - x) / N, ax = Math.abs(x - gx), ay = Math.abs(y - gy); return ax > ay ? ax + 0.4142 * ay : ay + 0.4142 * ax; };
+  const heapI = [], heapF = [];
+  const push = (i, f) => { let k = heapI.length; heapI.push(i); heapF.push(f); while (k > 0) { const p = (k - 1) >> 1; if (heapF[p] <= f) break; heapI[k] = heapI[p]; heapF[k] = heapF[p]; k = p; } heapI[k] = i; heapF[k] = f; };
+  const pop = () => {
+    const top = heapI[0], li = heapI.pop(), lf = heapF.pop(), n = heapI.length;
+    if (n) { let k = 0; for (;;) { let c = 2 * k + 1; if (c >= n) break; if (c + 1 < n && heapF[c + 1] < heapF[c]) c++; if (heapF[c] >= lf) break; heapI[k] = heapI[c]; heapF[k] = heapF[c]; k = c; } heapI[k] = li; heapF[k] = lf; }
+    return top;
+  };
+  D[start] = 0; push(start, h(start));
+  const strict = !naval && naval !== 'any';
+  while (heapI.length) {
+    const u = pop();
     if (done[u]) continue; done[u] = 1;
     if (u === goal) break;
     const ux = u % N, uy = (u - ux) / N;
@@ -266,9 +520,9 @@ G.path = (s, from, to, naval) => {
       if (vx < 0 || vy < 0 || vx >= N || vy >= N) continue;
       const v = vy * N + vx;
       if (done[v] || !ok(v)) continue;
-      if (dx && dy && !naval && naval !== 'any' && (G.isWater(s.tiles[uy * N + vx]) && G.isWater(s.tiles[vy * N + ux]))) continue;  // no squeezing between two water tiles
+      if (dx && dy && strict && water[uy * N + vx] && water[vy * N + ux]) continue;  // no squeezing between two water tiles
       const nd = D[u] + (dx && dy ? 1.4142 : 1);
-      if (nd < D[v]) { D[v] = nd; prev[v] = u; open.push(v); }
+      if (nd < D[v] - 1e-9) { D[v] = nd; prev[v] = u; push(v, nd + h(v)); }
     }
   }
   let res = null;
@@ -278,6 +532,15 @@ G.path = (s, from, to, naval) => {
   }
   cache.set(key, res);
   return res;
+};
+// water mask (1 = water), cached with the paths
+const WATER = new WeakMap();
+G.waterMask = s => {
+  let m = WATER.get(s.tiles); if (m) return m;
+  m = new Uint8Array(s.map * s.map);
+  for (let i = 0; i < m.length; i++) m[i] = G.isWater(s.tiles[i]) ? 1 : 0;
+  WATER.set(s.tiles, m);
+  return m;
 };
 // connected land regions (flood fill, 8 directions, no squeezing between two water tiles), cached with the paths
 const COMPS = new WeakMap();
@@ -447,6 +710,7 @@ G.maxAffordable = (s, city, cost) => {
 // ---------------------------------------------------------------------
 // Building
 // ---------------------------------------------------------------------
+// how many works the AI and city governors like to keep queued ahead (players may queue as many as they can pay for)
 G.buildSlots = city => G.lvl(city, 'townhall') >= 10 ? 3 : 2;
 G.nextLevel = (city, type) => G.lvl(city, type) + 1 + city.buildQueue.filter(q => q.type === type).length;
 
@@ -465,7 +729,7 @@ G.buildStatus = (s, city, type) => {
   if (b.coastal && !G.coastal(s, city.x, city.y)) return { ...res, ok: false, locked: true, reason: 'Needs a coastal city' };
   if (b.minCities && G.citiesOf(s, city.owner).length < b.minCities) return { ...res, ok: false, locked: true, reason: `Needs a realm of ${b.minCities} cities` };
   if (b.realmUnique && Object.values(s.cities).some(c => c.owner === city.owner && c !== city && (G.lvl(c, type) || c.buildQueue.some(q => q.type === type)))) return { ...res, ok: false, locked: true, reason: 'Already raised in another of your cities' };
-  if (city.buildQueue.length >= G.buildSlots(city)) return { ...res, ok: false, reason: 'Queue full' };
+  // the queue has no length limit: works are paid when queued and built one after another
   if (!G.canAfford(s, city, cost)) return { ...res, ok: false, reason: 'Not enough goods', poor: true };
   return res;
 };
@@ -579,7 +843,20 @@ G.power = (s, owner) => {
   return Math.round(p);
 };
 G.citySlotsUsed = (s, owner) => G.citiesOf(s, owner).length + s.moves.filter(m => m.owner === owner && m.type === 'settle').length;
-G.nextCityRenown = (s, owner) => DATA.citySlots[G.citySlotsUsed(s, owner)] ?? Infinity;
+// the realm's city limit grows with the world: 9 cities in a small world (the classic table), 12 in a normal one, 14 in a large one;
+// slots past the table's end keep climbing (+850, +1000, +1150 ... renown)
+G.cityLimit = s => { const w = (s.settings && s.settings.worldSize) || (s.map <= 47 ? 'small' : 'normal'); return w === 'small' ? 9 : w === 'large' ? 14 : 12; };
+G.citySlotRenown = (s, n) => {
+  if (n >= G.cityLimit(s)) return Infinity;
+  const T = DATA.citySlots, L = T.length;
+  if (n < L) return T[n];
+  let v = T[L - 1], gap = T[L - 1] - T[L - 2];
+  for (let i = L; i <= n; i++) { gap += 150; v += gap; }
+  return v;
+};
+// how many cities an AI realm aims for (it may still conquer one more)
+G.aiCityCap = s => Math.min(G.cityLimit(s), { small: 7, normal: 10, large: 12 }[(s.settings && s.settings.worldSize) || (s.map <= 47 ? 'small' : 'normal')] || 10);
+G.nextCityRenown = (s, owner) => G.citySlotRenown(s, G.citySlotsUsed(s, owner));
 G.canFoundCity = (s, owner) => G.renown(s, owner) >= G.nextCityRenown(s, owner);
 G.oasisSlots = city => Math.min(4, 1 + Math.floor(G.lvl(city, 'townhall') / 5));
 
@@ -587,10 +864,11 @@ G.oasisSlots = city => Math.min(4, 1 + Math.floor(G.lvl(city, 'townhall') / 5));
 // Location: yields of a site from the terrain around it (radius 2)
 // ---------------------------------------------------------------------
 const RIVER_SETS = new WeakMap();
-const SITE_BASE = { grain: 0.45, timber: 0.62, stone: 0.52, ore: 0.65 };   // centres a typical site near 1×
+const SITE_BASE = { grain: 0.45, timber: 0.66, stone: 0.57, ore: 0.7 };   // centres a typical site near 1×
+const DEPOSIT_PER = 0.18, DEPOSIT_MAX = 0.5;   // each deposit tile within reach (weighted by distance) adds 18%, up to +50%
 G.siteYield = (s, x, y) => {
   const acc = { grain: 0, timber: 0, stone: 0, ore: 0 };
-  let W = 0, river = false, lake = false, water = 0;
+  let W = 0, river = false, lake = false, water = 0, dep = null;
   const rv = s.rivers || [];
   let riverSet = RIVER_SETS.get(rv);
   if (!riverSet) { riverSet = new Set(rv.flat()); RIVER_SETS.set(rv, riverSet); }
@@ -604,11 +882,15 @@ G.siteYield = (s, x, y) => {
     W += w;
     if (d <= 1.5 && riverSet.has(t.y * s.map + t.x)) river = true;
     if (d <= 1.5 && t.terrain === 'lake') { lake = true; water++; }
+    if (t.deposit && acc[t.deposit] !== undefined) { dep = dep || {}; dep[t.deposit] = (dep[t.deposit] || 0) + w; }
   }
   const out = {};
   for (const g in acc) out[g] = clamp(SITE_BASE[g] + 1.4 * acc[g] / W, 0.4, 1.75);
   if (river) out.grain *= 1.15;
   if (lake) out.grain *= 1.1;
+  // rich deposits (veins, quarries, old groves, black earth) lift one good well above what the terrain alone gives
+  out.deposits = [];
+  if (dep) for (const g in dep) { out[g] = Math.min(2.1, out[g] * (1 + Math.min(DEPOSIT_MAX, DEPOSIT_PER * dep[g]))); out.deposits.push(g); }
   out.river = river; out.lake = lake; out.water = water;
   out.prosper = 1 + (river ? 0.1 : 0) + (lake ? 0.05 : 0);
   return out;
@@ -623,7 +905,7 @@ G.siteFit = (site, race) => Object.entries(DATA.homeland[race].seeks).reduce((a,
 
 // inland seas with a few islands; capitals stay connected by land (bridges are carved if needed)
 const makeSeas = (s, capitals) => {
-  const n = s.map >= 25 ? 2 : 1;
+  const n = s.map >= 25 ? Math.max(2, Math.round(s.map * s.map / 550)) : 1;   // two in the classic 31-tile world, more in larger ones
   for (let k = 0; k < n; k++) {
     const c = G.freeTile(s, t => capitals.every(cp => dist(cp, t) >= 7));
     if (!c) continue;
@@ -660,6 +942,86 @@ const paintHomeland = (s, cx, cy, race) => {
     if (p && Math.random() < p && !(t.terrain === 'lake' && d > 1.5)) t.terrain = roll();
   }
   G.tileAt(s, cx, cy).terrain = pref[0][0] === 'mountain' ? 'hills' : pref[0][0];
+};
+
+// ---- regional terrain: broad biomes from low-frequency noise ----------------
+// smooth value noise on a coarse lattice (cell = feature size in tiles), bilinear with smoothstep
+const valueNoise = (N, cell) => {
+  const gw = Math.ceil(N / cell) + 2, g = new Float32Array(gw * gw);
+  for (let i = 0; i < g.length; i++) g[i] = Math.random();
+  const ox = Math.random() * cell, oy = Math.random() * cell, sm = t => t * t * (3 - 2 * t);
+  const out = new Float32Array(N * N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const fx = (x + ox) / cell, fy = (y + oy) / cell, ix = Math.floor(fx), iy = Math.floor(fy), tx = sm(fx - ix), ty = sm(fy - iy);
+    const a = g[iy * gw + ix], b = g[iy * gw + ix + 1], c = g[(iy + 1) * gw + ix], d = g[(iy + 1) * gw + ix + 1];
+    out[y * N + x] = (a + (b - a) * tx) + ((c + (d - c) * tx) - (a + (b - a) * tx)) * ty;
+  }
+  return out;
+};
+const fbm = (N, cell) => { const a = valueNoise(N, cell), b = valueNoise(N, cell / 2.2), c = valueNoise(N, cell / 5); for (let i = 0; i < a.length; i++) a[i] = a[i] * 0.62 + b[i] * 0.28 + c[i] * 0.1; return a; };
+const quantile = (arr, q) => { const v = Array.from(arr).sort((a, b) => a - b); return v[Math.min(v.length - 1, Math.floor(q * v.length))]; };
+// elevation makes broad hill country with mountain cores; moisture splits the lowlands into deep forest,
+// fertile vales and open steppe. Feature sizes are in tiles, so larger worlds get more regions, not bigger ones.
+G.WORLD_GEN = { elevCell: 11, moistCell: 9, mountain: 0.915, hills: 0.75, forest: 0.68, fertileM: 0.42, fertileE: 0.5, speckle: 0.05, valley: 0.5, depositArea: 150 };
+const genTerrain = s => {
+  const N = s.map, W = G.WORLD_GEN;
+  const E = fbm(N, W.elevCell), M = fbm(N, W.moistCell);
+  const eM = quantile(E, W.mountain), eH = quantile(E, W.hills), eF = quantile(E, W.fertileE), mF = quantile(M, W.forest), mV = quantile(M, W.fertileM);
+  const mixed = ['plains', 'plains', 'fertile', 'forest', 'hills'];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const i = y * N + x, e = E[i], m = M[i];
+    let terrain = e >= eM ? 'mountain' : e >= eH ? 'hills' : m >= mF ? 'forest' : (m >= mV && e < eF) ? 'fertile' : 'plains';
+    if (Math.random() < W.speckle) terrain = pick(mixed);      // a copse on the steppe, a knoll in the vale
+    s.tiles.push({ x, y, terrain, city: null, camp: null });
+  }
+  // small lakes in the low basins
+  for (let k = 0; k < Math.round(N * N / 110); k++) {
+    let t = null;
+    for (let tries = 0; tries < 30 && !t; tries++) { const c = s.tiles[rint(0, N * N - 1)]; if (E[c.y * N + c.x] < eF && c.x >= 2 && c.y >= 2 && c.x < N - 2 && c.y < N - 2) t = c; }
+    if (!t) continue;
+    const r = rnd(1, 1.8);
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const u = G.tileAt(s, t.x + dx, t.y + dy); if (u && Math.hypot(dx, dy) + rnd(0, 1.2) <= r) u.terrain = 'lake'; }
+  }
+  return E;
+};
+// rivers carve fertile valleys through the lowlands
+const riverValleys = s => {
+  const N = s.map, near = new Set();
+  for (const r of s.rivers || []) for (const i of r) { const x = i % N, y = (i - x) / N; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const t = G.tileAt(s, x + dx, y + dy); if (t) near.add(t); } }
+  for (const t of near) if ((t.terrain === 'plains' || t.terrain === 'forest') && !t.city && Math.random() < G.WORLD_GEN.valley) t.terrain = 'fertile';
+};
+// rich deposits in clusters on matching ground: ore veins in the mountains, quarries in the hills,
+// old groves in deep forest, black earth in the vales. Kept away from the capitals, so they reward expansion.
+const DEPOSIT_OF = { mountain: ['ore', 'ore', 'stone'], hills: ['stone', 'stone', 'ore'], forest: ['timber'], fertile: ['grain'] };
+const placeDeposits = (s, capitals) => {
+  const want = Math.round(s.map * s.map / G.WORLD_GEN.depositArea);
+  const seeds = [];
+  for (let tries = 0; seeds.length < want && tries < want * 40; tries++) {
+    const t = s.tiles[rint(0, s.tiles.length - 1)];
+    const kinds = DEPOSIT_OF[t.terrain];
+    if (!kinds || t.deposit || t.city || capitals.some(c => dist(c, t) < 4) || seeds.some(o => dist(o, t) < 5)) continue;
+    const good = pick(kinds);
+    seeds.push(t);
+    t.deposit = good;
+    const ring = [];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const u = G.tileAt(s, t.x + dx, t.y + dy); if (u && u !== t && !u.city && DEPOSIT_OF[u.terrain] && DEPOSIT_OF[u.terrain].includes(good) && capitals.every(c => dist(c, u) >= 3)) ring.push(u); }
+    ring.sort(() => Math.random() - 0.5).slice(0, rint(1, 3)).forEach(u => { u.deposit = good; });
+  }
+  return seeds.length;
+};
+// a capital must be viable (no good crippled) but imperfect (at least one weak good), so a second city elsewhere pays
+const tuneCapital = (s, cx, cy) => {
+  const goodTerrain = { grain: 'fertile', timber: 'forest', stone: 'hills', ore: 'hills' };
+  for (let k = 0; k < 8; k++) {
+    const y = G.siteYield(s, cx, cy);
+    const low = ['grain', 'timber', 'stone', 'ore'].filter(g => y[g] < 0.7).sort((a, b) => y[a] - y[b])[0];
+    if (!low) break;
+    // turn one outer tile into ground that yields the missing good
+    const ring = [];
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const t = G.tileAt(s, cx + dx, cy + dy), d = Math.hypot(dx, dy); if (t && d > 1 && d <= 2.3 && t.terrain !== 'lake' && t.terrain !== goodTerrain[low]) ring.push(t); }
+    if (!ring.length) break;
+    pick(ring).terrain = goodTerrain[low];
+  }
 };
 
 // ---------------------------------------------------------------------
@@ -998,8 +1360,10 @@ G.armyEdge = (s, owner, home, units) => {
   const labels = [];
   if (home && G.lvl(home, 'warpit')) labels.push({ side: 'att', label: 'War Pit drill', mult: 1 + 0.01 * G.lvl(home, 'warpit') });
   if (units.hero && G.heroLeadership) labels.push({ side: 'att', label: 'Hero\'s leadership', mult: G.heroLeadership(s, owner), kind: 'hero' });
+  const sh = (home && home.short) || {};
   const mb = G.mageBoost(s, owner, units);
-  if (mb !== 1) labels.push({ side: 'att', label: 'Battle mages', mult: mb, kind: 'mage' });
+  if (mb !== 1 && !sh.mana) labels.push({ side: 'att', label: 'Battle mages', mult: mb, kind: 'mage' });
+  if (sh.weapons && G.unitsCount(units)) labels.push({ side: 'att', label: 'Blunted weapons (no weapons at home)', mult: G.SINK.weaponsPenalty, kind: 'short' });
   return { mult: labels.reduce((a, l) => a * l.mult, 1), labels };
 };
 // a garrison's multipliers: walls, hero, mages
@@ -1056,7 +1420,11 @@ G.previewField = (s, city, tile, units, mode) => {
 
 G.cityDefense = (s, city, wallBreak = 0) => {
   const wall = Math.max(0, G.lvl(city, 'wall') - wallBreak);
-  const mult = (1 + 0.05 * wall * G.mod(s, city.owner, city, 'wall')) * (1 + 0.02 * G.lvl(city, 'runeforge'));
+  let mult = (1 + 0.05 * wall * G.mod(s, city.owner, city, 'wall')) * (1 + 0.02 * G.lvl(city, 'runeforge'));
+  // shortages: crumbling walls (no stone) and rusting armour (no iron)
+  const sh = city.short || {};
+  if (sh.stone) mult *= G.SINK.crumblePenalty;
+  if (sh.iron) mult *= G.SINK.rustPenalty;
   return { mult, flat: 10 + 5 * G.lvl(city, 'townhall') };
 };
 
@@ -1189,7 +1557,7 @@ G.resolveMove = (s, m) => {
     return;
   }
   if (m.type === 'settle') {
-    if (!tile.city && !tile.camp && !tile.oasis && !tile.ruin && G.renown(s, m.owner) >= DATA.citySlots[G.citiesOf(s, m.owner).length]) {
+    if (!tile.city && !tile.camp && !tile.oasis && !tile.ruin && G.renown(s, m.owner) >= G.citySlotRenown(s, G.citiesOf(s, m.owner).length)) {
       const nc = G.foundCity(s, m.owner, m.x, m.y, m.owner === 'p' ? `New ${pick(['Haven', 'Hope', 'Reach', 'Ford', 'Hold', 'Watch', 'Dawn', 'Mere'])}` : null);
       const rest = { ...m.units }; rest.settlers -= 1;
       G.addUnits(nc.units, rest);
@@ -1225,9 +1593,9 @@ G.resolveMove = (s, m) => {
     if (G.unitsCount(r.attLeft) && site.loot) loot = takeLoot(site.loot, 0, G.carryOf(s, m.owner, r.attLeft));
     if (r.win && G.unitsCount(defHad) > 0) me.wins = (me.wins || 0) + 1;
     let extra = '';
-    if (tile.camp && !G.unitsCount(site.units)) {
+    if (tile.camp && (!G.unitsCount(site.units) || r.win)) {   // beaten outlaws scatter: any victory razes the camp
       delete s.camps[tile.camp]; tile.camp = null;
-      extra = 'The camp was razed. Other outlaws will gather elsewhere.';
+      extra = G.unitsCount(site.units) ? 'The surviving outlaws scattered and the camp was razed. Others will gather elsewhere.' : 'The camp was razed. Other outlaws will gather elsewhere.';
     }
     if (tile.ruin && r.win && m.type !== 'adventure') { site.units = null; site.readyAt = s.time + 3600 * G.pace(s).time; extra = 'The ruins were cleared, but only a hero can find their hidden treasures.'; }
     if (tile.oasis && r.win && home && mode === 'attack') {
@@ -1349,6 +1717,75 @@ const resolveScout = (s, m, tile) => {
 // ---------------------------------------------------------------------
 // Per-city simulation step
 // ---------------------------------------------------------------------
+// upkeep and wear (G.SINK): take what is there, remember how long it went unpaid, apply shortage effects
+const shortLog = (s, city, g, on) => {
+  if (city.owner !== 'p') return;
+  if (on) G.log(s, 'p', `${DATA.goods[g] ? DATA.goods[g].icon : '🪙'} ${city.name}: ${G.SHORT_TEXT[g] || 'shortage of ' + g}`, 'bad');
+  else G.log(s, 'p', `${DATA.goods[g] ? DATA.goods[g].icon : '🪙'} ${city.name} has ${g === 'gold' ? 'gold for wages' : DATA.goods[g].name.toLowerCase()} again.`, 'good');
+};
+const wearTrack = (s, city, g, frac, kMin) => {
+  const w = city.wear || (city.wear = {});
+  const sh = city.short || (city.short = {});
+  const grace = G.SINK.grace[g] || 3;
+  if (frac > 0.001) w[g] = Math.min(grace * 3, (w[g] || 0) + frac * kMin);
+  else if (w[g]) { w[g] = Math.max(0, w[g] - 2 * kMin); if (!w[g]) delete w[g]; }
+  const was = !!sh[g], now = (w[g] || 0) >= grace || (was && (w[g] || 0) > 0);
+  if (now !== was) { if (now) sh[g] = true; else delete sh[g]; shortLog(s, city, g, now); }
+};
+// lose up to `rate`×n units per minute of the matching kind (deserters, crumbling dead)
+const desertUnits = (s, city, pred, rate, kMin, msg) => {
+  const list = Object.entries(city.units).filter(([u, c]) => u !== 'hero' && c > 0 && pred(u));
+  const n = list.reduce((a, [, c]) => a + c, 0);
+  if (!n) return;
+  city.unpaidLoss = (city.unpaidLoss || 0) + n * rate * kMin;
+  while (city.unpaidLoss >= 1) {
+    const big = Object.entries(city.units).filter(([u, c]) => u !== 'hero' && c > 0 && pred(u)).sort((a, b) => b[1] - a[1])[0];
+    if (!big) { city.unpaidLoss = 0; break; }
+    city.units[big[0]]--; if (!city.units[big[0]]) delete city.units[big[0]];
+    city.unpaidLoss -= 1;
+    if (msg && city.owner === 'p' && !(city.unpaidLogged > s.time)) { G.log(s, 'p', msg, 'bad'); city.unpaidLogged = s.time + 600; }
+  }
+};
+const payUpkeep = (s, city, e, k) => {
+  const emp = s.empires[city.owner];
+  const K = G.SINK;
+  city.short = city.short || {};
+  for (const g of Object.keys(K.grace)) {
+    if (g === 'gold') continue;
+    const need = (e.use[g] || 0) * k;
+    if (need <= 0) { wearTrack(s, city, g, 0, k); continue; }
+    const take = Math.min(Math.max(0, city.res[g] || 0), need);
+    city.res[g] = (city.res[g] || 0) - take;
+    wearTrack(s, city, g, (need - take) / need, k);
+  }
+  // luxuries: worn while there are any (no penalty beyond losing their cheer)
+  for (const g of Object.keys(G.LUXURY)) { const need = (e.use[g] || 0) * k; if (need > 0) city.res[g] = Math.max(0, (city.res[g] || 0) - need); }
+  // wages come from the realm's treasury
+  const wages = e.wages * k;
+  if (wages > 0) {
+    const take = Math.min(Math.max(0, emp.gold), wages);
+    emp.gold -= take;
+    wearTrack(s, city, 'gold', (wages - take) / wages, k);
+  } else wearTrack(s, city, 'gold', 0, k);
+  const sh = city.short;
+  // shortage effects that act on the city itself (the others live in G.mod, G.armyEdge, G.cityDefense and happiness)
+  if (sh.timber && G.season && G.season(s).index === 3) city.pop = Math.max(3, city.pop - city.pop * K.coldPopLoss * k);
+  if (sh.stone && G.lvl(city, 'wall') > 0) {
+    city.wallWear = (city.wallWear || 0) + k / (K.wallDecayMins * G.pace(s).time);
+    if (city.wallWear >= 1) {
+      city.wallWear = 0; city.buildings.wall--;
+      if (!city.buildings.wall) delete city.buildings.wall;
+      G.log(s, city.owner, `🧱 Without stone for repairs, the walls of ${city.name} crumble (level ${G.lvl(city, 'wall')}).`, 'bad');
+    }
+  } else if (city.wallWear) city.wallWear = Math.max(0, city.wallWear - k / (K.wallDecayMins * G.pace(s).time));
+  if (sh.gold) desertUnits(s, city, u => DATA.units[u] && DATA.units[u].at && DATA.units[u].type !== 'civ', K.unpaidDesert, k, `🪙 Unpaid soldiers are deserting ${city.name}!`);
+  if (sh.bonedust) desertUnits(s, city, isUndead, K.unboundDesert, k, `🦴 Without bonedust, the dead of ${city.name} crumble back to dust.`);
+  if (sh.mana && (city.ward || 0) > s.time) { city.ward = s.time; G.log(s, city.owner, `✨ The ward over ${city.name} fails: no mana to hold it.`, 'bad'); }
+};
+
+// shortage effects through the modifier aggregator: worn-out tools slow raw goods
+G.modSources.push((s, owner, city, key) => (city && city.short && city.short.tools && DATA.goods[key] && DATA.goods[key].raw) ? G.SINK.toolsPenalty : 1);
+
 const stepCity = (s, city, dt, away) => {
   const emp = s.empires[city.owner];
   const e = G.econ(s, city, away);
@@ -1399,6 +1836,7 @@ const stepCity = (s, city, dt, away) => {
   }
 
   emp.gold += e.tax * k;
+  payUpkeep(s, city, e, k);
   city.loyalty = Math.min(100, (city.loyalty ?? 100) + 0.4 * (1 + 0.25 * Math.max(0, (s.maxCities || 1) - G.citiesOf(s, city.owner).length)) * k);
   if (city.mods && city.mods.length) city.mods = city.mods.filter(md => md.until > s.time);
 
@@ -1501,6 +1939,9 @@ const aiBuildChoice = (s, city) => {
   const emp = s.empires[city.owner];
   const cands = [];
   const nearCap = DATA.goodOrder.some(g => (city.res[g] || 0) > e.cap * 0.8);
+  const sh = city.short || {};
+  // short of an upkeep good, or running dry fast
+  const lack = g => sh[g] || ((e.net[g] || 0) < 0 && (city.res[g] || 0) < Math.max(30, e.cap * 0.05));
   for (const t of DATA.buildingOrder) {
     const st = G.buildStatus(s, city, t);
     if (st.hidden || st.maxed || st.locked) continue;
@@ -1512,13 +1953,13 @@ const aiBuildChoice = (s, city) => {
       case 'houses': w += city.pop >= e.popCap * 0.9 ? 70 : 5; break;
       case 'warehouse': w += nearCap ? 60 : 0; break;
       case 'townhall': w += 25 + (L <= 3 ? 20 : 0); break;
-      case 'lumber': w += 28 - L + ((city.res.timber || 0) < e.cap * 0.15 ? 25 : 0); break;
-      case 'quarry': w += 28 - L + ((city.res.stone || 0) < e.cap * 0.15 ? 25 : 0); break;
-      case 'mine': w += 22 - L + ((city.res.ore || 0) < e.cap * 0.15 ? 20 : 0); break;
+      case 'lumber': w += 28 - L + ((city.res.timber || 0) < e.cap * 0.15 ? 25 : 0) + (lack('timber') ? 40 : 0); break;
+      case 'quarry': w += 28 - L + ((city.res.stone || 0) < e.cap * 0.15 ? 25 : 0) + (lack('stone') ? 40 : 0); break;
+      case 'mine': w += 22 - L + ((city.res.ore || 0) < e.cap * 0.15 ? 20 : 0) + (lack('ore') ? 20 : 0); break;
       case 'workshop': w += G.aiPressure(s) > 0.6 ? 10 + emp.aggr * 15 - L * 2 : -30; break;
-      case 'smelter': w += 22 - L; break;
-      case 'smithy': w += (city.res.tools || 0) < 20 ? 30 : 5; break;
-      case 'armory': w += 22 - L + emp.aggr * 10; break;
+      case 'smelter': w += 22 - L + (lack('iron') ? 35 : 0); break;
+      case 'smithy': w += ((city.res.tools || 0) < 20 ? 30 : 5) + (lack('tools') ? 45 : 0); break;
+      case 'armory': w += 22 - L + emp.aggr * 10 + (lack('weapons') ? 40 : 0); break;
       case 'barracks': w += 15 + emp.aggr * 10 - L; break;
       case 'stable': w += emp.aggr * 12 - L; break;
       case 'wall': w += L >= th + 1 ? -60 : 10 + (1 - emp.aggr) * 12 - L + G.aiPressure(s) * 10; break;
@@ -1629,23 +2070,54 @@ const aiMarket = (s, city) => {
   for (const g of ['grain', 'timber', 'stone']) {
     if ((city.res[g] || 0) < cap * 0.1 && emp.gold > (emp.saving ? 1000 : 400)) G.trade(s, city.id, g, Math.min(cap * 0.2, emp.gold / 4 / G.marketRates(s, city, g).buy), 'buy');
   }
+  // upkeep goods it cannot make enough of: buy half an hour's worth when they run out
+  const sh = city.short || {};
+  const need = ['tools', 'weapons', 'iron', 'bonedust', 'timber', 'stone'].filter(g => sh[g] || ((city.res[g] || 0) < 3 && G.SINK.grace[g] && (city.wear || {})[g] > 0));
+  if (need.length && emp.gold > (emp.saving ? 800 : 300)) {
+    const e = G.econ(s, city);
+    for (const g of need) {
+      const n = Math.ceil(Math.min(cap * 0.2, Math.max(10, (e.use[g] || 0) * 30), emp.gold / 6 / G.marketRates(s, city, g).buy));
+      if (n > 0) G.trade(s, city.id, g, n, 'buy');
+    }
+  }
 };
 
+// what a realm's land lacks: 0 for goods its cities already yield well, up to ~1 for goods all its sites are poor in
+G.realmLack = (s, empId) => {
+  const cities = G.citiesOf(s, empId), out = { grain: 0, timber: 0, stone: 0, ore: 0 };
+  if (!cities.length) return out;
+  for (const g in out) {
+    const best = Math.max(...cities.map(c => G.site(s, c)[g]));
+    const avg = cities.reduce((a, c) => a + G.site(s, c)[g], 0) / cities.length;
+    out[g] = clamp((1.15 - (best + avg) / 2) * 2.5, 0, 1.2);
+  }
+  return out;
+};
+// how much an AI realm wants a site: its people's taste plus the goods its other cities lack (so new towns fill the gaps
+// and the realm spreads into other lands instead of cloning its homeland)
+G.aiSiteValue = (s, emp, site, lack) => {
+  let v = 4 * 0.6 * G.siteFit(site, emp.race);
+  for (const g in lack) v += 4 * lack[g] * Math.max(0, site[g] - 1);
+  return v;
+};
+const AI_SETTLE_RANGE = G.AI_SETTLE_RANGE = 9;   // how far from one of its cities an AI realm looks for a new site
 const aiExpand = (s, empId) => {
   const cities = G.citiesOf(s, empId);
   const emp = s.empires[empId];
-  if (!G.canFoundCity(s, empId) || cities.length >= 7) { emp.saving = false; return; }
+  if (!G.canFoundCity(s, empId) || cities.length >= G.aiCityCap(s)) { emp.saving = false; return; }
   const ov = emp.overseas;
   for (const c of cities) {
     if ((c.units.settlers || 0) > 0) {
       let best = null, bd = 1e9;
-      for (const t of s.tiles) {
+      const lack = G.realmLack(s, empId), R = AI_SETTLE_RANGE, all = Object.values(s.cities);
+      for (let y = Math.max(0, c.y - R); y <= Math.min(s.map - 1, c.y + R); y++) for (let x = Math.max(0, c.x - R); x <= Math.min(s.map - 1, c.x + R); x++) {
+        const t = s.tiles[y * s.map + x];
         if (t.city || t.camp || t.oasis || t.ruin || DATA.terrain[t.terrain].impassable) continue;
         const d = dist(t, c);
-        if (d < 3 || d > 7) continue;
-        if (Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
+        if (d < 3 || d > R) continue;
+        if (all.some(o => dist(o, t) < 2.8)) continue;
         if (!G.landReachable(s, c, t)) continue;
-        let score = d * 0.4 + rnd(0, 1) - 4 * G.siteFit(G.siteYield(s, t.x, t.y), emp.race);
+        let score = d * 0.4 + rnd(0, 1) - G.aiSiteValue(s, emp, G.siteYield(s, t.x, t.y), lack);
         if (ov && ov.seas.length && G.coastal(s, t.x, t.y) && G.seasOf(s, t.x, t.y).some(w => ov.seas.includes(w))) score -= 3;   // a port on the water we need
         if (score < bd) { bd = score; best = t; }
       }
@@ -1655,7 +2127,7 @@ const aiExpand = (s, empId) => {
         for (const i of ov.settle) {
           const t = s.tiles[i];
           if (t.city || t.camp || t.oasis || t.ruin || Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
-          const score = dist(t, c) * 0.4 + rnd(0, 1) - 4 * G.siteFit(G.siteYield(s, t.x, t.y), emp.race) - (best ? 0 : 2);
+          const score = dist(t, c) * 0.4 + rnd(0, 1) - G.aiSiteValue(s, emp, G.siteYield(s, t.x, t.y), lack) - (best ? 0 : 2);
           if (score < bd && G.planMarch(s, empId, c, t, { settlers: 1, transport: 1 }).ok) { bd = score; best = t; sea = true; }
         }
       }
@@ -1701,14 +2173,14 @@ G.aiOverseas = (s, empId, force) => {
     else for (const w of seas) want.add(w);
   };
   // islands: free shore tiles in a land region none of our cities stands on
-  if (cities.length < 7) {
-    const cands = [];
+  if (cities.length < G.aiCityCap(s)) {
+    const cands = [], lack = G.realmLack(s, empId);
     for (let i = 0; i < s.tiles.length; i++) {
       const t = s.tiles[i];
       if (G.isWater(t) || t.city || t.camp || t.oasis || t.ruin || DATA.terrain[t.terrain].impassable || mine.has(comp[i]) || !G.coastal(s, t.x, t.y)) continue;
       const d = near(t);
       if (d > 12 || Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
-      cands.push({ t, i, score: d * 0.4 - 4 * G.siteFit(G.siteYield(s, t.x, t.y), emp.race) });
+      cands.push({ t, i, score: d * 0.4 - G.aiSiteValue(s, emp, G.siteYield(s, t.x, t.y), lack) });
     }
     cands.sort((a, b) => a.score - b.score);
     for (const c of cands.slice(0, 8)) consider(c.t, res.settle, c.i, 3);
@@ -1734,7 +2206,7 @@ const aiNaval = (s, empId) => {
   const ov = G.aiOverseas(s, empId);
   const pressure = G.aiPressure(s);
   const cities = G.citiesOf(s, empId);
-  const wantSettle = ov.settle.length > 0 && cities.length < 7 && G.renown(s, empId) >= 0.75 * G.nextCityRenown(s, empId);
+  const wantSettle = ov.settle.length > 0 && cities.length < G.aiCityCap(s) && G.renown(s, empId) >= 0.75 * G.nextCityRenown(s, empId);
   const wantWar = ov.war.length > 0 && pressure > 0.3;
   if (!wantSettle && !wantWar) return;
   const useful = new Set();
@@ -1839,7 +2311,7 @@ const aiWar = (s, empId) => {
       const p = o.owner === 'p' ? pressure * s.settings.hostility : 0.6;
       if (A > d * 1.3 && Math.random() < emp.aggr * hate * p) {
         const myN = G.citiesOf(s, empId).length, theirN = G.citiesOf(s, o.owner).length;
-        const conquer = (c.units.herald || 0) > 0 && pressure > 0.7 && A > d * 2 && myN <= theirN + 2 && myN < 8;
+        const conquer = (c.units.herald || 0) > 0 && pressure > 0.7 && A > d * 2 && myN <= theirN + 2 && myN < G.aiCityCap(s) + 1;
         targets.push({ x: o.x, y: o.y, score: dist(c, o) - (o.owner === 'p' ? 8 : 0), type: conquer ? 'conquer' : 'raid', far: o.owner === 'p' ? 17 : 13, d });
       }
     }
@@ -1925,30 +2397,27 @@ G.advance = (s, gameSeconds, maxSteps = 4000) => {
 // ---------------------------------------------------------------------
 // World generation / new game
 // ---------------------------------------------------------------------
+// world sizes: Small is the classic map; Normal (the default) and Large leave room for a realm of many cities in different lands
+G.WORLD_SIZES = {
+  small: { name: 'Small', base: 31, per: 4, min: 31 },
+  normal: { name: 'Normal', base: 52, per: 7, min: 44 },
+  large: { name: 'Large', base: 64, per: 7, min: 56 },
+};
+G.worldSizeFor = (key, rivals) => { const w = G.WORLD_SIZES[key] || G.WORLD_SIZES.normal; return Math.max(w.min, w.base + w.per * ((rivals || 3) - 3)); };
 G.newGame = (opts) => {
   const { name, cityName, race, difficulty = 'normal', pace = 'standard', mode = 'conquest' } = opts;
   const rivals = G.clamp(Math.round(opts.rivals || 3), 1, DATA.raceOrder.length - 1);
-  const size = opts.size || 31 + 4 * Math.max(0, rivals - 3);   // the world grows with the number of rivals
+  const worldSize = G.WORLD_SIZES[opts.worldSize] ? opts.worldSize : 'normal';
+  const size = opts.size || G.worldSizeFor(worldSize, rivals);   // the world grows with the number of rivals
   const s = {
     version: G.VERSION, time: 0, nextId: 1, realLast: Date.now(), map: size,
-    settings: { speed: 1, pace, mode, difficulty, aiMult: { easy: 0.75, normal: 1, hard: 1.3 }[difficulty], hostility: { easy: 0.5, normal: 0.85, hard: 1.25 }[difficulty] },
+    settings: { speed: 1, pace, mode, difficulty, worldSize, aiMult: { easy: 0.75, normal: 1, hard: 1.3 }[difficulty], hostility: { easy: 0.5, normal: 0.85, hard: 1.25 }[difficulty] },
     empires: {}, cities: {}, camps: {}, tiles: [], special: [], moves: [], reports: [], log: [], intel: {}, stats: {},
+    // brigand camps: the classic density on small maps, a little thinner in larger worlds (open land ringed every realm with camps)
     campTarget: Math.round(size * size / 42),
   };
   s.explored = new Array(size * size).fill(0);
-  const types = ['fertile', 'forest', 'hills', 'mountain', 'plains', 'plains'];
-  const seeds = [];
-  for (let i = 0; i < Math.round(size * size / 13); i++) seeds.push({ x: rnd(0, size), y: rnd(0, size), t: pick(types) });
-  for (let i = 0; i < Math.round(size * size / 110); i++) seeds.push({ x: rnd(2, size - 2), y: rnd(2, size - 2), t: 'lake', r: rnd(1, 1.8) });
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    let best = null, bd = 1e9;
-    for (const sd of seeds) {
-      let d = Math.hypot(sd.x - x, sd.y - y) + rnd(0, 1.2);
-      if (sd.t === 'lake') { if (d > sd.r) continue; d -= 10; }
-      if (d < bd) { bd = d; best = sd; }
-    }
-    s.tiles.push({ x, y, terrain: best.t, city: null, camp: null });
-  }
+  genTerrain(s);
 
   s.empires.p = { id: 'p', name: name || 'Your Realm', race, gold: 250, color: DATA.empireColors[0], aggr: 0 };
   // rivals: a random selection of the other peoples (the classic four first when only 3 rivals are chosen)
@@ -1956,7 +2425,7 @@ G.newGame = (opts) => {
   const classic = others.filter(r => ['hearth', 'delver', 'sylvan', 'ash'].includes(r)).sort(() => Math.random() - 0.5);
   const fresh = others.filter(r => !classic.includes(r)).sort(() => Math.random() - 0.5);
   const chosen = (opts.rivalRaces && opts.rivalRaces.length ? opts.rivalRaces : (rivals <= 3 ? [...classic, ...fresh] : [...classic, ...fresh].sort(() => Math.random() - 0.5))).slice(0, rivals);
-  const AGGR = { ash: 0.65, delver: 0.4, sylvan: 0.45, hearth: 0.35 };   // ash was 0.75: its camp-raiding renown ran ~30% above the other peoples (tests/parity.js)
+  const AGGR = { ash: 0.55, delver: 0.4, sylvan: 0.45, hearth: 0.35 };   // ash was 0.75, then 0.65: its camp-raiding renown ran 20-30% above the other peoples (tests/parity.js; more open land in larger worlds)
   chosen.forEach((r, i) => {
     const id = 'a' + (i + 1);
     s.empires[id] = { id, name: DATA.aiRulers[r], race: r, gold: 250, color: DATA.races[r].color, aggr: DATA.races[r].aggr ?? AGGR[r] ?? 0.45 };
@@ -1966,10 +2435,16 @@ G.newGame = (opts) => {
   const c = (size - 1) / 2;
   // choose capital sites first, paint each people's homeland around them, then found the cities
   const pt = G.freeTile(s, t => Math.hypot(t.x - c, t.y - c) < 4) || G.freeTile(s, () => true);
+  // rivals ring the player at a fixed marching distance (first contact within an hour or two whatever the world size);
+  // the rest of a larger world is open frontier to settle
+  const nR = aiIds.length, big = size > 40;
+  const spreadF = nR <= 3 ? 0.38 : nR <= 5 ? 0.3 : 0.24;
+  const minP = big ? 12 + 0.8 * Math.max(0, nR - 3) : size * 0.33, maxP = big ? minP + 5 : Infinity;
+  const minA = big ? Math.min(size * spreadF, 2 * minP * Math.sin(Math.PI / Math.max(2, nR)) * 0.85, 13) : size * spreadF;
   const ais = [];
-  for (const id of aiIds) {
-    const spread = aiIds.length <= 3 ? 0.38 : aiIds.length <= 5 ? 0.3 : 0.24;
-    const t = G.freeTile(s, t => dist(t, pt) >= size * 0.33 && ais.every(a => dist(a, t) >= size * spread))
+  for (let k = 0; k < nR; k++) {
+    const t = G.freeTile(s, t => dist(t, pt) >= minP && dist(t, pt) <= maxP && ais.every(a => dist(a, t) >= minA))
+      || G.freeTile(s, t => dist(t, pt) >= minP * 0.8 && dist(t, pt) <= maxP + 3 && ais.every(a => dist(a, t) >= minA * 0.7))
       || G.freeTile(s, t => dist(t, pt) >= size * 0.25 && ais.every(a => dist(a, t) >= 6))
       || G.freeTile(s, t => dist(t, pt) >= 7);
     ais.push(t);
@@ -1978,6 +2453,11 @@ G.newGame = (opts) => {
   aiIds.forEach((id, i) => paintHomeland(s, ais[i].x, ais[i].y, s.empires[id].race));
   makeSeas(s, [pt, ...ais]);
   s.rivers = G.genRivers(s);
+  riverValleys(s);
+  tuneCapital(s, pt.x, pt.y);
+  ais.forEach(t => tuneCapital(s, t.x, t.y));
+  placeDeposits(s, [pt, ...ais]);
+  G.clearPaths(s);
   const pc = G.foundCity(s, 'p', pt.x, pt.y, cityName || 'Hearthstead', { grain: 450, timber: 750, stone: 700, ore: 200 });
   pc.pop = 12; pc.buildings.mine = 1;
 
@@ -1991,17 +2471,19 @@ G.newGame = (opts) => {
   for (let i = 0; i < s.campTarget; i++) G.spawnCamp(s);
 
   const goods = ['grain', 'timber', 'stone', 'ore'];
+  // danger grows with the distance from the player (rival capitals sit at a fixed distance, as on the classic map)
+  const capD = t => dist(t, pt);
   for (let i = 0; i < Math.round(size * size / 60); i++) {
     const t = G.freeTile(s, x => Object.values(s.cities).every(cc => dist(cc, x) >= 2));
     if (!t) continue;
-    const tier = clamp(Math.round(dist(t, pt) / 5 + rnd(-0.5, 0.5)), 1, 5);
+    const tier = clamp(Math.round(capD(t) / 5 + rnd(-0.5, 0.5)), 1, 5);
     t.oasis = { bonus: pick(goods), mult: 0.25, tier, owner: null, units: { beast: tier * tier * 5 + 3 } };
     s.special.push(t);
   }
   for (let i = 0; i < Math.round(size * size / 90); i++) {
     const t = G.freeTile(s, x => Object.values(s.cities).every(cc => dist(cc, x) >= 3));
     if (!t) continue;
-    t.ruin = { tier: clamp(Math.round(dist(t, pt) / 5 + rnd(-0.5, 1)), 1, 5), readyAt: 0, units: null };
+    t.ruin = { tier: clamp(Math.round(capD(t) / 5 + rnd(-0.5, 1)), 1, 5), readyAt: 0, units: null };
     s.special.push(t);
   }
 
@@ -2029,6 +2511,7 @@ G.migrate = s => {
   for (const c of Object.values(s.cities)) {
     c.oases = c.oases || []; c.mods = c.mods || []; c.train = c.train || {}; c.refineOff = c.refineOff || {};
     c.buildQueue = c.buildQueue || []; c.units = c.units || {}; c.taxPolicy = c.taxPolicy || 'normal';
+    c.short = c.short || {}; c.wear = c.wear || {};
     for (const g of DATA.goodOrder) c.res[g] = c.res[g] || 0;
   }
   for (const e of Object.values(s.empires)) { e.upgrades = e.upgrades || {}; e.traditions = e.traditions || []; e.culture = e.culture || 0; e.cultureTotal = e.cultureTotal || 0; }

@@ -140,7 +140,8 @@ const makeMinor = (s, t, kind, race, used) => {
 G.placeMinors = s => {
   s.minors = s.minors || {};
   const rivals = Object.keys(s.empires).filter(id => id !== 'p').length;
-  const want = G.clamp(rivals + 2, 3, 9);
+  // about one per rival plus two on the classic 31-tile world, scaled by the world's width
+  const want = G.clamp(Math.round((rivals + 2) * Math.sqrt((s.map * s.map) / 961)), 3, 16);
   const cap = G.capital(s, 'p');
   const leyN = (s.ley && s.ley.nodes) || [];
   const used = new Set(Object.values(s.minors).map(m => m.name));
@@ -436,7 +437,7 @@ const anger = (s, mi, owner, type) => {
 const capture = (s, mi, owner, garrison) => {
   const t = G.tileAt(s, mi.x, mi.y);
   const emp = s.empires[owner];
-  const canCity = G.canFoundCity(s, owner) && (owner === 'p' || G.citiesOf(s, owner).length < M.maxCitiesAI);
+  const canCity = G.canFoundCity(s, owner) && (owner === 'p' || G.citiesOf(s, owner).length < (G.aiCityCap ? G.aiCityCap(s) : M.maxCitiesAI));
   for (const o of Object.values(s.minors)) if (o !== mi) { addInf(s, o, owner, -M.conquestLoss); o.grudge[owner] = s.time + 2 * M.grudgeMins * 60 * paceT(s); updatePatron(s, o); }
   if (owner === 'p' && G.rel) for (const e of Object.values(s.empires)) if (e.id !== 'p' && !e.dead) { const r = G.rel(s, e.id); r.opinion = G.clamp(r.opinion - 10, -100, 100); }
   const wasPatron = mi.patron;

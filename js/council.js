@@ -318,6 +318,15 @@
         }
       }
     }
+    // upkeep goods running out (tools, weapons, iron, firewood, stone, bonedust): buy half an hour's worth
+    const lack = ['tools', 'weapons', 'iron', 'timber', 'stone', 'bonedust'].filter(gd => (city.short || {})[gd] || ((e.use && e.use[gd]) > 0 && (e.net[gd] || 0) < 0 && (city.res[gd] || 0) < -(e.net[gd]) * 10));
+    for (const gd of lack) {
+      const n = Math.ceil(Math.min(e.cap * 0.2 - (city.res[gd] || 0), Math.max(10, (e.use[gd] || 0) * 30)));
+      if (!(n > 0)) continue;
+      const price = n * G.marketRates(s, city, gd).buy;
+      if (emp.gold - price < (g.reserve || 0) + 100) continue;
+      if (G.trade(s, city.id, gd, n, 'buy') === null) govLog(s, g, `Bought ${n} ${DATA.goods[gd].name.toLowerCase()} for upkeep (${Math.round(price)} gold)`);
+    }
     const want = g.wait && g.wait.saving;
     if (!want) return;
     const st = G.buildStatus(s, city, want);
@@ -419,6 +428,26 @@
         if (f !== undefined && f < 0.5) {
           const lack = Object.keys(r.in).filter(g => (c.res[g] || 0) < 5).map(g => DATA.goods[g].name.toLowerCase());
           add('steward', `refine:${c.id}:${r.type}`, 32, `The ${bname(r.type)} in ${c.name} works at ${Math.round(f * 100)}% — ${lack.length ? 'short of ' + lack.join(' and ') : 'its output has no room in storage'}.`, cityAct(c, 'Open city', r.type));
+        }
+      }
+      // upkeep shortages: firewood, repairs, tools, weapons, wages, bonedust
+      const FIX = { timber: 'lumber', stone: 'quarry', iron: 'smelter', tools: 'smithy', weapons: 'armory', bonedust: 'ossuary', mana: 'magetower' };
+      for (const gd of Object.keys(c.short || {})) {
+        if (gd === 'gold') { add('steward', `short:${c.id}:gold`, 70, `The treasury is empty and the soldiers of ${c.name} go unpaid (${rate(-(e.wages || 0))} gold/min in wages): they grumble and some desert. Raise taxes, sell goods or dismiss troops.`, tabAct('market', 'Open market', c)); continue; }
+        if (!DATA.goods[gd]) continue;
+        const b = FIX[gd];
+        const act = b && DATA.buildings[b] && canBuild(s, c, b) ? buildAct(c, b, G.nextLevel(c, b)) : G.lvl(c, 'market') ? tabAct('market', 'Buy ' + DATA.goods[gd].name.toLowerCase(), c) : cityAct(c, 'Open city', b);
+        add('steward', `short:${c.id}:${gd}`, gd === 'timber' && se.index === 3 ? 78 : 58, `${c.name} has run out of ${DATA.goods[gd].icon} ${DATA.goods[gd].name.toLowerCase()} (uses ${rate(-((e.use && e.use[gd]) || 0))}/min). ${G.SHORT_TEXT[gd] || ''}`, act);
+      }
+      // firewood before winter: the cold burns much more timber
+      if (G.firewoodSeason && (se.index === 2 || (se.index === 1 && se.progress > 0.75)) && !(c.short || {}).timber) {
+        const fw = ((e.sinks && e.sinks.timber) || []).find(l => /^Firewood/.test(l.label));
+        if (fw) {
+          const now = -fw.amount, winter = now / Math.max(0.2, G.firewoodSeason(s, 'p')) * (1 + (DATA.firewoodSeason[3] - 1) * ((DATA.seasonRace[s.empires.p.race] || [1, 1, 1, 1])[3]));
+          const winterNet = e.net.timber + now - winter;
+          if (winterNet < 0 && (c.res.timber || 0) < -winterNet * 7200 * paceT(s) / 60)
+            add('steward', `firewood:${c.id}`, 44, `Winter will burn about ${Math.round(winter)} timber a minute as firewood in ${c.name}, more than it cuts. Stock timber or raise the lumber camp, or the people will freeze.`,
+              canBuild(s, c, 'lumber') ? buildAct(c, 'lumber', G.nextLevel(c, 'lumber')) : cityAct(c, null, 'lumber'));
         }
       }
       // the year: stock grain before winter

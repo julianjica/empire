@@ -99,7 +99,7 @@
     },
     {
       id: 'queue', title: 'The construction queue', manual: true,
-      view: c => onCity(queueCard, `<p>Here is everything your builders are working on. The bar fills as work goes on, and the ✕ cancels a job (with a refund).</p><p>You have <b>${G.buildSlots ? G.buildSlots(c) : 1}</b> building slot${G.buildSlots && G.buildSlots(c) === 1 ? '' : 's'}; a bigger Town Hall builds faster.</p>${speedHint}`),
+      view: c => onCity(queueCard, `<p>Here is everything your builders are working on. The bar fills as work goes on, and the ✕ cancels a job (with a refund).</p><p>Queue as many works as you can pay for: each is paid when you queue it, and your builders finish them one after another. A bigger Town Hall builds faster.</p>${speedHint}`),
     },
     {
       id: 'heroPoints', title: 'Your hero',

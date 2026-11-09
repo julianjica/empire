@@ -5,6 +5,74 @@
 //  at night) only when the layout changes; each animation frame composites
 //  them and adds smoke, villagers, soldiers, flags, weather and lighting.
 //  Defines cityViewHtml(city) and registers a MOUNT_HOOKS entry.
+//
+//  CITYART hook (contract: js/cityart.js). Before drawing any building
+//  cityview calls CITYART[race][type](api, slot, L, band, ctx); a returned
+//  number is the building's top z (used for its hit area and finial), and
+//  undefined/false/null (or a throw, warned once) falls back to the stock art.
+//  Instead of a number an override may return an OBJECT:
+//    { top, noDress: true | ['stock','fence','sign','lamps','finial'], noFinial: true,
+//      finial: [gx, gy] (move the gilded finial), noTech: true | ['metallurgy','bellows',
+//      'guilds','granaries','deepshafts','sawpits'], hit: [[gx, gy, w, d, h], …] }
+//  (hit boxes in grid tiles + height in px; without them an override's hit area is the
+//  whole slot up to top — except townhall / magetower / mine, which keep their shaped stock
+//  areas: the hall + back-right tower, the slender tower, the mine mouth). Numbers keep working.
+//  Types: every BLD type (townhall, warehouse, market, smelter, …, the
+//  people's unique building, generic spare-plot buildings by their own type),
+//  'cottage' (slot [gx, gy, 1.3, 1.2], ctx.i = cottage index), 'wall'
+//  (called per wall piece; slot = its footprint; ctx.side 'N'|'S'|'W'|'E',
+//  ctx.a/ctx.b = span along the side, ctx.along = runs along gx, ctx.thick),
+//  'walltower' (slot [gx-.45, gy-.45, .9, .9]; ctx.corner, ctx.side (null at a
+//  corner), ctx.gx/gy), 'gate' (main road; slot = gatehouse footprint) and 'postern'
+//  (track only) with ctx.side, along, fixed (the wall line), g0/g1 (the opening);
+//  all wall pieces get ctx.wallLevel, ctx.wallBand (= band), ctx.fortified.
+//  Shore pieces get ctx.coastal = true plus the shore (see shoreCtx): edge, along,
+//  a/b, u0, span, piers [u…], depth(u), pt(dd, u) -> [gx, gy], at(dd, u, z) -> [x, y],
+//  sea [dx, dy], front, lake: 'harbor' on a coast (slot = the harbor works' grid rect,
+//  mostly water; inland harbors keep their plot and ctx.coastal = false),
+//  'waterhome' (Tidekin homes over the water; slot [gx, gy, .9, .85], ctx.wet, u, dd,
+//  dep; falls back to the people's 'cottage' with the same ctx, then the stock stilt
+//  house; cityview always adds the boardwalk ashore / rope bridges) and 'lighthouse'
+//  (town hall 10+ on a coast: Tidekin always, any other people that registers one;
+//  slot [gx-.4, gy-.4, .8, .8], ctx.u, dd; rec('beams', {x, y}) sweeps a beam at night).
+//  The level dressing (yard stock, fence, banner, lamps, gilded finial) and
+//  tech marks are drawn after the override unless it opts out (above); api.dress
+//  and api.techMark(name, gx, gy, {n, h, col}) are there to place parts yourself.
+//  Slots are already in the city's own
+//  layout (quarters mirrored per city), so draw relative to the slot.
+//  ctx: { era 0..3, tech(id) => bool, city, season 0..3, snow, night (true in
+//    the night-lights pass: draw lit windows bright), i, building (upgrade
+//    under way), layout, active (activity state 'working'|'slow'|'idle'|'blocked'),
+//    activity, coastal (+ the extra fields above per type) }
+//  api: geometry P(gx, gy, z) -> [x, y], quad, onL/onR (points on a box's
+//    left/right face), path, poly(pts, fill, stroke, lw), line(a, b, col, lw),
+//    circ(x, y, r, fill, stroke), lamp(pts, day, night), lampDot(x, y, r, day,
+//    night), box(x, y, w, d, z, h, col) -> b, win/door/rowWins/timber/courses/
+//    planks/porthole/lancet/archDoor/slit/parapet on a box, gable(b, rh, col,
+//    axis, tex)/hip/gableQ/roofLines roofs, cone/cyl/dome(cx, cy, r, z, h, col),
+//    ell, gradFill; props chimney, flagpole, banner, pennant, lantern,
+//    floatLantern, crystal, twistLines, mushroom(Ring/House), tomb, deadTree,
+//    witchLamp, perchedHawk, netRack, shellPile, shellScales, stilts, canopy,
+//    roots, treeDecid, treePine, bush, rock, stump, log, logPile, crate,
+//    barrel, sack, haystack, fence, ironFence, firePit, skull, person, animal,
+//    stall, signBoard, scaffold, foundation, finial, techMark(name, gx, gy, {n, h, col})
+//    with name 'chimney' (= 'metallurgy' / 'bellows'), 'guilds', 'granaries', 'deepshafts',
+//    'sawpits'; Veilborn flora
+//    moonLily, silkGrass, briarRose, mirrorStone, mothPost, veilFlora(gx, gy, s, k)
+//    (mushrooms only for k > .92), stoneRing(gx, gy, r, n, part, 'mirror'|'lily'|'mixed');
+//    shore edgePt, lakeDepth, pier, pierWood, boat, shipHull, reeds, stockHarbor(),
+//    stockLighthouse(z, u, band), stockWallTower(gx, gy, band), boneVault(x, y, w, d,
+//    zb, col), hullBox, lerp2(a, b, t), roofCol(col) (snow-aware), MAGECOL (per
+//    people 'rgba(r,g,b,A)'), magicCol (this people's); whole stock pieces
+//    hall(x, y, w, d, H, band, o)/tower(...) and BLD (stock drawings);
+//    rec(layer, obj) for animated smoke/flags/fires/sparks/lights/birds/…;
+//    lights col: (warm) | 'fey' | 'witch' | 'storm' (stormglass blue) | 'sea' | 'grove';
+//    rec('sails', {x, y, r, col, frame, speed, spin, ph}) — windmill sails on any
+//    building: they turn while that building works (slow/idle/blocked respected);
+//    colour shade(hex, f), mix(a, b, t), F(col) (black in the night pass),
+//    nightGlass(); live state getters STY (people's palette, era-adjusted),
+//    R (seeded random), RACE, GLOW, SNOW, SEASON, GROUND, TECH, CITY, LAY, c
+//    (the 2D context); constants TAU, HW, HH, N, OUT, SQ2.
 // =====================================================================
 'use strict';
 (() => {
@@ -31,27 +99,25 @@
     pearlbeds: [7.8, 7.8, 1.9, 1.9], dreamspire: [7.8, 7.8, 1.9, 1.9], ossuary: [7.8, 7.8, 1.9, 1.9], aerie: [7.8, 7.8, 1.9, 1.9],
     magetower: [9.95, 7.9, 1.4, 1.55],
   };
-  const DRILL = [13.0, 9.55, 2.7, 1.6];
-  const INNER_SPARE = [[16.0, 18.6, 1.2, 1.1], [18.6, 16.0, 1.1, 1.2], [4.5, 10.75, 1.3, 0.75]];   // last-resort plots once the outer ring is full
-  const POND = [18.3, 18.3];
-  const COTTAGES = [[8.75, 13.1], [8.75, 15.3], [6.9, 13.1], [6.9, 15.3], [8.75, 17.55], [5.0, 13.1], [5.0, 15.3], [6.9, 17.55], [5.0, 17.55]];
+  // the base plot plan; every city re-arranges it (see computeLayout) so no two towns look alike
+  const DRILL0 = [13.0, 9.55, 2.7, 1.6];
+  const INNER_SPARE0 = [['com', [16.0, 18.6, 1.2, 1.1]], ['com', [18.6, 16.0, 1.1, 1.2]], ['ind', [4.5, 10.75, 1.3, 0.75]]];   // last-resort plots once the outer ring is full
+  const POND0 = [18.3, 18.3];
+  const COTTAGES0 = [[8.75, 13.1], [8.75, 15.3], [6.9, 13.1], [6.9, 15.3], [8.75, 17.55], [5.0, 13.1], [5.0, 15.3], [6.9, 17.55], [5.0, 17.55]];
   const WALL_A = 4, WALL_B = 20, GATE0 = 11.3, GATE1 = 12.7;
-  // walking paths (axis-aligned polylines)
-  const PATHS = [
-    [[9.9, 9.9], [12, 9.9], [14.1, 9.9], [14.1, 12], [14.1, 14.1], [12, 14.1], [9.9, 14.1], [9.9, 12], [9.9, 9.9]],
-    [[12, 9.9], [12, 8.0], [12, 7.6], [12, 3.4], [12, 0.7]],
-    [[9.9, 12], [8.45, 12], [7.6, 12], [6.6, 12], [3.4, 12], [0.7, 12]],
-    [[14.1, 12], [16.05, 12], [17.25, 12], [20.5, 12], [23.3, 12]],
-    [[12, 14.1], [12, 14.75], [12, 16.95], [12, 17.25], [12, 20.5], [12, 23.3]],
-    [[12, 7.6], [7.6, 7.6], [4.6, 7.6]], [[7.6, 4.6], [7.6, 7.6], [7.6, 12]],
-    [[16.05, 8.0], [19.5, 8.0]], [[16.05, 4.6], [16.05, 8.0], [16.05, 12]],
-    [[12, 14.75], [8.45, 14.75], [6.6, 14.75], [4.6, 14.75]], [[12, 16.95], [8.45, 16.95], [6.6, 16.95], [4.6, 16.95]],
-    [[6.6, 12], [6.6, 14.75], [6.6, 16.95], [6.6, 19.4]], [[8.45, 12], [8.45, 14.75], [8.45, 16.95], [8.45, 19.4]],
-    [[17.25, 12], [17.25, 17.25], [12, 17.25]],
-    [[4.2, 3.4], [12, 3.4], [19.8, 3.4]], [[3.4, 4.2], [3.4, 12], [3.4, 19.8]],
-    [[20.5, 4.5], [20.5, 12], [20.5, 20.5], [12, 20.5], [4.5, 20.5]],
+  // district lanes (axis-aligned polylines), tagged by the quarter they serve
+  const BASE_LANES = [
+    ['ind', [[12, 7.6], [7.6, 7.6], [4.6, 7.6]]], ['ind', [[7.6, 4.6], [7.6, 7.6], [7.6, 12]]],
+    ['mil', [[16.05, 8.0], [19.5, 8.0]]], ['mil', [[16.05, 4.6], [16.05, 8.0], [16.05, 12]]],
+    ['res', [[12, 14.75], [8.45, 14.75], [6.6, 14.75], [4.6, 14.75]]], ['res', [[12, 16.95], [8.45, 16.95], [6.6, 16.95], [4.6, 16.95]]],
+    ['res', [[6.6, 12], [6.6, 14.75], [6.6, 16.95], [6.6, 19.4]]], ['res', [[8.45, 12], [8.45, 14.75], [8.45, 16.95], [8.45, 19.4]]],
+    ['com', [[17.25, 12], [17.25, 17.25], [12, 17.25]]],
   ];
-  const MAIN_ROADS = PATHS.slice(1, 5);
+  const RING_ROADS = [[[4.2, 3.4], [12, 3.4], [19.8, 3.4]], [[3.4, 4.2], [3.4, 12], [3.4, 19.8]], [[20.5, 4.5], [20.5, 12], [20.5, 20.5], [12, 20.5], [4.5, 20.5]]];
+  // the four roads out of the plaza, named by the wall side they pass (N: gy = WALL_A, S: gy = WALL_B, W: gx = WALL_A, E: gx = WALL_B)
+  const EXITS = { N: [[12, 9.9], [12, 0.7]], S: [[12, 14.1], [12, 23.3]], W: [[9.9, 12], [0.7, 12]], E: [[14.1, 12], [23.3, 12]] };
+  // the live plan of the city on show (set by applyLayout)
+  let DRILL = DRILL0, INNER_SPARE = INNER_SPARE0.map(e => e[1]), POND = POND0, COTTAGES = COTTAGES0, PATHS = [], MAIN_ROADS = [];
 
   // ------------------------------------------------------------------
   // colour helpers
@@ -211,7 +277,194 @@
     REGCACHE.set(ck, reg);
     return reg;
   }
-  const slotOf = t => (REG && REG.slots[t]) || SLOT[t];
+
+  // ------------------------------------------------------------------
+  // town layout: each city arranges its quarters to face its own land.
+  //   The base plan has four quarters round the plaza: industry (gx, gy < 12),
+  //   barracks (gx > 12, gy < 12), homes (gx < 12, gy > 12) and the market
+  //   quarter (gx, gy > 12). Walls, plaza and the four main roads are symmetric
+  //   about the centre lines, so a quarter mirrored into any other corner fits
+  //   exactly; the 24 ways of dealing quarters to corners are scored against the
+  //   region (mountains and the mine for industry, shore and river for trade,
+  //   good land for homes) plus a per-city seed. On top of that: the order of
+  //   the smithies, a transposed lane grid, the order homes fill in, which roads
+  //   are high streets, the plaza shape and the lane style of each people.
+  // ------------------------------------------------------------------
+  const QUADS = [[0, 0], [1, 0], [0, 1], [1, 1]];
+  const DISTS = ['ind', 'mil', 'res', 'com'];
+  const BASEQ = { ind: 0, mil: 1, res: 2, com: 3 };
+  const DIST_OF = { smelter: 'ind', smithy: 'ind', armory: 'ind', bakery: 'ind', runeforge: 'ind', heartgrove: 'ind', pearlbeds: 'ind', dreamspire: 'ind', ossuary: 'ind', aerie: 'ind', magetower: 'ind',
+    warpit: 'mil', barracks: 'mil', stable: 'mil', workshop: 'mil',
+    tavern: 'com', theatre: 'com', temple: 'com', market: 'com', warehouse: 'com', academy: 'com', houses: 'res' };
+  const IND_SQ = ['smelter', 'smithy', 'armory'];
+  const PERMS = (() => { const out = []; const go = (a, rest) => { if (!rest.length) out.push(a); rest.forEach((x, i) => go(a.concat([x]), rest.filter((_, j) => j !== i))); }; go([], [0, 1, 2, 3]); return out; })();
+  const BASE_DECOR = {
+    lamps: [['com', [12.65, 16.5]], ['com', [12.65, 19.0]], ['com', [16.5, 12.65]], ['com', [19.0, 12.65]], ['ind', [11.35, 7.0]], ['ind', [7.0, 11.35]]],
+    graves: [['com', [16.0, 19.2]], ['com', [19.2, 16.0]], ['ind', [4.6, 10.9]]],
+    rings: [['com', [16.0, 19.3]], ['com', [19.3, 16.0]], ['ind', [4.7, 11.0]], ['ind', [11.0, 4.7]]],
+    nets: [['com', [16.1, 19.4]], ['com', [19.4, 16.1]]],
+    cart: [['com', [17.0, 16.8]]],
+    pits: [['res', [6.25, 16.2]], ['res', [8.1, 14.5]]],
+    dummies: [['mil', [13.6, 5.6]], ['mil', [14.6, 5.4]], ['mil', [15.4, 6.2]]],
+    trees: {
+      sylvan: [['ind', [4.6, 11.0]], ['ind', [11.0, 4.6]], ['com', [15.9, 15.9]], ['com', [19.5, 16.2]], ['com', [16.2, 19.5]], ['res', [4.7, 19.3]]],
+      veil: [['com', [15.9, 15.9]], ['res', [4.7, 19.3]]], ash: [], grave: [], tide: [],
+      def: [['com', [16.2, 19.4]], ['com', [19.4, 16.2]], ['ind', [4.6, 11.1]]],
+    },
+  };
+  // how each people lays out its streets
+  const PLAN_STYLE = {
+    hearth: { lane: 'hedge', plaza: 'square' }, delver: { lane: 'straight', plaza: 'square', terrace: true }, sylvan: { lane: 'wavy', plaza: 'round' },
+    ash: { lane: 'trodden', plaza: 'ring' }, tide: { lane: 'boards', plaza: 'square' }, veil: { lane: 'wavy', plaza: 'round' },
+    grave: { lane: 'crooked', plaza: 'square', cemetery: true }, wind: { lane: 'straight', plaza: 'square', perches: true },
+  };
+  const TERW = {
+    ind: { mountain: 3, hills: 2.2, forest: 0.3, plains: 0, fertile: -0.3, lake: -0.6 },
+    mil: { plains: 0.8, hills: 0.8, fertile: 0.2 },
+    res: { fertile: 2, plains: 1.2, forest: 0.8, lake: 0.3, hills: 0.2, mountain: -0.8 },
+    com: { lake: 1.2, fertile: 0.7, plains: 0.8, mountain: -0.5 },
+  };
+  const round2 = v => Math.round(v * 100) / 100;
+  // cut a polyline where it would run into a lake or the river
+  function dryPieces(pts, reg) {
+    const wet = p => inWater(reg, p[0], p[1], 0.12);
+    const out = []; let cur = [];
+    const add = p => { const q = [round2(p[0]), round2(p[1])]; const l = cur[cur.length - 1]; if (!l || l[0] !== q[0] || l[1] !== q[1]) cur.push(q); };
+    if (!wet(pts[0])) add(pts[0]);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.2));
+      let prev = a;
+      for (let k = 1; k <= n; k++) {
+        const p = k === n ? b : [a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n];
+        const w = wet(p);
+        if (w) { if (cur.length) { add(prev); if (cur.length > 1) out.push(cur); cur = []; } }
+        else if (!cur.length || k === n) add(p);
+        prev = p;
+      }
+    }
+    if (cur.length > 1) out.push(cur);
+    const len = c2 => c2.reduce((a2, p, i) => i ? a2 + Math.hypot(p[0] - c2[i - 1][0], p[1] - c2[i - 1][1]) : 0, 0);
+    return out.filter(c2 => len(c2) >= 0.6);
+  }
+  const LAYCACHE = new Map();
+  let LAY = null;
+  function computeLayout(city, reg) {
+    const race = (S.empires[city.owner] || {}).race || 'hearth', th = G.lvl(city, 'townhall');
+    let cap = false; try { const cc = typeof G.capital === 'function' && G.capital(S, city.owner); cap = !!cc && cc.id === city.id; } catch (e) { cap = false; }
+    const nMain = clampv(2 + (th >= 6 ? 1 : 0) + (th >= 12 ? 1 : 0) + (cap ? 1 : 0), 2, 4);
+    const ck = `${city.id}:${city.x},${city.y}:${race}:${reg.sig}:${reg.lakes.length}:${nMain}`;
+    if (LAYCACHE.has(ck)) return LAYCACHE.get(ck);
+    const style = PLAN_STYLE[race] || PLAN_STYLE.hearth;
+    const rng = mkRng(hashStr(`${city.id}|${city.x},${city.y}|${race}|plan`));
+    // --- which corner each quarter takes
+    const qOfPt = (gx, gy) => (gx > 12 ? 1 : 0) + (gy > 12 ? 2 : 0);
+    const slotQ = b => { const r = reg.slots[b]; return r ? qOfPt(r[0] + r[2] / 2, r[1] + r[3] / 2) : -1; };
+    const lakeOv = q => { // share of the quarter's two outer edges that is shore
+      const [hx, hy] = QUADS[q]; let v = 0;
+      for (const z of reg.lakes) {
+        const touch = (z.e === 'N' && !hx) || (z.e === 'S' && hx) ? (hy ? [12, 24] : [0, 12]) : (z.e === 'E' && !hy) || (z.e === 'W' && hy) ? (hx ? [12, 24] : [0, 12]) : null;
+        if (touch) v += Math.max(0, Math.min(z.b, touch[1]) - Math.max(z.a, touch[0])) / 12;
+      }
+      return Math.min(1.5, v);
+    };
+    const riverQ = q => { const rv = reg.river; if (!rv) return 0; const [hx, hy] = QUADS[q]; return rv.along === 'gy' ? ((rv.pos > 12) === !!hx ? 1 : 0) : ((rv.pos > 12) === !!hy ? 1 : 0); };
+    const high = race === 'delver' || race === 'wind', forestFolk = race === 'sylvan' || race === 'veil';
+    const score = (d, q) => {
+      const [hx, hy] = QUADS[q], k = secOf(hx ? 17 : 7, hy ? 17 : 7), w = TERW[d];
+      let v = 0;
+      for (const [kk, wt] of [[k, 1], [(k + 1) % 8, 0.5], [(k + 7) % 8, 0.5]]) {
+        const terr = reg.ter[kk];
+        let tv = w[terr] || 0;
+        if (d === 'ind' && high) tv *= 1.8;
+        if (d === 'res' && forestFolk && terr === 'forest') tv += 1.5;
+        if (d === 'com' && race === 'tide' && terr === 'lake') tv *= 2;
+        v += tv * wt;
+      }
+      const lo = lakeOv(q), rq = riverQ(q);
+      v += lo * ({ com: race === 'tide' ? 6 : 3, res: race === 'tide' ? 1.2 : 0.5, ind: -1, mil: -0.5 })[d];
+      v += rq * ({ com: 2, res: 1, ind: 0.3, mil: 0 })[d];
+      if (d === 'ind') { if (slotQ('mine') === q) v += 2.5; if (slotQ('quarry') === q) v += 1.5; }
+      if (d === 'res') { if (slotQ('farm') === q) v += 1.2; if (forestFolk && slotQ('lumber') === q) v += 1; }
+      if (d === 'com' && slotQ('farm') === q) v += 0.6;
+      if (d === 'mil' && slotQ('lumber') === q && !forestFolk) v += 0.4;
+      return v;
+    };
+    const A = DISTS.map(d => QUADS.map((_, q) => score(d, q) + (rng() - 0.5) * 1.8));
+    let perm = PERMS[0], bv = -1e9;
+    for (const pm of PERMS) { const v = pm.reduce((a2, q, i) => a2 + A[i][q], 0); if (v > bv) { bv = v; perm = pm; } }
+    // --- quarter-internal variants
+    const indPerm = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]][Math.floor(rng() * 6)];
+    const indTr = rng() < 0.5, resTr = rng() < 0.5;
+    const T = {};
+    DISTS.forEach((d, i) => { const q = perm[i], b = BASEQ[d]; T[d] = { fx: QUADS[q][0] !== QUADS[b][0], fy: QUADS[q][1] !== QUADS[b][1], tr: d === 'ind' ? indTr : d === 'res' ? resTr : false }; });
+    const tp = (d, gx, gy) => {
+      if (d === 'ctr') return [gx, gy];
+      const t = T[d];
+      if (t.tr) [gx, gy] = d === 'ind' ? [gy, gx] : [N - gy, N - gx];
+      return [round2(t.fx ? N - gx : gx), round2(t.fy ? N - gy : gy)];
+    };
+    const tr = (d, [x, y, w, h]) => { const a = tp(d, x, y), b = tp(d, x + w, y + h); return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), round2(Math.abs(b[0] - a[0])), round2(Math.abs(b[1] - a[1]))]; };
+    const slots = {};
+    for (const t in SLOT) {
+      const d = DIST_OF[t];
+      if (!d) { slots[t] = SLOT[t]; continue; }
+      const base = d === 'ind' && IND_SQ.includes(t) ? SLOT[IND_SQ[indPerm[IND_SQ.indexOf(t)]]] : SLOT[t];
+      slots[t] = tr(d, base);
+    }
+    // homes fill outward from a seeded corner of their quarter
+    const anchors = [[10.2, 13.6], [10.2, 19.0], [5.0, 13.6]], an = anchors[Math.floor(rng() * anchors.length)];
+    const order = COTTAGES0.map((p, i) => [Math.hypot(p[0] + 0.6 - an[0], p[1] + 0.55 - an[1]) + rng() * 0.9 + (i === 0 ? -0.5 : 0), p]).sort((a2, b2) => a2[0] - b2[0]).map(e => e[1]);
+    const cottages = order.map(([x, y]) => { const r = tr('res', [x, y, 1.2, 1.1]); return [r[0], r[1]]; });
+    // --- streets
+    const round = style.plaza !== 'square';
+    const ring = round ? [[9.9, 12], [10.45, 10.45], [12, 9.9], [13.55, 10.45], [14.1, 12], [13.55, 13.55], [12, 14.1], [10.45, 13.55], [9.9, 12]]
+      : [[9.9, 9.9], [12, 9.9], [14.1, 9.9], [14.1, 12], [14.1, 14.1], [12, 14.1], [9.9, 14.1], [9.9, 12], [9.9, 9.9]];
+    const EXIT_PT = { N: [12, 1.6], S: [12, 22.4], W: [1.6, 12], E: [22.4, 12] };
+    const EXIT_EDGE = { N: 'E', S: 'W', W: 'N', E: 'S' };
+    const ex = Object.keys(EXITS).map(sd => {
+      const terr = reg.ter[secOf(...EXIT_PT[sd])];
+      let v = ({ plains: 1.5, fertile: 1.5, forest: 0.4, hills: 0.2, mountain: -1.5, lake: 1.0 })[terr] || 0;
+      if (reg.lakes.some(z => z.e === EXIT_EDGE[sd] && z.a <= 11 && z.b >= 13)) v += 3;
+      if (reg.river) v += 0.3;
+      return { sd, v: v + rng() * 1.6 };
+    }).sort((a2, b2) => b2.v - a2.v);
+    const mainSides = ex.slice(0, nMain).map(e => e.sd);
+    const mains = [], lanes = [];
+    for (const sd of Object.keys(EXITS)) { const pc = dryPieces(EXITS[sd], reg)[0]; if (pc) mains.push({ sd, pts: pc, wide: mainSides.includes(sd) }); }
+    for (const [d, pts] of BASE_LANES) lanes.push({ d, pts: pts.map(p => tp(d, ...p)), inner: true });
+    for (const r of RING_ROADS) for (const pc of dryPieces(r, reg)) lanes.push({ d: 'out', pts: pc, inner: false });
+    const deco = {};
+    for (const k of ['lamps', 'graves', 'rings', 'nets', 'cart', 'pits', 'dummies']) deco[k] = BASE_DECOR[k].map(([d, p]) => tp(d, ...p));
+    deco.perch = [tp('ind', 4.45, 4.45), tp('mil', 19.55, 4.45)];
+    deco.trees = (BASE_DECOR.trees[race] || BASE_DECOR.trees.def).map(([d, p]) => tp(d, ...p));
+    // --- Gravebound bury their dead in a fenced field outside the walls
+    let cem = null;
+    if (style.cemetery) {
+      const used = Object.values(reg.slots);
+      const cand = OUTER_SITES.map(o => o.r).filter(r => !used.includes(r) && !rectWet(reg, r, 0.15));
+      const scored = cand.map(r => [(['mountain', 'hills', 'forest'].includes(reg.ter[secOf(r[0] + r[2] / 2, r[1] + r[3] / 2)]) ? 2 : 0) + rng(), r]);
+      scored.sort((a2, b2) => b2[0] - a2[0]);
+      cem = scored.length ? scored[0][1] : null;
+    }
+    const fields = cem ? reg.fields.filter(f => !overlapR(f, cem, 0.15)) : reg.fields;
+    const centre = round ? (rng() < 0.5 ? [13.8, 10.2] : [10.2, 13.8]) : (rng() < 0.5 ? [14.0, 10.0] : [10.0, 14.0]);
+    const lay = {
+      slots, cottages, ring, mains, lanes, deco, cem, fields, centre, style, T, perm, indTr, resTr, mainSides,
+      drill: tr('mil', DRILL0), pond: tp('com', ...POND0), spare: INNER_SPARE0.map(([d, r]) => tr(d, r)),
+      quad: d => { const [hx, hy] = QUADS[perm[DISTS.indexOf(d)]]; return [hx ? 12.6 : 4.3, hy ? 12.6 : 4.3, 7.1, 7.1]; },
+      wobble: hashStr(city.id + 'lanes'),
+    };
+    lay.sig = perm.join('') + indPerm.join('') + (indTr ? 't' : 'f') + (resTr ? 't' : 'f') + an.join(',') + mainSides.join('') + (cem ? cem.join(',') : '-') + centre.join(',');
+    LAYCACHE.set(ck, lay);
+    return lay;
+  }
+  function applyLayout(lay) {
+    LAY = lay;
+    DRILL = lay.drill; POND = lay.pond; INNER_SPARE = lay.spare; COTTAGES = lay.cottages;
+    MAIN_ROADS = lay.mains.map(m => m.pts);
+    PATHS = [lay.ring, ...MAIN_ROADS, ...lay.lanes.map(l => l.pts)];
+  }
+  const slotOf = t => (REG && REG.slots[t]) || (LAY && LAY.slots[t]) || SLOT[t];
 
   // ------------------------------------------------------------------
   // drawing state
@@ -221,7 +474,14 @@
   const OUT = 'rgba(42,28,18,0.55)';
   const DARK = () => LUM ? '#120e20' : '#000';
   const F = s => GLOW ? DARK() : s;
-  const rec = (k, o) => { if (REC) REC[k].push(o); };
+  // building activity (G.buildingActivity from engine.js; missing => everything works)
+  let ACT = {}, CUR_B = null, DIM = false;
+  function activityOf(city) { try { return typeof G.buildingActivity === 'function' ? (G.buildingActivity(S, city) || {}) : {}; } catch (e) { return {}; } }
+  const stateOf = t => (t && ACT[t] && ACT[t].state) || 'working';
+  const dormant = t => { const st = stateOf(t); return st === 'idle' || st === 'blocked'; };
+  const actSig = a => Object.keys(a).sort().filter(k => a[k] && a[k].state && a[k].state !== 'working').map(k => k + ':' + a[k].state[0]).join(',');
+  // every animated record made while a building is drawn is tagged with it, so smoke, wheels and sparks follow its activity
+  const rec = (k, o) => { if (!REC) return; if (DIM && k === 'lights') return; if (CUR_B && o && typeof o === 'object' && o.bt === undefined) o.bt = CUR_B; REC[k].push(o); };
   const roofCol = col => SNOW ? mix(col, '#f3f6f9', 0.8) : col;
 
   function path(pts) { c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]); c.closePath(); }
@@ -233,8 +493,8 @@
   function line(a, b, col, lw = 1) { c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.strokeStyle = F(col); c.lineWidth = lw; c.stroke(); }
   function circ(x, y, r, fill, stroke) { c.beginPath(); c.arc(x, y, Math.max(0.1, r), 0, TAU); if (fill) { c.fillStyle = F(fill); c.fill(); } if (stroke) { c.strokeStyle = F(stroke); c.lineWidth = 0.8; c.stroke(); } }
   // light sources: dark glass by day, bright in the night pass
-  function lamp(pts, day, night) { path(pts); c.fillStyle = GLOW ? night : day; c.fill(); }
-  function lampDot(x, y, r, day, night) { c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = GLOW ? night : day; c.fill(); }
+  function lamp(pts, day, night) { path(pts); c.fillStyle = GLOW ? (DIM ? DARK() : night) : day; c.fill(); }
+  function lampDot(x, y, r, day, night) { c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = GLOW ? (DIM ? DARK() : night) : day; c.fill(); }
   const quad = (x, y, w, d, z = 0) => [P(x, y, z), P(x + w, y, z), P(x + w, y + d, z), P(x, y + d, z)];
   const hullBox = (x, y, w, d, h) => [P(x, y, h), P(x + w, y, h), P(x + w, y, 0), P(x + w, y + d, 0), P(x, y + d, 0), P(x, y + d, h)];
 
@@ -759,6 +1019,61 @@
     ks.sort((p, q) => p[0] - q[0]);
     for (const [, a, k] of ks) mushroom(gx + Math.cos(a) * r, gy + Math.sin(a) * r, 0.6 + 0.2 * ((k * 7) % 3), k % 3 ? '#c0587a' : '#8a78c8');
   }
+  // ---- Veilborn flora and stones: more than mushrooms ----
+  function moonLily(gx, gy, s = 1) { // pale lilies on arching stems, their cups lit after dark
+    if (SNOW) { silkGrass(gx, gy, s * 0.8); return; }
+    const [x, y] = P(gx, gy);
+    for (let k = 0; k < 3; k++) {
+      const dx = (k - 1) * 2.6 * s, h = (7 + (k % 2) * 3) * s, tx = x + dx * 1.3, ty = y - h;
+      c.beginPath(); c.moveTo(x + dx * 0.3, y); c.quadraticCurveTo(x + dx, y - h * 0.6, tx, ty); c.strokeStyle = F('#5e8a6a'); c.lineWidth = 0.8; c.stroke();
+      lampDot(tx, ty, 1.7 * s, k === 1 ? '#f4f0ff' : '#e6e0fa', '#f0e8ff');
+      if (!GLOW) circ(tx, ty - 0.4 * s, 0.6 * s, '#c8b8f0');
+    }
+    poly([[x - 3 * s, y], [x - 1 * s, y - 2 * s], [x + 1 * s, y - 0.5 * s]], '#4f7a5a', null); poly([[x + 3 * s, y], [x + 1 * s, y - 2.2 * s], [x - 0.6 * s, y - 0.4 * s]], '#5e8a6a', null);
+    rec('lights', { x, y: y - 8 * s, r: 10 * s, col: 'fey' });
+  }
+  function silkGrass(gx, gy, s = 1) { // a tuft of silver silk-grass, glowing at the tips
+    const [x, y] = P(gx, gy), col = SNOW ? '#d8dce8' : SEASON === 2 ? '#b8a8c8' : '#9ec8b8';
+    for (let k = -3; k <= 3; k++) { const tx = x + k * 1.6 * s + Math.sin(k * 1.7) * s, ty = y - (6 + (3 - Math.abs(k)) * 1.6) * s; c.beginPath(); c.moveTo(x + k * 0.5 * s, y); c.quadraticCurveTo(x + k * 0.9 * s, y - 4 * s, tx, ty); c.strokeStyle = F(col); c.lineWidth = 0.7; c.stroke(); if (k % 2 === 0) lampDot(tx, ty, 0.6 * s, '#e8f8ff', '#bff8ff'); }
+  }
+  function briarRose(gx, gy, s = 1) { // a dark briar mound starred with pale roses
+    const [x, y] = P(gx, gy);
+    const bc = SNOW ? '#e6ecef' : SEASON === 2 ? '#6a4a4a' : '#3e5242';
+    blobs(x, y - 3 * s, 3.6 * s, [shade(bc, -0.15), bc]);
+    if (!SNOW) for (const [dx, dy, col] of [[-2.6, -3.4, '#f0c8e0'], [1.8, -4.6, '#fbe8f4'], [3.2, -1.8, '#e8a8d0'], [-0.6, -0.8, '#f4d8ec']]) { circ(x + dx * s, y + dy * s - 2 * s, 1.1 * s, col, 'rgba(90,40,70,0.5)'); }
+    line([x - 4 * s, y - 2 * s], [x - 6 * s, y - 5 * s], '#2e3a2e', 0.6); line([x + 4 * s, y - 2 * s], [x + 6 * s, y - 6 * s], '#2e3a2e', 0.6);
+  }
+  function mirrorStone(gx, gy, s = 1, z = 0) { // a standing stone polished to a mirror face that catches the moon
+    const [x, y] = P(gx, gy, z), w = 2.6 * s, h = 12 * s;
+    poly([[x - w, y], [x + w * 0.2, y + 1.2 * s], [x + w * 0.2, y - h + 1], [x - w * 0.8, y - h + 2.4]], SNOW ? '#d8dce4' : '#8a86a0', OUT, 0.6);
+    poly([[x + w * 0.2, y + 1.2 * s], [x + w, y], [x + w * 0.8, y - h + 2.6], [x + w * 0.2, y - h + 1]], '#6a6680', OUT, 0.6);
+    lamp([[x - w * 0.6, y - 1.4 * s], [x, y - 0.9 * s], [x, y - h + 2.6], [x - w * 0.55, y - h + 3.4]], '#cfe6f4', '#e8f6ff');
+    if (!GLOW) line([x - w * 0.45, y - h * 0.3], [x - w * 0.15, y - h * 0.75], 'rgba(255,255,255,0.8)', 0.7);
+    if (SNOW) poly([[x - w * 0.8, y - h + 2.4], [x + w * 0.2, y - h + 1], [x + w * 0.8, y - h + 2.6], [x + w * 0.2, y - h + 3.4]], '#f4f8fa', null);
+    return z + h;
+  }
+  function mothPost(gx, gy, h = 16) { // a slim twisted post hung with a moth-lantern; moths drift round it
+    const [x, y] = P(gx, gy);
+    line([x, y], [x, y - h], STY.beam, 1.2); line([x, y - h], [x + 3.5, y - h - 1.5], STY.beam, 0.9);
+    lampDot(x + 3.5, y - h + 2, 1.7, '#c8e8f4', '#e8fbff');
+    rec('sparks', { x: x + 3.5, y: y - h + 2, kind: 'fey', seed: (gx * 3.7 + gy * 1.3) % 1 }); rec('lights', { x: x + 3.5, y: y - h + 2, r: 14, col: 'fey' });
+  }
+  // pick a Veilborn plant/stone: k (0..1) chooses; mushrooms only for the last 8%
+  function veilFlora(gx, gy, s = 1, k = R()) {
+    if (k < 0.24) moonLily(gx, gy, s * 0.9);
+    else if (k < 0.46) silkGrass(gx, gy, s);
+    else if (k < 0.64) briarRose(gx, gy, s * 0.8);
+    else if (k < 0.78) crystal(gx, gy, 0, 8 + 5 * s, 0.06 + 0.03 * s, k < 0.71 ? '#b8a8f0' : '#a8d8f0');
+    else if (k < 0.92) mirrorStone(gx, gy, s * 0.7);
+    else mushroom(gx, gy, s * 0.7);
+  }
+  // a ring of mirror stones (or lilies) — the Veilborn stand-in for a fairy ring; part: 0 all, 1 back half, 2 front half
+  function stoneRing(gx, gy, r = 0.5, n = 7, part = 0, kind = 'mirror') {
+    const ks = [];
+    for (let k = 0; k < n; k++) { const a = k / n * TAU + 0.3, f = Math.cos(a) + Math.sin(a); if (part === 1 && f > 0 || part === 2 && f <= 0) continue; ks.push([f, a, k]); }
+    ks.sort((p, q) => p[0] - q[0]);
+    for (const [, a, k] of ks) { const px = gx + Math.cos(a) * r, py = gy + Math.sin(a) * r; if (kind === 'lily' || (kind === 'mixed' && k % 2)) moonLily(px, py, 0.9); else mirrorStone(px, py, 0.75 + 0.12 * (k % 3)); }
+  }
   function mushroomHouse(cx, cy, r, H) {
     cyl(cx, cy, r * 0.5, 0, H * 0.55, '#efe4d0', '#e2d6c0');
     const [x0, y0, rx, ry] = ell(cx, cy, 0, r * 0.5);
@@ -784,10 +1099,14 @@
   }
   function hallVeil(x, y, w, d, H, band, o) {
     const cx = x + w / 2, cy = y + d / 2, r = Math.min(w, d) / 2;
-    if (band === 0) {   // a fey lodge: a great mushroom hall with two smaller caps, drawn back to front
-      const top = mushroomHouse(cx - r * 0.2, cy - r * 0.2, r * 1.45, H * 1.75);
-      mushroomHouse(cx + r * 1.15, cy + r * 0.55, r * 0.6, H * 0.95);
-      mushroomHouse(cx - r * 0.35, cy + r * 1.25, r * 0.5, H * 0.8);
+    if (band === 0) {   // a moonlit silk lodge: a twisted-wood drum under a draped silk tent, a slim crystal spire behind
+      let top = veilSpire(x + w * 0.84, y + d * 0.16, Math.max(0.08, r * 0.16), H * 1.35);
+      const wh = H * 0.55, [dx, dy] = veilBody(cx, cy, r * 0.78, 0, wh);
+      poly([[dx - 2.4, dy], [dx + 2.4, dy], [dx + 2.4, dy - 6.5], [dx, dy - 9], [dx - 2.4, dy - 6.5]], STY.door, null);
+      const rz = cone(cx, cy, r * 1.02, wh, H * 0.8, SNOW ? roofCol(STY.thatch) : STY.thatch);
+      if (!SNOW) twistLines(cx, cy, wh, rz, r * 1.02, shade(STY.thatch, -0.3), 0.9);
+      top = Math.max(top, crystal(cx, cy, rz - 2, 7, 0.07));
+      if (r > 0.45) { moonLily(x + w * 0.16, y + d * 0.86, 0.9); silkGrass(x + w * 0.86, y + d * 0.9, 0.9); }
       if (!o.noLanterns) floatLantern(cx + r * 0.2, cy + r * 0.75, H * 0.9);
       return top;
     }
@@ -1023,7 +1342,7 @@
       if (band >= 3) { banner(x + 2.75, y + 2.75, 0, 34); banner(x + 0.2, y + 2.75, 0, 30); banner(x + 2.75, y + 0.2, 0, 30); }
     }
     if (RACE === 'tide') { netRack(x + 0.35, y + 2.6, true); shellPile(x + 2.55, y + 0.35); if (band >= 1) shellPile(x + 0.3, y + 0.4, 5); }
-    if (RACE === 'veil') { mushroomRing(x + 0.35, y + 2.45, 0.28, 6); if (band >= 1) { floatLantern(x + 0.2, y + 1.4, 22); floatLantern(x + 1.5, y + 2.9, 18); } }
+    if (RACE === 'veil') { stoneRing(x + 0.35, y + 2.45, 0.28, 5, 0, 'lily'); if (band >= 1) { floatLantern(x + 0.2, y + 1.4, 22); floatLantern(x + 1.5, y + 2.9, 18); } }
     if (RACE === 'grave') { ironFence([[x + 0.02, y + 2.78], [x + 2.78, y + 2.78], [x + 2.78, y + 0.02]], 7); witchLamp(x + 1.15, y + 2.85, 0, 14); if (band >= 2) witchLamp(x + 2.85, y + 1.0, 0, 14); }
     if (RACE === 'wind') { const [bx, by] = P(x + 1.4, y + 1.4, top); rec('birds', { x: bx, y: by - 16, r: 24 + band * 6, n: 2 + band, seed: R() }); if (band >= 1) pennant(x + 2.75, y + 2.75, 0, 30 + band * 4); }
     if (RACE === 'hearth' && band <= 1) { // bell post
@@ -1055,7 +1374,7 @@
     }
     if (RACE === 'tide') return hallTide(x, y, s, s * 0.9, [11, 13, 16, 17][band], band, { axis: ax, chim: 'house', noNet: i % 2 === 0 });
     if (RACE === 'veil') {
-      if (band === 0 || i % 3 === 1) return mushroomHouse(x + s / 2, y + s / 2, s / 2, 13 + band * 3);
+      if (i % 9 === 4) return mushroomHouse(x + s / 2, y + s / 2, s / 2, 13 + band * 3);   // the odd mushroom cot, no more
       const top = hallVeil(x, y, s, s, 13 + band * 2, Math.min(band, 2), { noLanterns: i % 2 === 1 });
       if (band >= 3) crystal(x + s * 0.95, y + s * 0.95, 0, 9, 0.06);
       return top;
@@ -1110,7 +1429,7 @@
       const n = 1 + Math.min(2, band), pos = [[x + 0.6, y + 0.6], [x + 1.45, y + 0.85], [x + 0.75, y + 1.7]];
       top = 0;
       for (let i = 0; i < n; i++) { const [cx, cy] = pos[i]; cyl(cx, cy, 0.4, 0, 14 + band * 2, STY.wall); twistLines(cx, cy, 0, 14 + band * 2, 0.4, STY.beam, 1.5, 0); const zt = cone(cx, cy, 0.48, 14 + band * 2, 12, STY.roof); top = Math.max(top, crystal(cx, cy, zt - 2, 6, 0.05)); }
-      sack(x + 1.7, y + 2.2); mushroom(x + 1.95, y + 1.6, 0.8);
+      sack(x + 1.7, y + 2.2); moonLily(x + 1.95, y + 1.6, 0.8);
       return top;
     }
     if (RACE === 'grave') { // a vaulted crypt-store behind iron doors
@@ -1369,7 +1688,7 @@
       : TOWER[RACE] ? hall(x + 0.4, y + 0.4, 1.3, 1.1, 13, Math.min(band, 1), { axis: 'x', chim: 'house', noLanterns: true })
       : hallHearth(x + 0.4, y + 0.4, 1.4, 1.1, 12, Math.min(band, 1), { axis: 'x', chim: 'house' });
     if (RACE === 'tide') netRack(x + 0.5, y + 2.0, true);
-    if (RACE === 'veil') { mushroom(x + 0.3, y + 1.9, 1); mushroom(x + 0.55, y + 2.1, 0.8, '#8a78c8'); mushroom(x + 0.25, y + 2.2, 0.7); }
+    if (RACE === 'veil') { silkGrass(x + 0.3, y + 1.9, 1); moonLily(x + 0.55, y + 2.1, 0.8); briarRose(x + 0.25, y + 2.25, 0.7); }
     if (RACE === 'grave') { const [sx, sy] = P(x + 0.45, y + 2.05); line([sx, sy], [sx, sy - 15], '#3a3430', 1.3); line([sx - 5, sy - 11], [sx + 5, sy - 11], '#3a3430', 1.1); skull(sx, sy - 16, 0.8); poly([[sx - 3, sy - 11], [sx + 3, sy - 11], [sx + 2, sy - 4], [sx - 2, sy - 4]], '#3a3a48', null); }
     if (RACE === 'wind') { fence([[x + 0.15, y + 1.75], [x + 1.0, y + 1.75], [x + 1.0, y + 2.3]], 5, STY.wood); animal(x + 0.55, y + 2.1, 'goat', 1); }
     if (band >= 2) { // barn
@@ -1536,7 +1855,7 @@
       top = hall(x + 0.05, y + 0.1, w - 0.1, d - 0.5, 15 + band * 2, Math.min(band, 2), { axis: 'y', chim: 'house', noSpire: true, noLanterns: true });
       signBoard(x + w - 0.05, y + 0.6, 12, RACE === 'grave' ? '#4a4a52' : '#c9a874', { tide: 'fish', veil: 'moon', grave: 'skull', wind: 'feather' }[RACE]);
       if (RACE === 'tide') { netRack(x + 0.7, y + d - 0.15, true); barrel(x + 0.25, y + d - 0.1); }
-      else if (RACE === 'veil') { mushroomRing(x + 0.7, y + d - 0.25, 0.22, 5); floatLantern(x + 0.7, y + d - 0.25, 16); }
+      else if (RACE === 'veil') { moonLily(x + 0.6, y + d - 0.25, 0.8); silkGrass(x + 0.85, y + d - 0.2, 0.7); floatLantern(x + 0.7, y + d - 0.25, 16); }
       else if (RACE === 'grave') { barrel(x + 0.3, y + d - 0.15); witchLamp(x + 0.8, y + d - 0.1, 0, 11); }
       else { barrel(x + 0.3, y + d - 0.15); chime(...P(x + w - 0.05, y + d - 0.5, 14)); }
       return top;
@@ -1692,11 +2011,11 @@
         const [px2, py2] = P(mx, sy + 0.4, 5.4); person(px2, py2, STY.accent, 0.9);
         return 32;
       }
-      if (RACE === 'veil') { // a mushroom ring for a stage, lit by floating lanterns
-        mushroomRing(mx, my, 0.5, 9, 1);
+      if (RACE === 'veil') { // a ring of mirror stones and lilies for a stage, lit by floating lanterns
+        stoneRing(mx, my, 0.5, 8, 1, 'mixed');
         const [ex, ey, rx, ry] = ell(mx, my, 0, 0.42); c.beginPath(); c.ellipse(ex, ey, rx, ry, 0, 0, TAU); c.fillStyle = GLOW ? '#3a2a60' : '#b8d8a8'; c.fill();
         const [px2, py2] = P(mx, my); person(px2, py2, STY.cloth[0], 0.9);
-        mushroomRing(mx, my, 0.5, 9, 2);
+        stoneRing(mx, my, 0.5, 8, 2, 'mixed');
         for (const dv of [-0.5, 0.5]) floatLantern(mx + dv, my - 0.2, 20);
         crystal(mx - 0.6, sy - 0.1, 0, 18, 0.07); crystal(mx + 0.62, sy - 0.05, 0, 14, 0.06);
         return 30;
@@ -1765,13 +2084,13 @@
   };
   BLD.dreamspire = ([x, y, w, d], L, band) => { // a tall crystal spire shedding drifting motes
     const cx = x + w / 2, cy = y + d / 2, H = 52 + band * 14 + L;
-    mushroomRing(cx, cy, 0.82, 10, 1);
+    stoneRing(cx, cy, 0.82, 10, 1);
     cyl(cx, cy, 0.42, 0, 5, STY.stone2);
     for (let k = 0; k < 3; k++) twistLines(cx, cy, 5, H * 0.5, 0.36, STY.beam, 1.1, 0.75, k * 2.1);
     crystal(cx - 0.3, cy + 0.15, 4, 14 + band * 2, 0.1); crystal(cx + 0.22, cy - 0.28, 4, 12, 0.09);
     const top = crystal(cx, cy, 5, H, 0.32, '#c4b4ff');
     crystal(cx + 0.28, cy + 0.26, 4, 16 + band * 3, 0.11, '#a8d8f0');
-    mushroomRing(cx, cy, 0.82, 10, 2);
+    stoneRing(cx, cy, 0.82, 10, 2);
     const [mx, my] = P(cx, cy, H * 0.75);
     rec('sparks', { x: mx, y: my, kind: 'motes', r: 18 + band * 5, n: 8 + band * 3, h: H * 0.8 });
     rec('lights', { x: mx, y: my, r: 46 + band * 8, col: 'fey' });
@@ -1965,15 +2284,34 @@
     line([sx, sy], [sx, sy - 11], '#6a4a30', 1.4); poly([[sx - 5, sy - 15], [sx + 5, sy - 13], [sx + 5, sy - 8], [sx - 5, sy - 10]], '#d9c08a');
     const [bx, by] = P(...edgePt(e, Math.max(0.5, dd0 - 1.6), u0 + 1.1)); circ(bx, by - 1, 2, '#c0392b', OUT);
   }
-  function harborHit(H) { // axis-aligned grid rect around the harbor works
+  function harborRect(H) { // axis-aligned grid rect around the harbor works [gx, gy, w, d]
     const { z, u0, L } = H, sp = harborSpan(L) + 0.6, dmax = lakeDepth(z, u0) + 0.7;
     const a = edgePt(z.e, 0.3, u0 - sp), b = edgePt(z.e, dmax, u0 + sp + (L ? 0 : 1.1));
-    const x0 = Math.min(a[0], b[0]), y0 = Math.min(a[1], b[1]);
-    return hullBox(x0, y0, Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), L ? 44 : 14);
+    return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1])];
+  }
+  function harborHit(H, h) { const r = harborRect(H); return hullBox(r[0], r[1], r[2], r[3], h || (H.L ? 44 : 14)); }
+  // the shore geometry handed to coastal CITYART hooks (harbor, waterhome, lighthouse)
+  //   edge 'N'|'E'|'S'|'W' (the plot edge the water lies along), along: true when the shore runs along gx,
+  //   a..b the shore's extent along it, u0 the harbor's spot on it (where the main road meets the water),
+  //   depth(u) how far the water reaches in from the edge at u, pt(dd, u) -> [gx, gy] at distance dd from the edge,
+  //   at(dd, u, z) -> screen [x, y], sea [dx, dy] grid step from the land into the water, front: the water is
+  //   drawn in front of the land (draw the land part first), span the harbor's half-width of extra piers, piers [u…]
+  function shoreCtx(z, extra) {
+    const e = z.e, us = [];
+    const u0 = lakeU0(z), sp = HARB && HARB.z === z ? harborSpan(HARB.L) : 0;
+    us.push(u0); for (const du of sp >= 2 ? [-2.2, -1.1, 1.1, 2.2] : sp ? [-1.1, 1.1] : []) if (u0 + du > z.a + 0.6 && u0 + du < z.b - 0.6) us.push(u0 + du);
+    us.sort((p, q) => p - q);
+    return Object.assign({
+      coastal: true, edge: e, along: e === 'E' || e === 'W', a: z.a, b: z.b, u0, span: sp, piers: us,
+      depth: u => lakeDepth(z, u), pt: (dd, u) => edgePt(e, dd, u), at: (dd, u, zz = 0) => P(...edgePt(e, dd, u), zz),
+      sea: e === 'N' ? [-1, 0] : e === 'E' ? [0, -1] : e === 'S' ? [1, 0] : [0, 1], front: e === 'S' || e === 'W', lake: z,
+    }, extra || {});
   }
   // Tidekin lighthouse on a rock at the end of the shore
   function lighthouse(z, u, band) {
     const dd = Math.max(0.65, lakeDepth(z, u) * 0.45), [gx, gy] = edgePt(z.e, dd, u);
+    const ho = artHook('lighthouse', [gx - 0.4, gy - 0.4, 0.8, 0.8], G.lvl(CITY, 'townhall'), band, mkCtx('lighthouse', 0, false, shoreCtx(z, { u, dd, gx, gy })));
+    if (ho !== null) return ho;
     rock(gx, gy + 0.1, 1.3, '#8a9294'); rock(gx + 0.3, gy - 0.2, 0.9, '#9aa2a4');
     const top = towerTide(gx - 0.32, gy - 0.32, 0.64, 0.64, 46 + band * 8, band, { flag: false, stripes: ['#f4f0e8', '#c0392b'], roof: '#8a2a20' });
     const [lx, ly] = P(gx, gy, top - 23 - band * 2);
@@ -2033,9 +2371,15 @@
   // walls
   // ------------------------------------------------------------------
   const wallBand = L => L <= 0 ? -1 : L <= 4 ? 0 : L <= 9 ? 1 : L <= 14 ? 2 : 3;
+  // CITYART hook for a wall piece ('wall' | 'walltower' | 'gate' | 'postern'); ctx adds the wall's level and band
+  function wallArt(t, fp, band, extra) {
+    const WLv = G.lvl(CITY, 'wall');
+    return artHook(t, fp, WLv, band, mkCtx(t, 0, false, Object.assign({ wallLevel: WLv, wallBand: band, fortified: !!TECH.fortification }, extra)));
+  }
   function wallSeg(side, a, b, band) {
     const t = band === 0 ? 0.22 : 0.36;
     const fp = side === 'N' ? [a, WALL_A - t / 2, b - a, t] : side === 'S' ? [a, WALL_B - t / 2, b - a, t] : side === 'W' ? [WALL_A - t / 2, a, t, b - a] : [WALL_B - t / 2, a, t, b - a];
+    if (wallArt('wall', fp, band, { side, a, b, along: side === 'N' || side === 'S', piece: 'segment', thick: t }) !== null) return;   // CITYART wall override: one call per wall piece, slot = its footprint
     const along = side === 'N' || side === 'S';
     if (band === 0) {
       if (RACE === 'sylvan') { // living hedge
@@ -2090,7 +2434,12 @@
     if (RACE === 'wind' && Math.round(a) % 2 === 1) { const [px, py] = along ? P(a + 0.5, fp[1] + t / 2, H + 12) : P(fp[0] + t / 2, a + 0.5, H + 12); line([px, py + 10], [px, py], '#4a3a2a', 1); poly([[px, py], [px + 9, py + 2], [px, py + 4]], STY.flag, null); }
     if (RACE === 'ash' && (Math.round(a * 3) % 4 === 0)) { const [sx, sy] = along ? P(a + 0.2, fp[1] + t, H + 2) : P(fp[0] + t, a + 0.2, H + 2); line([sx, sy], [sx, sy - 8], '#3a2a20', 1); skull(sx, sy - 9, 0.7); }
   }
-  function wallTower(gx, gy, band) {
+  function wallTower(gx, gy, band, side = null) {
+    const corner = !side;
+    if (wallArt('walltower', [gx - 0.45, gy - 0.45, 0.9, 0.9], band, { side, corner, gx, gy, along: side === 'N' || side === 'S' }) !== null) return;
+    wallTowerStock(gx, gy, band);
+  }
+  function wallTowerStock(gx, gy, band) {
     const H = 34 + band * 7, r = 0.42;
     if (RACE === 'delver' || RACE === 'ash' || RACE === 'grave') {
       const col = RACE === 'ash' ? '#5e5652' : RACE === 'grave' ? '#46464e' : '#9a948a';
@@ -2113,6 +2462,7 @@
   function gate(side, band) {
     const along = side === 'N' || side === 'S';
     const fixed = side === 'N' || side === 'W' ? WALL_A : WALL_B;
+    if (wallArt('gate', along ? [GATE0 - 0.55, fixed - 0.3, GATE1 - GATE0 + 1.1, 0.6] : [fixed - 0.3, GATE0 - 0.55, 0.6, GATE1 - GATE0 + 1.1], band, { side, along, fixed, g0: GATE0, g1: GATE1, wide: true }) !== null) return;
     const at = (u, z = 0) => along ? P(u, fixed, z) : P(fixed, u, z);
     if (band === 0) {
       if (RACE === 'veil' || RACE === 'tide') { // a glowing runic arch / a whalebone arch
@@ -2137,6 +2487,21 @@
     const arch = along ? box(GATE0, fixed - 0.25, GATE1 - GATE0, 0.5, H - 4, 12, col) : box(fixed - 0.25, GATE0, 0.5, GATE1 - GATE0, H - 4, 12, col);
     courses(arch, 4, shade(col, -0.16));
     if (side === 'S' || side === 'E') { const m = (GATE0 + GATE1) / 2; const [bx, by] = along ? P(m, fixed + 0.25, H + 2) : P(fixed + 0.25, m, H + 2); poly([[bx - 4, by - 2], [bx + 4, by - 2], [bx + 4, by + 8], [bx, by + 5], [bx - 4, by + 8]], STY.flag); }
+  }
+
+  function postern(side, band, g0, g1) { // a narrow side gate where only a track leaves the town
+    const along = side === 'N' || side === 'S', fixed = side === 'N' || side === 'W' ? WALL_A : WALL_B;
+    if (wallArt('postern', along ? [g0 - 0.22, fixed - 0.22, g1 - g0 + 0.44, 0.44] : [fixed - 0.22, g0 - 0.22, 0.44, g1 - g0 + 0.44], band, { side, along, fixed, g0, g1, wide: false }) !== null) return;
+    if (band === 0) {
+      const at = (u, z = 0) => along ? P(u, fixed, z) : P(fixed, u, z);
+      for (const u of [g0, g1]) line(at(u), at(u, 17), RACE === 'grave' ? '#1c1c22' : RACE === 'ash' ? STY.trim : '#7a5434', 2.4);
+      line(at(g0 - 0.05, 15), at(g1 + 0.05, 15), RACE === 'grave' ? '#1c1c22' : '#7a5434', 1.8);
+      return;
+    }
+    const col = wallCol(), H = 20 + band * 4, t = 0.44;
+    for (const u of [g0 - 0.22, g1]) { const b = along ? box(u, fixed - t / 2, 0.22, t, 0, H + 4, col) : box(fixed - t / 2, u, t, 0.22, 0, H + 4, col); courses(b, 4.5, shade(col, -0.16)); }
+    const lintel = along ? box(g0, fixed - 0.2, g1 - g0, 0.4, H - 6, 6, col) : box(fixed - 0.2, g0, 0.4, g1 - g0, H - 6, 6, col);
+    void lintel;
   }
 
   // ------------------------------------------------------------------
@@ -2280,7 +2645,7 @@
   }
   function bridge() {
     const rv = REG.river, cc = riverC(rv, 12);
-    const stone = RACE === 'delver' || G.lvl(CITY, 'townhall') >= 10;
+    const stone = RACE === 'delver' || TECH.era >= 1 || TECH.masonry;
     const col = stone ? '#a8a194' : '#9a6a3c';
     const fp = rv.along === 'gx' ? [11.45, cc - 1.0, 1.1, 2.0] : [cc - 1.0, 11.45, 2.0, 1.1];
     const b = box(fp[0], fp[1], fp[2], fp[3], 2, 2.5, col);
@@ -2333,23 +2698,75 @@
     // inside the walls: trodden earth
     const inner = mix(GROUND, SNOW ? '#d8dde0' : RACE === 'ash' ? '#a88a62' : RACE === 'tide' ? '#d8c8a0' : RACE === 'grave' ? '#6a665e' : RACE === 'veil' ? '#b0a8c0' : '#a8946a', 0.28);
     poly(quad(WALL_A, WALL_A, WALL_B - WALL_A, WALL_B - WALL_A), inner, null);
+    const ST = LAY.style;
+    // Deepdelvers cut their workshops into a stone terrace
+    if (ST.terrace) {
+      const [tx, ty, tw, td] = LAY.quad('ind'), tc = SNOW ? '#d8dcde' : mix(inner, '#9a948a', 0.55);
+      poly(quad(tx, ty, tw, td), tc, 'rgba(50,40,30,0.35)');
+      if (!SNOW) for (let u = tx + 0.6; u < tx + tw; u += 0.6) { line(P(u, ty), P(u, ty + td), shade(tc, -0.07), 0.5); line(P(tx, u - tx + ty), P(tx + tw, u - tx + ty), shade(tc, -0.07), 0.5); }
+      const A = P(tx, ty + td), B = P(tx + tw, ty + td), C = P(tx + tw, ty);
+      poly([A, B, [B[0], B[1] + 3], [A[0], A[1] + 3]], shade(tc, -0.25), null); poly([B, C, [C[0], C[1] + 3], [B[0], B[1] + 3]], shade(tc, -0.35), null);
+    }
     // plaza
-    const pav = { tide: '#d9ccae', veil: '#d6d0e0', grave: '#77757a', wind: '#bdb39d' }[RACE] || (RACE === 'delver' || G.lvl(city, 'townhall') >= 10 ? '#b3ab9e' : RACE === 'sylvan' ? '#b7aa82' : RACE === 'ash' ? '#a0866a' : '#c2b08a');
-    poly(quad(9.75, 9.75, 4.5, 4.5), SNOW ? '#e4e8ea' : pav, 'rgba(60,40,20,0.3)');
-    if (!SNOW) for (let gx = 9.75; gx < 14.2; gx += 0.5) { line(P(gx, 9.75), P(gx, 14.25), shade(pav, -0.1), 0.5); line(P(9.75, gx), P(14.25, gx), shade(pav, -0.1), 0.5); }
-    // roads and lanes
-    const cobble = RACE === 'delver' || G.lvl(city, 'townhall') >= 10;
-    const roadCol = SNOW ? '#d4d8da' : cobble ? '#a8a194' : STY.road;
-    const lane = SNOW ? '#dfe3e5' : mix(STY.road, inner, 0.35);
+    const pav = { tide: '#d9ccae', veil: '#d6d0e0', grave: '#77757a', wind: '#bdb39d' }[RACE] || (RACE === 'delver' || TECH.era >= 1 ? '#b3ab9e' : RACE === 'sylvan' ? '#b7aa82' : RACE === 'ash' ? '#a0866a' : '#c2b08a');
+    if (ST.plaza === 'square') {
+      poly(quad(9.75, 9.75, 4.5, 4.5), SNOW ? '#e4e8ea' : pav, 'rgba(60,40,20,0.3)');
+      if (!SNOW) for (let gx = 9.75; gx < 14.2; gx += 0.5) { line(P(gx, 9.75), P(gx, 14.25), shade(pav, -0.1), 0.5); line(P(9.75, gx), P(14.25, gx), shade(pav, -0.1), 0.5); }
+    } else { // a round green (Sylvani, Veilborn) or the Ashborn fire-ring
+      const [ex, ey, rx, ry] = ell(12, 12, 0, 2.75);
+      c.beginPath(); c.ellipse(ex, ey, rx, ry, 0, 0, TAU); c.fillStyle = F(SNOW ? '#e4e8ea' : pav); c.fill(); c.strokeStyle = F('rgba(60,40,20,0.3)'); c.lineWidth = 1; c.stroke();
+      if (!SNOW) for (const k of [0.62, 0.84]) { c.beginPath(); c.ellipse(ex, ey, rx * k, ry * k, 0, 0, TAU); c.strokeStyle = F(shade(pav, -0.1)); c.lineWidth = 0.6; c.stroke(); }
+      if (ST.plaza === 'ring') for (let k = 0; k < 22; k++) { const a = k / 22 * TAU; circ(ex + Math.cos(a) * rx * 0.97, ey + Math.sin(a) * ry * 0.97, 1.7, k % 3 ? '#8a8078' : '#a49a8e', OUT); }
+    }
+    // roads and lanes, in each people's manner
+    const cobble = RACE === 'delver' || TECH.era >= 1, paved = TECH.era >= 2;
+    const roadCol = SNOW ? '#d4d8da' : paved ? '#b4ada0' : cobble ? '#a8a194' : STY.road;
+    const lane = SNOW ? '#dfe3e5' : ST.lane === 'boards' ? mix(pierWood(), inner, 0.15) : ST.lane === 'trodden' ? mix(STY.road, inner, 0.55) : mix(STY.road, inner, 0.35);
     const seg = (a, b, wd, col) => {
       const x0 = Math.min(a[0], b[0]) - wd / 2, x1 = Math.max(a[0], b[0]) + wd / 2, y0 = Math.min(a[1], b[1]) - wd / 2, y1 = Math.max(a[1], b[1]) + wd / 2;
       poly(quad(x0, y0, x1 - x0, y1 - y0), col, null);
     };
-    PATHS.forEach((pth, i) => { if (i === 0 || MAIN_ROADS.includes(pth)) return; for (let k = 0; k < pth.length - 1; k++) seg(pth[k], pth[k + 1], 0.42, lane); });
-    for (const pth of MAIN_ROADS) for (let k = 0; k < pth.length - 1; k++) {
-      const a = pth[k], b = pth[k + 1];
-      seg(a, b, 1.0, roadCol);
-      if (cobble && !SNOW) { const n = Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.35); for (let j = 0; j < n; j++) { const t = j / n; const gx = a[0] + (b[0] - a[0]) * t, gy = a[1] + (b[1] - a[1]) * t; const [x, y] = P(gx + (R() - 0.5) * 0.6, gy + (R() - 0.5) * 0.6); circ(x, y, 1, shade(roadCol, -0.12)); } }
+    const Rw = mkRng(LAY.wobble);
+    const strip = (a, b, wd, col, kind) => { // a lane that winds (wavy), lurches (crooked) or straggles (trodden), but meets its ends square
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 0.01) return;
+      const ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L, n = Math.max(2, Math.round(L / 0.25)), ph = Rw() * TAU, left = [], right = [];
+      const kinks = []; for (let k = 0; k <= n; k++) kinks.push((Rw() - 0.5) * 0.3);
+      for (let k = 0; k <= n; k++) {
+        const t = k / n, env = Math.min(1, Math.sin(Math.PI * t) * 2.2);
+        const off = kind === 'wavy' ? Math.sin(t * L * 1.3 + ph) * 0.13 * env : kind === 'crooked' ? kinks[k - k % 2] * env : 0;
+        const hw = kind === 'trodden' ? wd / 2 * (0.75 + 0.5 * Math.abs(Math.sin(t * L * 2.1 + ph))) : wd / 2;
+        const cx = a[0] + (b[0] - a[0]) * t - uy * off, cy = a[1] + (b[1] - a[1]) * t + ux * off;
+        left.push(P(cx - uy * hw, cy + ux * hw)); right.push(P(cx + uy * hw, cy - ux * hw));
+      }
+      poly([...left, ...right.reverse()], col, null);
+    };
+    const boards = (a, b, wd) => { // a Tidekin boardwalk: planks across the walk
+      seg(a, b, wd, lane);
+      if (SNOW) return;
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]), alongX = Math.abs(b[0] - a[0]) > Math.abs(b[1] - a[1]);
+      for (let u = 0.15; u < L; u += 0.18) { const t = u / L, gx = a[0] + (b[0] - a[0]) * t, gy = a[1] + (b[1] - a[1]) * t; line(P(gx - (alongX ? 0 : wd / 2), gy - (alongX ? wd / 2 : 0)), P(gx + (alongX ? 0 : wd / 2), gy + (alongX ? wd / 2 : 0)), shade(lane, -0.22), 0.5); }
+    };
+    for (const ln of LAY.lanes) {
+      const pth = ln.pts, kind = ln.inner ? ST.lane : 'straight';
+      for (let k = 0; k < pth.length - 1; k++) {
+        const a = pth[k], b = pth[k + 1];
+        if (kind === 'boards') boards(a, b, 0.42);
+        else if (kind === 'wavy' || kind === 'crooked' || kind === 'trodden') { strip(a, b, 0.42, lane, kind); seg(a, a, 0.42, lane); }
+        else seg(a, b, 0.42, lane);
+      }
+      if (kind === 'wavy' || kind === 'crooked' || kind === 'trodden') seg(pth[pth.length - 1], pth[pth.length - 1], 0.42, lane);
+      // Hearthfolk hedge their lanes between the cottage plots
+      if (kind === 'hedge' && ln.d === 'res' && !SNOW) for (let k = 0; k < pth.length - 1; k++) {
+        const a = pth[k], b = pth[k + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]), alongX = Math.abs(b[0] - a[0]) > Math.abs(b[1] - a[1]);
+        for (let u = 0.35; u < L - 0.3; u += 0.32) { const t = u / L, gx = a[0] + (b[0] - a[0]) * t, gy = a[1] + (b[1] - a[1]) * t; for (const sgn of [-1, 1]) { const [hx, hy] = P(gx + (alongX ? 0 : sgn * 0.27), gy + (alongX ? sgn * 0.27 : 0)); circ(hx, hy - 1.2, 1.7, SEASON === 2 ? '#8a7a3a' : '#4f7d3c'); } }
+      }
+    }
+    for (const m of LAY.mains) for (let k = 0; k < m.pts.length - 1; k++) {
+      const a = m.pts[k], b = m.pts[k + 1], wd = m.wide ? 1.0 : 0.62;
+      seg(a, b, wd, m.wide ? roadCol : mix(roadCol, inner, 0.3));
+      if (!m.wide) continue;
+      if (paved && !SNOW) { const L2 = Math.hypot(b[0] - a[0], b[1] - a[1]), ax = Math.abs(b[0] - a[0]) > Math.abs(b[1] - a[1]); for (let u = 0.25; u < L2; u += 0.5) { const t2 = u / L2, gx = a[0] + (b[0] - a[0]) * t2, gy = a[1] + (b[1] - a[1]) * t2; line(P(gx - (ax ? 0 : 0.5), gy - (ax ? 0.5 : 0)), P(gx + (ax ? 0 : 0.5), gy + (ax ? 0.5 : 0)), shade(roadCol, -0.14), 0.6); } line(P(a[0] - (ax ? 0 : 0.5), a[1] - (ax ? 0.5 : 0)), P(b[0] - (ax ? 0 : 0.5), b[1] - (ax ? 0.5 : 0)), shade(roadCol, -0.2), 0.7); line(P(a[0] + (ax ? 0 : 0.5), a[1] + (ax ? 0.5 : 0)), P(b[0] + (ax ? 0 : 0.5), b[1] + (ax ? 0.5 : 0)), shade(roadCol, -0.2), 0.7); }
+      else if (cobble && !SNOW) { const n = Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.35); for (let j = 0; j < n; j++) { const t = j / n; const gx = a[0] + (b[0] - a[0]) * t, gy = a[1] + (b[1] - a[1]) * t; const [x, y] = P(gx + (R() - 0.5) * 0.6, gy + (R() - 0.5) * 0.6); circ(x, y, 1, shade(roadCol, -0.12)); } }
       else if (!SNOW) { const n = Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.6); for (let j = 0; j < n; j++) { const t = j / n; const [x, y] = P(a[0] + (b[0] - a[0]) * t + (R() - 0.5) * 0.5, a[1] + (b[1] - a[1]) * t + (R() - 0.5) * 0.5); circ(x, y, 0.8, shade(roadCol, -0.18)); } }
     }
     // drill yard
@@ -2357,7 +2774,11 @@
     if (LEY > 0) drawLey(LEY);
     // farm fields
     const nf = fieldCount(city), dry = (REG.site.grain || 1) < 0.85;
-    REG.fields.slice(0, nf).forEach((f, i) => field(f, true, i, dry));
+    LAY.fields.slice(0, nf).forEach((f, i) => field(f, true, i, dry));
+    if (TECH.irrigation && nf) { // irrigation: a channel along each planted field
+      const wc = SEASON === 3 ? '#cfe2ee' : '#5a9ac4';
+      LAY.fields.slice(0, nf).forEach(([x, y, w, d]) => { const alongX = w >= d; poly(alongX ? quad(x + 0.05, y + d - 0.1, w - 0.1, 0.07) : quad(x + w - 0.1, y + 0.05, 0.07, d - 0.1), wc, null); });
+    }
     if (REG.river) drawRiver();
     drawLakes();
     // pond (or a bonfire ring for Ashborn)
@@ -2378,7 +2799,7 @@
   }
   function fieldCount(city) {
     const L = G.lvl(city, 'farm');
-    return L ? clampv(Math.round((1 + L / 2) * clampv(REG.site.grain || 1, 0.5, 1.6)), 1, REG.fields.length) : 0;
+    return L ? clampv(Math.round((1 + L / 2) * clampv(REG.site.grain || 1, 0.5, 1.6)), 1, LAY.fields.length) : 0;
   }
   function field([x, y, w, d], planted, i, dry) {
     const soil = SNOW ? '#e4e8ea' : STARVE ? '#8a8276' : dry ? '#a88a5c' : '#8a6440';
@@ -2417,11 +2838,187 @@
         for (const off of [5, 5.5]) { c.beginPath(); pts.forEach((q, k) => k ? c.lineTo(q[0], q[1] - off) : c.moveTo(q[0], q[1] - off)); c.strokeStyle = F('#cdbf98'); c.lineWidth = 0.6; c.stroke(); }
       }
     };
+    // CITYART: 'waterhome', else the people's 'cottage' (both told ctx.wet + the shore), else the stock stilt house;
+    // the boardwalk ashore and the rope bridge between neighbours are always cityview's
+    const L = G.lvl(CITY, 'houses'), wx = shoreCtx(z, { wet: true, u, dd, dep });
     if (!front) walk();
-    const h = hallTide(w.gx, w.gy, 0.9, 0.85, [11, 13, 16, 17][band], band, { wet: true, axis: i % 4 === 1 ? 'x' : 'y', chim: 'house', noNet: i % 3 === 0 });
+    let h = artHook('waterhome', [w.gx, w.gy, 0.9, 0.85], L, band, mkCtx('waterhome', i, false, wx));
+    if (h === null) h = artHook('cottage', [w.gx, w.gy, 1.3, 1.2], L, band, mkCtx('cottage', i, false, wx));
+    const opt = ARTOPT;
+    if (h === null) h = hallTide(w.gx, w.gy, 0.9, 0.85, [11, 13, 16, 17][band], band, { wet: true, axis: i % 4 === 1 ? 'x' : 'y', chim: 'house', noNet: i % 3 === 0 }) + 6;
     if (front) walk();
-    return h + 6;
+    ARTOPT = opt;
+    return h;
   }
+
+
+  // ------------------------------------------------------------------
+  // technology: the era and a few techs restyle the whole town
+  // ------------------------------------------------------------------
+  const TECH_KEYS = ['masonry', 'architecture', 'irrigation', 'fortification', 'granaries', 'metallurgy', 'bellows', 'guilds', 'medicine', 'cartography', 'deepshafts', 'sawpits'];
+  let TECH = { era: 0 };
+  function techOf(city) {
+    const o = city.owner, T = { era: 0 };
+    try { T.era = typeof G.techEra === 'function' ? clampv(Math.floor(+G.techEra(S, o) || 0), 0, 3) : 0; } catch (e) { T.era = 0; }
+    let done = {};
+    try { if (typeof G.hasTech !== 'function' && typeof G.research === 'function') done = (G.research(S, o) || {}).done || {}; } catch (e) { done = {}; }
+    for (const k of TECH_KEYS) { try { T[k] = typeof G.hasTech === 'function' ? !!G.hasTech(S, o, k) : !!done[k]; } catch (e) { T[k] = false; } }
+    T.sig = T.era + ':' + TECH_KEYS.map(k => T[k] ? 1 : 0).join('');
+    return T;
+  }
+  // era 0 thatch and timber, 1 shingles, 2 the full tile/slate palette, 3 darker roofs with gilded trim
+  function eraStyle(base, T) {
+    const s = { ...base }, e = T.era;
+    if (e === 0) s.roof = mix(base.roof, base.thatch, 0.5);
+    else if (e === 1) s.roof = mix(base.roof, '#7a5236', 0.22);
+    else if (e === 3) { s.roof = shade(base.roof, -0.06); s.trim = mix(base.trim, '#e0b440', 0.45); }
+    if (T.architecture) s.wall = mix(base.wall, base.stone2, 0.45); else if (T.masonry) s.wall = mix(base.wall, base.stone2, 0.2);
+    return s;
+  }
+  const GOLD = '#e0b440';
+  function finial(cx, cy, z) { // a gilded spire on civic buildings in the Legend era
+    line(P(cx, cy, z), P(cx, cy, z + 6), '#8a6a2a', 1.2);
+    circ(...P(cx, cy, z + 7), 2.2, GOLD, OUT); line(P(cx, cy, z + 9), P(cx, cy, z + 17), GOLD, 1.2);
+    rec('sparks', { x: P(cx, cy, z + 8)[0], y: P(cx, cy, z + 8)[1], kind: 'star' });
+  }
+
+  // ------------------------------------------------------------------
+  // levels: within each growth band a building gains something at almost
+  // every level, all kept inside its own plot (front-right edge, front fence)
+  //   step 1+ stock in the yard (kind by building), 2+ a fenced yard,
+  //   3+ a banner or the people's lamp, 4+ lamp posts at the yard gate,
+  //   5 (level 20) a gilded finial. Stone footings from level 7 / masonry.
+  // ------------------------------------------------------------------
+  const BAND_LO = [1, 5, 10, 15];
+  const subStep = (L, band) => L - BAND_LO[band];
+  const STOCK = { warehouse: 'crates', workshop: 'crates', market: 'stalls', tavern: 'barrels', bakery: 'sacks', heartgrove: 'plants', runeforge: 'blocks', lumber: 'logs', quarry: 'blocks', smelter: 'ore', smithy: 'rack', armory: 'rack', barracks: 'rack', warpit: 'rack', stable: 'hay', farm: 'hay', academy: 'plants', temple: 'plants', theatre: 'banners', townhall: 'banners', mine: 'spoil', pearlbeds: 'barrels', dreamspire: 'plants', ossuary: 'blocks', aerie: 'hay' };
+  const NO_FENCE = { townhall: 1, temple: 1, magetower: 1, market: 1, mine: 1, quarry: 1, theatre: 1, warpit: 1 };
+  const CIVIC = { temple: 1, academy: 1, theatre: 1, market: 1, warehouse: 1 };
+  function stock(kind, x, y, w, d, n) {
+    if (n <= 0) return;
+    if (kind === 'logs') { logPile(x + 0.15, y + d - 0.28, Math.min(0.9, w - 0.4), Math.min(4, 1 + Math.ceil(n / 2))); return; }
+    if (kind === 'stalls') { const k = Math.min(n, Math.floor((w - 0.2) / 0.72)); for (let i = 0; i < k; i++) stall(x + 0.12 + i * 0.72, y + d - 0.42, STY.cloth[i % 4], RACE === 'ash' ? 'hide' : RACE === 'sylvan' ? 'leaf' : RACE === 'veil' ? 'veil' : RACE === 'grave' ? 'grave' : null); return; }
+    if (kind === 'banners') { const k = Math.min(n, Math.floor((w - 0.2) / 0.45)); for (let i = 0; i < k; i++) banner(x + 0.2 + i * 0.45, y + d - 0.1, 0, 20 + (i % 2) * 4, STY.cloth[i % 4]); return; }
+    for (let i = 0; i < Math.min(n, 5); i++) {
+      const gx = x + w - 0.2, gy = y + d - 0.25 - i * 0.32;
+      if (gy < y + 0.3) break;
+      if (kind === 'crates') { crate(gx - 0.14, gy - 0.14, 0.26); if (i % 2) crate(gx - 0.12, gy - 0.12, 0.22, 5.7); }
+      else if (kind === 'barrels') barrel(gx, gy);
+      else if (kind === 'sacks') sack(gx, gy);
+      else if (kind === 'blocks') { box(gx - 0.13, gy - 0.13, 0.26, 0.26, 0, 6, STY.stone2); if (i % 2) box(gx - 0.1, gy - 0.1, 0.2, 0.2, 6, 5, STY.stone); }
+      else if (kind === 'ore') rock(gx, gy, 0.55, i % 2 ? '#6a5a50' : '#8a5a3a');
+      else if (kind === 'rack') { const a = P(gx, gy - 0.12), b = P(gx, gy + 0.12); line(a, [a[0], a[1] - 10], '#5a4030', 1); line(b, [b[0], b[1] - 10], '#5a4030', 1); line([a[0], a[1] - 8], [b[0], b[1] - 8], '#5a4030', 1); for (let k = 0; k < 3; k++) { const m = [a[0] + (b[0] - a[0]) * (k + 1) / 4, a[1] + (b[1] - a[1]) * (k + 1) / 4]; line([m[0], m[1] + 1], [m[0], m[1] - 13], '#c8ccd2', 0.8); } }
+      else if (kind === 'hay') haystack(gx, gy, 0.42);
+      else if (kind === 'plants') { if (RACE === 'veil') veilFlora(gx, gy, 0.7, (i * 0.31 + 0.05) % 0.9); else if (RACE === 'grave') tomb(gx, gy, 0.6); else bush(gx, gy, 0.5); }
+      else if (kind === 'spoil') { const [sx, sy] = P(gx - 0.1, gy); c.beginPath(); c.ellipse(sx, sy, 6 + i, 3 + i * 0.4, 0, Math.PI, TAU); c.fillStyle = F(SNOW ? '#e8ecee' : '#7a6e60'); c.fill(); circ(sx - 2, sy - 2, 1, '#5a5048'); }
+    }
+  }
+  function yardFence(x, y, w, d) { // front two edges with a gate gap, in each people's manner
+    const fy = y + d - 0.08, fx = x + w - 0.08, a = [[x + 0.1, fy], [x + w * 0.38, fy]], b = [[x + w * 0.64, fy], [fx, fy], [fx, y + 0.12]];
+    if (RACE === 'grave') { ironFence(a, 7); ironFence(b, 7); return; }
+    if (RACE === 'hearth' || RACE === 'sylvan') { for (const pts of [a, b]) for (let i = 0; i < pts.length - 1; i++) { const [p, q] = [pts[i], pts[i + 1]], n = Math.max(1, Math.round(Math.hypot(q[0] - p[0], q[1] - p[1]) / 0.22)); for (let k = 0; k <= n; k++) { const [hx, hy] = P(p[0] + (q[0] - p[0]) * k / n, p[1] + (q[1] - p[1]) * k / n); circ(hx, hy - 2, 2.1, SNOW ? '#eef3f5' : SEASON === 2 ? '#9a7a3a' : '#4f8a3e', OUT); } } return; }
+    if (RACE === 'delver' || RACE === 'veil') { const col = RACE === 'veil' ? STY.stone2 : STY.stone; box(a[0][0], fy - 0.05, a[1][0] - a[0][0], 0.1, 0, 3, col); box(b[0][0], fy - 0.05, fx - b[0][0], 0.1, 0, 3, col); box(fx - 0.05, y + 0.12, 0.1, fy - y - 0.12, 0, 3, col); return; }
+    fence(a, 5, RACE === 'ash' ? STY.trim : RACE === 'tide' ? '#a8987a' : '#8a6440'); fence(b, 5, RACE === 'ash' ? STY.trim : RACE === 'tide' ? '#a8987a' : '#8a6440');
+  }
+  function sign3(gx, gy) { // the people's mark at the yard corner
+    if (RACE === 'grave') witchLamp(gx, gy, 0, 12);
+    else if (RACE === 'veil') crystal(gx, gy, 0, 12, 0.06);
+    else if (RACE === 'sylvan') { const [lx, ly] = P(gx, gy); line([lx, ly], [lx, ly - 13], '#6e5136', 1.2); lantern(lx + 3, ly - 10, 1.4); line([lx, ly - 13], [lx + 3, ly - 13], '#6e5136', 1); }
+    else if (RACE === 'wind') pennant(gx, gy, 0, 24);
+    else flagpole(gx, gy, 0, 22, STY.flag, 9);
+  }
+  // technology marks: one sketch per tech, placed at (gx, gy) — dress() puts them at the stock spots,
+  // and api.techMark(name, gx, gy, o) lets an override place one itself. o: { band, h, col, n }
+  function techMark(name, gx, gy, o = {}) {
+    const band = o.band || 0;
+    if (name === 'metallurgy' || name === 'bellows' || name === 'chimney') chimney(gx, gy, 0, o.h || 46 + (TECH.metallurgy ? 8 : 0) + (TECH.bellows ? 8 : 0), 'smelter', o.col || (RACE === 'grave' ? '#3e3e46' : '#8a5a48'));
+    else if (name === 'guilds') banner(gx, gy, 0, o.h || 30, o.col || STY.cloth[2]);
+    else if (name === 'granaries') for (let k = 0; k < (o.n || 1); k++) { const sy = gy + k * 0.5; cyl(gx, sy, 0.2, 0, o.h || 20, o.col || (RACE === 'delver' ? STY.stone2 : '#d8c8a4'), '#c8b894'); cone(gx, sy, 0.24, o.h || 20, 8, STY.roof); }
+    else if (name === 'deepshafts') { const a = P(gx - 0.2, gy), b = P(gx + 0.2, gy), tp2 = P(gx, gy, o.h || 30); line(a, tp2, '#5a4030', 1.4); line(b, tp2, '#5a4030', 1.4); circ(tp2[0], tp2[1] + 2, 3, null, '#3a2a20'); }
+    else if (name === 'sawpits') { const [sx, sy] = P(gx, gy); line([sx - 6, sy], [sx + 6, sy - 3], '#6a4a30', 1.6); line([sx - 6, sy - 6], [sx - 6, sy], '#6a4a30', 1); line([sx + 6, sy - 9], [sx + 6, sy - 3], '#6a4a30', 1); }
+    void band;
+  }
+  // an override's opt-out: true, or an array naming the parts / techs to leave out
+  const optOut = (v, k) => v === true || (Array.isArray(v) && v.includes(k));
+  // drawn right after a building: what its level within the band adds. opt: the override's return object
+  //   noDress true | ['stock', 'fence', 'sign', 'lamps', 'finial'], noFinial true, finial [gx, gy] (moves it),
+  //   noTech true | ['metallurgy', 'bellows', 'guilds', 'granaries', 'deepshafts', 'sawpits']
+  function dress(t, [x, y, w, d], L, band, top, opt) {
+    if (L <= 0) return;
+    opt = opt || NOOPT;
+    const nd = k => optOut(opt.noDress, k), nt = k => !TECH[k] || optOut(opt.noTech, k);
+    const s = subStep(L, band), big = w >= 1.6 && d >= 1.4;
+    if (s >= 1 && !nd('stock')) stock(STOCK[t] || 'barrels', x, y, w, d, t === 'market' ? s : Math.ceil(s * 1.2));
+    if (s >= 2 && big && !NO_FENCE[t] && !nd('fence')) yardFence(x, y, w, d);
+    if (s >= 3 && big && !nd('sign')) sign3(x + 0.14, y + d - 0.14);
+    if (s >= 4 && big && !nd('lamps')) for (const u of [0.38, 0.64]) { const [lx, ly] = P(x + w * u, y + d - 0.08); line([lx, ly], [lx, ly - 11], '#4a3a2a', 1); lantern(lx, ly - 9, 1.3); }
+    if ((s >= 5 || TECH.era >= 3) && CIVIC[t] && top > 0 && !nd('finial') && !opt.noFinial) { const fp = Array.isArray(opt.finial) ? opt.finial : [x + w / 2, y + d / 2]; finial(fp[0], fp[1], top); }
+    // technology marks on particular buildings
+    if (t === 'smelter' && (!nt('metallurgy') || !nt('bellows'))) techMark('chimney', x + 0.12, y + 0.5);
+    if ((t === 'market' || t === 'warehouse') && !nt('guilds')) techMark('guilds', x + w - 0.15, y + 0.2);
+    if (t === 'farm' && !nt('granaries')) techMark('granaries', x + w - 0.3, y + 0.35, { n: band >= 2 ? 2 : 1 });
+    if (t === 'mine' && !nt('deepshafts')) techMark('deepshafts', x + w * 0.8, y + d - 0.3);
+    if (t === 'lumber' && !nt('sawpits')) techMark('sawpits', x + 0.4, y + 0.4);
+  }
+  // stone footings under a building (ground layer)
+  function apron(x, y, w, d) {
+    const col = SNOW ? '#d8dcde' : mix(STY.stone2, GROUND, 0.25);
+    poly(quad(x + 0.04, y + 0.04, w - 0.08, d - 0.08), col, 'rgba(60,40,20,0.25)');
+  }
+  // a crane beside a building being upgraded
+  function crane(x, y, w, d, H) {
+    const b = P(x + 0.15, y + 0.15), t = P(x + 0.15, y + 0.15, H + 22), j = P(x + w * 0.85, y + d * 0.7, H + 20);
+    line(b, t, '#7a5434', 1.8); line(P(x + 0.35, y + 0.15), t, '#7a5434', 0.8); line(t, j, '#7a5434', 1.4);
+    line(j, [j[0], j[1] + 16], '#3a2a20', 0.6); box(...[x + w * 0.85 - 0.1, y + d * 0.7 - 0.1], 0.2, 0.2, H + 2, 3, '#a5773f');
+  }
+
+  // ------------------------------------------------------------------
+  // CITYART hook (contract in js/cityart.js; API documented at the top of this file)
+  // ------------------------------------------------------------------
+  const ARTREG = typeof CITYART !== 'undefined' ? CITYART : (window.CITYART = window.CITYART || {});
+  const artWarned = new Set();
+  const API = {
+    P, quad, path, poly, line, circ, lamp, lampDot, box, onL, onR, win, door, rowWins, timber, courses, gable, hip, gableQ, roofLines, cone, cyl, dome, ell, gradFill,
+    chimney, flagpole, banner, pennant, lantern, shadow, blobs, treeDecid, treePine, bush, rock, stump, log, logPile, crate, barrel, sack, haystack, fence, ironFence,
+    firePit, skull, person, animal, crystal, twistLines, floatLantern, mushroom, mushroomRing, mushroomHouse, tomb, deadTree, witchLamp, lancet, perchedHawk, planks, porthole,
+    stilts, netRack, shellPile, shellScales, archDoor, slit, parapet, canopy, roots, stall, signBoard, scaffold, foundation, finial, stock, yardFence,
+    hall: (...a) => hall(...a), tower: (...a) => tower(...a), BLD, dress: (...a) => dress(...a), techMark: (...a) => techMark(...a),
+    roofCol: col => roofCol(col), lerp2, boneVault: (...a) => boneVault(...a), MAGECOL, get magicCol() { return MAGECOL[RACE] || MAGECOL.hearth; },
+    edgePt, lakeDepth, hullBox, pier: (...a) => pier(...a), pierWood: () => pierWood(), boat: (...a) => boat(...a), shipHull: (...a) => shipHull(...a), reeds: (...a) => reeds(...a),
+    stockHarbor: () => HARB && drawHarbor(HARB), stockLighthouse: (...a) => lighthouse(...a), stockWallTower: (gx, gy, band) => wallTowerStock(gx, gy, band),
+    moonLily: (...a) => moonLily(...a), silkGrass: (...a) => silkGrass(...a), briarRose: (...a) => briarRose(...a), mirrorStone: (...a) => mirrorStone(...a), mothPost: (...a) => mothPost(...a), veilFlora: (...a) => veilFlora(...a), stoneRing: (...a) => stoneRing(...a),
+    rec, shade, mix, clampv, F, mkRng, hashStr, nightGlass: () => nightGlass(), TAU, HW, HH, N, OUT, SQ2,
+    get c() { return c; }, get STY() { return STY; }, get R() { return R; }, get RACE() { return RACE; }, get GLOW() { return GLOW; }, get SNOW() { return SNOW; },
+    get SEASON() { return SEASON; }, get GROUND() { return GROUND; }, get TECH() { return TECH; }, get CITY() { return CITY; }, get LAY() { return LAY; },
+  };
+  const techFn = id => !!TECH[id] || (() => { try { return typeof G.hasTech === 'function' ? !!G.hasTech(S, CITY.owner, id) : !!(((G.research && G.research(S, CITY.owner)) || {}).done || {})[id]; } catch (e) { return false; } })();
+  // base ctx every hook gets; extra fields (side, coastal, wet, …) are merged on top
+  const actKey = t => t === 'cottage' || t === 'waterhome' ? 'houses' : t === 'walltower' || t === 'gate' || t === 'postern' ? 'wall' : t === 'lighthouse' ? 'townhall' : t;
+  const mkCtx = (t, i = 0, building = false, extra) => Object.assign({ era: TECH.era, tech: techFn, city: CITY, season: SEASON, snow: SNOW, night: GLOW, i, building, layout: LAY, active: stateOf(actKey(t)), activity: ACT[actKey(t)] || null, coastal: false }, extra || {});
+  // the options of the last override that drew (read straight after drawArt / artHook in the same closure)
+  let ARTOPT = null;
+  const NOOPT = {};
+  // call CITYART[RACE][t]; returns the top z (number) when the override drew, null when it declined or threw.
+  // An override may return a number, or { top, noDress, noTech, noFinial, finial, hit, … } — kept in ARTOPT.
+  function artHook(t, rect, L, band, ctx) {
+    ARTOPT = null;
+    const reg = ARTREG[RACE], fn = reg && reg[t];
+    if (typeof fn !== 'function') return null;
+    try {
+      const h = fn(API, rect, L, band, ctx);
+      if (h === undefined || h === false || h === null) return null;
+      if (typeof h === 'object') { ARTOPT = h; return +h.top || 0; }
+      ARTOPT = NOOPT; return +h || 0;
+    } catch (e) { if (!artWarned.has(RACE + t)) { artWarned.add(RACE + t); console.warn('CITYART', RACE, t, e); } ARTOPT = null; return null; }
+  }
+  // draw a building: a registered CITYART override first, the stock drawing when it declines or throws
+  function drawArt(t, rect, L, band, i = 0, building = false, extra) {
+    const h = artHook(t, rect, L, band, mkCtx(t, i, building, extra));
+    if (h !== null) return h;
+    return t === 'cottage' ? BLD.cottage(rect[0], rect[1], band, i) : (BLD[t] || BLD.generic)(rect, L, band);
+  }
+  // hit areas of an override: its own boxes ([gx, gy, w, d, h] in grid tiles), else the whole slot up to its top
+  const optHits = (opt, rect, h) => opt && Array.isArray(opt.hit) && opt.hit.length ? opt.hit.filter(b => Array.isArray(b) && b.length >= 5).map(b => hullBox(+b[0], +b[1], +b[2], +b[3], +b[4])) : [hullBox(rect[0], rect[1], rect[2], rect[3], h)];
 
   // ------------------------------------------------------------------
   // scene assembly
@@ -2433,7 +3030,7 @@
     c = ctx; GLOW = glow;
     c.setTransform(k, 0, 0, k, offx, offy);
     R = mkRng(hashStr(city.id) ^ 0x5bd1e995);
-    REC = glow ? null : { smoke: [], flags: [], fires: [], hammers: [], sails: [], sparks: [], lights: [], hits: [], anvils: [], pit: [], wheels: [], birds: [], chimes: [], divers: [], magic: [], ley: [], beams: [] };
+    REC = glow ? null : { works: [], smoke: [], flags: [], fires: [], hammers: [], sails: [], sparks: [], lights: [], hits: [], anvils: [], pit: [], wheels: [], birds: [], chimes: [], divers: [], magic: [], ley: [], beams: [] };
     const terrain = city.terrain;
     // harbor (on the shore the main road meets), Tidekin homes over the water, and their lighthouse
     const coastal = REG.lakes.length > 0, harbL = G.lvl(city, 'harbor');
@@ -2441,6 +3038,8 @@
     if (coastal && (DATA.buildings.harbor || harbL)) { const z = harborLake(); HARB = { z, u0: lakeU0(z), L: harbL, band: bandOf(harbL) }; }
     let light = null;
     WATERHOMES = [];
+    const artLight = coastal && ARTREG[RACE] && typeof ARTREG[RACE].lighthouse === 'function';
+    if (RACE !== 'tide' && artLight && G.lvl(city, 'townhall') >= 10) { const hz = harborLake(), u0 = lakeU0(hz), ua = hz.a + 1.0, ub = hz.b - 1.0; if (ub - ua > 2.4) light = { z: hz, u: Math.abs(ua - u0) > Math.abs(ub - u0) ? ua : ub }; }
     if (RACE === 'tide' && coastal) {
       const hz = harborLake();
       if (G.lvl(city, 'townhall') >= 10) { const u0 = lakeU0(hz), ua = hz.a + 1.0, ub = hz.b - 1.0; light = { z: hz, u: Math.abs(ua - u0) > Math.abs(ub - u0) ? ua : ub }; }
@@ -2469,8 +3068,8 @@
     const addHit = (type, pts, depth) => { if (REC) hits.push({ type, pts, depth }); };
 
     // buildings this view has no slot for get a spare outer-ring plot, so nothing ever vanishes
-    const planted = REG.fields.slice(0, fieldCount(city)), usedR = Object.values(REG.slots);
-    const spare = OUTER_SITES.map(o => o.r).filter(r => !usedR.includes(r) && !rectWet(REG, r, 0.1) && !planted.some(f => overlapR(f, r, 0.1))).concat(INNER_SPARE);
+    const planted = LAY.fields.slice(0, fieldCount(city)), usedR = Object.values(REG.slots);
+    const spare = OUTER_SITES.map(o => o.r).filter(r => !usedR.includes(r) && !rectWet(REG, r, 0.1) && !planted.some(f => overlapR(f, r, 0.1)) && !(LAY.cem && overlapR(LAY.cem, r, 0.1))).concat(INNER_SPARE);
     const GEN = {};
     for (const t of Object.keys(DATA.buildings)) {
       if (SLOT[t] || REG.slots[t] || t === 'wall') continue;      // the wall is drawn round the town, not on a plot
@@ -2480,16 +3079,21 @@
     }
     const types = Object.keys(DATA.buildings).filter(t => SLOT[t] || GEN[t] || (t === 'harbor' && HARB));
     if (!DATA.buildings.magetower && G.lvl(city, 'magetower')) types.push('magetower');
-    const drawB = fn => { LUM = RACE === 'veil'; try { return fn(); } finally { LUM = false; } };
+    const drawB = (fn, bt) => { CUR_B = bt || null; DIM = dormant(bt); LUM = RACE === 'veil' && !DIM; try { return fn(); } finally { LUM = false; CUR_B = null; DIM = false; } };
     for (const t of types) {
       const st = DATA.buildings[t] ? G.buildStatus(S, city, t) : {};
       if (st.hidden) continue;
       if (t === 'harbor' && HARB) {
         const q = qOf(t), active = q.some(e => e.start <= S.time), e = HARB.z.e;
         const hk = (() => { const [gx, gy] = edgePt(e, lakeDepth(HARB.z, HARB.u0) * 0.5, HARB.u0); return gx + gy + 0.5; })();
-        if (HARB.L) push(hk, () => { (() => { drawHarbor(HARB); if (q.length) { const [gx, gy] = edgePt(e, lakeDepth(HARB.z, HARB.u0) + 0.2, HARB.u0 + 0.6); scaffold(gx - 0.3, gy - 0.3, 0.6, 0.6, 20, active); } })(); });
-        else push(hk, () => harborPlot(HARB, q.length > 0, active));
-        addHit(t, harborHit(HARB), hk);
+        if (HARB.L) push(hk, () => {
+          // CITYART 'harbor' with ctx.coastal: slot = the harbor works' grid rect (mostly water), plus the shore geometry
+          const hr = harborRect(HARB);
+          const h = drawB(() => { const h0 = artHook('harbor', hr, HARB.L, HARB.band, mkCtx('harbor', 0, active, shoreCtx(HARB.z))); if (h0 !== null) return h0; ARTOPT = null; drawHarbor(HARB); return null; }, 'harbor'), opt = ARTOPT;
+          if (q.length) { const [gx, gy] = edgePt(e, lakeDepth(HARB.z, HARB.u0) + 0.2, HARB.u0 + 0.6); scaffold(gx - 0.3, gy - 0.3, 0.6, 0.6, 20, active); }
+          if (opt) for (const hb of optHits(opt, hr, h)) addHit(t, hb, hk); else addHit(t, harborHit(HARB), hk);
+        });
+        else { push(hk, () => harborPlot(HARB, q.length > 0, active)); addHit(t, harborHit(HARB), hk); }
         continue;
       }
       const s = GEN[t] || slotOf(t), L = G.lvl(city, t), band = bandOf(L), q = qOf(t);
@@ -2501,8 +3105,8 @@
         for (let i = 0; i < n; i++) {
           let [cx, cy] = COTTAGES[i], wet = null;
           if (i % 2 === 1 && wi < WATERHOMES.length) { wet = WATERHOMES[wi++]; wet.used = true; cx = wet.gx; cy = wet.gy; }
-          if (wet) { const w0 = wet; push(cx + cy + 0.9, () => { const h = drawB(() => waterHome(w0, band, i)); addHit(t, hullBox(w0.gx - 0.05, w0.gy - 0.05, 1.0, 0.95, h), w0.gx + w0.gy + 0.9); }); continue; }
-          push(cx + cy + 1.1, () => { const h = drawB(() => BLD.cottage(cx, cy, band, i)); addHit(t, hullBox(cx, cy, 1.3, 1.2, h), cx + cy + 1.1); if (q.length && i === n - 1) scaffold(cx - 0.05, cy - 0.05, 1.35, 1.25, h * 0.8, active); });
+          if (wet) { const w0 = wet; push(cx + cy + 0.9, () => { const h = drawB(() => waterHome(w0, band, i), 'houses'), opt = ARTOPT; for (const hb of opt ? optHits(opt, [w0.gx - 0.05, w0.gy - 0.05, 1.0, 0.95], h) : [hullBox(w0.gx - 0.05, w0.gy - 0.05, 1.0, 0.95, h)]) addHit(t, hb, w0.gx + w0.gy + 0.9); }); continue; }
+          push(cx + cy + 1.1, () => { const h = drawB(() => drawArt('cottage', [cx, cy, 1.3, 1.2], L, band, i, q.length > 0 && i === n - 1 && active), 'houses'), opt = ARTOPT; for (const hb of opt ? optHits(opt, [cx, cy, 1.3, 1.2], h) : [hullBox(cx, cy, 1.3, 1.2, h)]) addHit(t, hb, cx + cy + 1.1); if (q.length && i === n - 1) scaffold(cx - 0.05, cy - 0.05, 1.35, 1.25, h * 0.8, active); });
         }
         if (q.length && n < 9) { const [cx, cy] = COTTAGES[n]; push(cx + cy + 1, () => { foundation(cx, cy, 1.2, 1.1); scaffold(cx, cy, 1.2, 1.1, 16, active); }); addHit(t, hullBox(cx, cy, 1.2, 1.1, 20), cx + cy + 1); }
         continue;
@@ -2517,15 +3121,19 @@
         addHit(t, hullBox(x, y, w, d, q.length ? 24 : 10), depth);
         continue;
       }
+      if ((L >= 7 || TECH.masonry) && !['quarry', 'warpit', 'mine', 'farm', 'lumber'].includes(t)) push(-1.5, () => apron(x, y, w, d));
       if (t !== 'quarry' && t !== 'warpit') push(-1, () => shadow(x + 0.2, y + 0.2, w - 0.4, d - 0.4, 0.5 + band * 0.25));
       push(depth, () => {
-        const h = drawB(() => (BLD[t] || BLD.generic)(s, L, band));
-        if (q.length) scaffold(x + 0.15, y + 0.15, w - 0.3, d - 0.3, Math.min(h, 30), active);
-        if (t === 'mine') addHit(t, hullBox(x - 0.2, y + d - 1.2, w * 0.75, 1.6, h), depth);
+        let opt = null;
+        const h = drawB(() => { const h0 = drawArt(t, s, L, band, 0, active); opt = ARTOPT; dress(t, s, L, band, h0, opt); return h0; }, t);
+        if (REC) REC.works.push({ t, x, y, w, d, h, band });
+        if (q.length) { scaffold(x + 0.15, y + 0.15, w - 0.3, d - 0.3, Math.min(h, 30), active); if (w >= 1.8 && L >= 3) crane(x, y, w, d, Math.min(h, 40)); }
+        if (opt && (Array.isArray(opt.hit) || !['townhall', 'magetower', 'mine'].includes(t))) for (const hb of optHits(opt, s, h)) addHit(t, hb, depth);   // an override's own hit boxes, else the whole slot up to its top (the hall, tower and mine keep their shaped stock areas unless the override gives boxes)
+        else if (t === 'mine') addHit(t, hullBox(x - 0.2, y + d - 1.2, w * 0.75, 1.6, h), depth);
         else if (t === 'townhall' && h > 55) { addHit(t, hullBox(x, y, w, d, 50), depth); addHit(t, hullBox(x + 1.7, y, 1.1, 1.05, h), depth); }   // hall + tower, so low plots behind stay clickable
         else if (t === 'magetower') addHit(t, hullBox(x + 0.3, y + 0.35, w - 0.6, d - 0.7, h), depth);   // slender: keep the plot behind it clickable
         else addHit(t, hullBox(x, y, w, d, h), depth);
-        if (t === 'farm') REG.fields.slice(0, fieldCount(city)).forEach(f => addHit('farm', quad(...f), f[0] + f[1]));
+        if (t === 'farm') LAY.fields.slice(0, fieldCount(city)).forEach(f => addHit('farm', quad(...f), f[0] + f[1]));
       });
     }
     // the mine's hill, the bridge and the watermill
@@ -2535,17 +3143,17 @@
       push(12 + cc + 0.6, bridge);
       if (G.lvl(city, 'farm') > 0 || G.lvl(city, 'bakery') > 0) {
         const ws = watermillSpot(), k2 = ws.u + ws.hc;
-        push(k2, () => { const h = watermill(); void h; });
+        push(k2, () => drawB(() => watermill(), G.lvl(city, 'bakery') > 0 ? 'bakery' : 'farm'));
       }
     }
     // drill yard dummies when no barracks / archery butts
-    if (RACE !== 'ash') push(13.0 + 4.9 + 2.8, () => {
+    if (RACE !== 'ash') push(LAY.deco.dummies[1][0] + LAY.deco.dummies[1][1] + 0.4, () => {
       if (G.lvl(city, 'barracks') < 1) return;
-      for (const [gx, gy] of [[13.6, 5.6], [14.6, 5.4], [15.4, 6.2]]) { const [tx, ty] = P(gx, gy); line([tx - 3, ty], [tx, ty - 9], '#6a4a30', 1); line([tx + 3, ty], [tx, ty - 9], '#6a4a30', 1); circ(tx, ty - 10, 4.2, '#e6d49a', OUT); circ(tx, ty - 10, 2.6, '#c0392b'); circ(tx, ty - 10, 1, '#f6eedc'); }
+      for (const [gx, gy] of LAY.deco.dummies) { const [tx, ty] = P(gx, gy); line([tx - 3, ty], [tx, ty - 9], '#6a4a30', 1); line([tx + 3, ty], [tx, ty - 9], '#6a4a30', 1); circ(tx, ty - 10, 4.2, '#e6d49a', OUT); circ(tx, ty - 10, 2.6, '#c0392b'); circ(tx, ty - 10, 1, '#f6eedc'); }
     });
     // plaza centrepiece
-    push(14.0 + 10.0 + 0.2, () => {
-      const [gx, gy] = [14.0, 10.0];
+    push(LAY.centre[0] + LAY.centre[1] + 0.2, () => {
+      const [gx, gy] = LAY.centre;
       if (RACE === 'hearth') { cyl(gx, gy, 0.28, 0, 5, '#9a9286', '#4f7fa8'); line(P(gx - 0.25, gy), P(gx - 0.25, gy, 14), '#6a4a30', 1.2); line(P(gx + 0.25, gy), P(gx + 0.25, gy, 14), '#6a4a30', 1.2); const b = { x: gx - 0.32, y: gy - 0.32, w: 0.64, d: 0.64, z: 0, h: 14, col: STY.wall }; gable(b, 6, STY.roof, 'x', 'tile', 0.05); }
       else if (RACE === 'delver') { box(gx - 0.25, gy - 0.25, 0.5, 0.5, 0, 6, '#8c867e'); box(gx - 0.12, gy - 0.12, 0.24, 0.24, 6, 18, '#a8a299'); lampDot(...P(gx, gy, 27), 2.4, '#e8a040', '#ffb04a'); rec('fires', { x: P(gx, gy, 25)[0], y: P(gx, gy, 25)[1], s: 0.5 }); rec('lights', { x: P(gx, gy, 26)[0], y: P(gx, gy, 26)[1], r: 26 }); }
       else if (RACE === 'sylvan') { for (let k = 0; k < 5; k++) { const a = k / 5 * TAU; const [lx, ly] = P(gx + Math.cos(a) * 0.35, gy + Math.sin(a) * 0.35); line([lx, ly], [lx, ly - 12], '#6e5136', 1.2); lantern(lx, ly - 9, 1.5); } }
@@ -2556,7 +3164,7 @@
         for (let k = 1; k < 5; k++) { const a = Math.PI + k / 5 * Math.PI; line([fx, fy], [fx + Math.cos(a) * 5, fy + Math.sin(a) * 5], '#d8b8a8', 0.5); }
         if (SEASON < 3) rec('sparks', { x: fx, y: fy + 8, kind: 'water', rx: 7, ry: 3 });
       }
-      else if (RACE === 'veil') { mushroomRing(gx, gy, 0.42, 7, 1); crystal(gx, gy, 0, 24, 0.12); mushroomRing(gx, gy, 0.42, 7, 2); const [lx, ly] = P(gx, gy, 12); rec('lights', { x: lx, y: ly, r: 30, col: 'fey' }); floatLantern(gx + 0.4, gy - 0.3, 26); }
+      else if (RACE === 'veil') { stoneRing(gx, gy, 0.46, 7, 1, 'mixed'); crystal(gx, gy, 0, 24, 0.12); stoneRing(gx, gy, 0.46, 7, 2, 'mixed'); const [lx, ly] = P(gx, gy, 12); rec('lights', { x: lx, y: ly, r: 30, col: 'fey' }); floatLantern(gx + 0.4, gy - 0.3, 26); }
       else if (RACE === 'grave') { // black obelisk crowned with witchfire, ringed by skulls
         box(gx - 0.22, gy - 0.22, 0.44, 0.44, 0, 4, '#3e3e46');
         const [ox, oy] = P(gx, gy, 4); poly([[ox - 4, oy], [ox + 4, oy], [ox + 1.6, oy - 26], [ox, oy - 30], [ox - 1.6, oy - 26]], '#26262c');
@@ -2572,41 +3180,72 @@
       }
       else { firePit(gx, gy, 1); }
     });
-    if (light) { const [lg, lh] = edgePt(light.z.e, Math.max(0.65, lakeDepth(light.z, light.u) * 0.45), light.u); push(lg + lh, () => { const h = drawB(() => lighthouse(light.z, light.u, bandOf(G.lvl(city, 'townhall')))); addHit('townhall', hullBox(lg - 0.4, lh - 0.4, 0.8, 0.8, h), lg + lh); }); }
+    if (light) { const [lg, lh] = edgePt(light.z.e, Math.max(0.65, lakeDepth(light.z, light.u) * 0.45), light.u); push(lg + lh, () => { const h = drawB(() => lighthouse(light.z, light.u, bandOf(G.lvl(city, 'townhall'))), 'townhall'), opt = ARTOPT; for (const hb of opt ? optHits(opt, [lg - 0.4, lh - 0.4, 0.8, 0.8], h) : [hullBox(lg - 0.4, lh - 0.4, 0.8, 0.8, h)]) addHit('townhall', hb, lg + lh); }); }
     // Ashborn bonfire in the pond spot
     if (RACE === 'ash' && !DATA.buildings.temple) push(POND[0] + POND[1], () => { firePit(POND[0], POND[1], 1.4); for (let k = 0; k < 5; k++) { const a = k / 5 * TAU + 0.3; skull(...P(POND[0] + Math.cos(a) * 0.8, POND[1] + Math.sin(a) * 0.8, 3), 0.8); } });
-    if (RACE === 'ash') { for (const [gx, gy] of [[6.25, 16.2], [8.1, 14.5]]) if (G.lvl(city, 'houses') >= 3) push(gx + gy, () => firePit(gx, gy, 0.7)); }
+    if (RACE === 'ash') { for (const [gx, gy] of LAY.deco.pits) if (G.lvl(city, 'houses') >= 3) push(gx + gy, () => firePit(gx, gy, 0.7)); }
     // sylvan lantern posts along the main roads
-    if (RACE === 'sylvan') for (const [gx, gy] of [[12.65, 16.5], [12.65, 19.0], [16.5, 12.65], [19.0, 12.65], [11.35, 7.0], [7.0, 11.35]]) push(gx + gy, () => { const [lx, ly] = P(gx, gy); line([lx, ly], [lx, ly - 14], '#6e5136', 1.3); line([lx, ly - 14], [lx + 4, ly - 14], '#6e5136', 1); lantern(lx + 4, ly - 10, 1.6); });
+    const LAMPS = LAY.deco.lamps;
+    if (RACE === 'sylvan') for (const [gx, gy] of LAMPS) push(gx + gy, () => { const [lx, ly] = P(gx, gy); line([lx, ly], [lx, ly - 14], '#6e5136', 1.3); line([lx, ly - 14], [lx + 4, ly - 14], '#6e5136', 1); lantern(lx + 4, ly - 10, 1.6); });
     // the newer peoples' streets
-    const LAMPS = [[12.65, 16.5], [12.65, 19.0], [16.5, 12.65], [19.0, 12.65], [11.35, 7.0], [7.0, 11.35]];
     if (RACE === 'grave') {
       for (const [gx, gy] of LAMPS) push(gx + gy, () => witchLamp(gx, gy, 0, 15));
-      for (const [gx, gy] of [[16.0, 19.2], [19.2, 16.0], [4.6, 10.9]]) push(gx + gy, () => { // little graveyards
+      for (const [gx, gy] of LAY.deco.graves) push(gx + gy, () => { // little graveyards
         for (let k = 0; k < 6; k++) tomb(gx - 0.35 + (k % 3) * 0.32, gy - 0.25 + Math.floor(k / 3) * 0.4, 0.75);
         deadTree(gx + 0.55, gy - 0.15, 0.8);
       });
     }
     if (RACE === 'veil') {
       for (const [gx, gy] of LAMPS) push(gx + gy, () => { const [lx, ly] = P(gx, gy); line([lx, ly], [lx, ly - 6], STY.beam, 1); rec('sparks', { x: lx, y: ly - 16, kind: 'fey', seed: (gx * 7 + gy) % 1 }); });
-      for (const [gx, gy] of [[16.0, 19.3], [19.3, 16.0], [4.7, 11.0], [11.0, 4.7]]) push(gx + gy, () => mushroomRing(gx, gy, 0.35, 7));
+      // little moon gardens: a moth-lantern post among silk-grass and lilies (a fairy ring only very rarely)
+      const rare = hashStr(city.id + 'ring') % 6 === 0;
+      LAY.deco.rings.forEach(([gx, gy], k) => push(gx + gy, () => {
+        if (rare && k === 0) { mushroomRing(gx, gy, 0.3, 6); return; }
+        silkGrass(gx - 0.25, gy - 0.2, 0.9); if (k % 2) briarRose(gx + 0.28, gy - 0.22, 0.8); else crystal(gx + 0.28, gy - 0.25, 0, 11, 0.07);
+        mothPost(gx, gy, 15); moonLily(gx - 0.2, gy + 0.25, 0.9); silkGrass(gx + 0.3, gy + 0.2, 0.8);
+      }));
     }
     if (RACE === 'wind') for (const [gx, gy] of LAMPS) push(gx + gy, () => { pennant(gx, gy, 0, 26); const [cx2, cy2] = P(gx, gy, 18); line([cx2, cy2], [cx2 + 4, cy2], '#4a3a2a', 0.8); rec('chimes', { x: cx2 + 4, y: cy2, seed: gx % 1 }); });
     if (RACE === 'tide') {
       for (const [gx, gy] of LAMPS) push(gx + gy, () => { const [lx, ly] = P(gx, gy); line([lx, ly], [lx, ly - 14], '#6a5a44', 1.3); circ(lx, ly - 15, 1.6, '#f4e6dc', OUT); line([lx, ly - 14], [lx + 4, ly - 14], '#6a5a44', 1); lantern(lx + 4, ly - 10, 1.5); });
-      for (const [gx, gy] of [[16.1, 19.4], [19.4, 16.1]]) push(gx + gy, () => netRack(gx, gy, gx < gy));
+      LAY.deco.nets.forEach(([gx, gy], i) => push(gx + gy, () => netRack(gx, gy, i === 0)));
     }
     // hearth odds and ends
-    if (RACE === 'hearth') { push(17.4 + 16.6, () => { const [cx, cy] = P(17.0, 16.8); poly([[cx - 7, cy - 4], [cx + 7, cy - 4], [cx + 6, cy - 9], [cx - 6, cy - 9]], '#9a6a3c'); circ(cx - 5, cy - 2, 2.6, '#5a4030'); circ(cx + 5, cy - 2, 2.6, '#5a4030'); haystack(17.0, 16.75, 0.45); }); }
+    if (RACE === 'hearth') { const [kx, ky] = LAY.deco.cart[0]; push(kx + ky + 0.2, () => { const [cx, cy] = P(kx, ky); poly([[cx - 7, cy - 4], [cx + 7, cy - 4], [cx + 6, cy - 9], [cx - 6, cy - 9]], '#9a6a3c'); circ(cx - 5, cy - 2, 2.6, '#5a4030'); circ(cx + 5, cy - 2, 2.6, '#5a4030'); haystack(kx, ky - 0.05, 0.45); }); }
 
+    // street lamps from the Empire era (peoples without their own lamp posts), arcane lamps in the Legend era
+    if (TECH.era >= 2 && (RACE === 'hearth' || RACE === 'delver' || RACE === 'ash')) for (const [gx, gy] of LAMPS) push(gx + gy, () => { const [lx, ly] = P(gx, gy); line([lx, ly], [lx, ly - 15], '#3a3a3a', 1.3); line([lx, ly - 15], [lx + 4, ly - 15], '#3a3a3a', 1); if (TECH.era < 3) lantern(lx + 4, ly - 11, 1.6); });
+    if (TECH.era >= 3) for (const [gx, gy] of LAMPS) push(gx + gy + 0.01, () => { const [lx, ly] = P(gx, gy); lampDot(lx + 4, ly - 12, 1.9, '#8fd8ff', '#c8f4ff'); rec('lights', { x: lx + 4, y: ly - 12, r: 16, col: 'fey' }); rec('sparks', { x: lx + 4, y: ly - 12, kind: 'star' }); });
+    // medicine: an herb garden in the free corner of the plaza
+    // (the flat herb garden takes the plaza's back corner behind the hall; the tall observatory the free side corner)
+    if (TECH.medicine) { const [gx, gy] = [10.05, 10.05];
+      push(gx + gy, () => { poly(quad(gx - 0.32, gy - 0.32, 0.64, 0.64), SNOW ? '#e4e8ea' : '#7a5a3a', 'rgba(60,40,20,0.35)'); if (!SNOW) for (let k = 0; k < 9; k++) { const [px, py] = P(gx - 0.22 + (k % 3) * 0.22, gy - 0.22 + Math.floor(k / 3) * 0.22); circ(px, py - 1.5, 1.6, k % 3 === 1 ? '#a87ad0' : '#5e9447'); } fence([[gx - 0.34, gy + 0.34], [gx + 0.34, gy + 0.34], [gx + 0.34, gy - 0.34]], 4); }); }
+    // cartography: an observatory / signal tower at the back corner of the plaza
+    if (TECH.cartography) { const [ox, oy] = [LAY.centre[1], LAY.centre[0]]; push(ox + oy + 0.3, () => { const col = RACE === 'delver' || RACE === 'grave' ? STY.stone : STY.stone2; cyl(ox, oy, 0.26, 0, 40, col); const z = 40; if (RACE === 'wind' || RACE === 'ash') { cyl(ox, oy, 0.34, z, 2, STY.wood); firePit(ox, oy, 0.5); } else { dome(ox, oy, 0.3, z, 9, TECH.era >= 3 ? GOLD : STY.roof); const [tx, ty] = P(ox, oy, z + 6); line([tx, ty], [tx + 7, ty - 5], '#5a4a3a', 1.6); } lampDot(...P(ox, oy, 30), 1.4, '#3a3632', nightGlass()); }); }
+    // Gravebound cemetery quarter: a fenced field of tombs outside the walls, filling as the town grows
+    if (LAY.cem) {
+      const [x, y, w, d] = LAY.cem, rows = Math.max(1, Math.floor((d - 0.5) / 0.55)), cols = Math.max(1, Math.floor((w - 0.5) / 0.5));
+      const nT = clampv(4 + G.lvl(city, 'houses') * 2, 4, rows * cols);
+      push(x + y, () => { poly(quad(x + 0.1, y + 0.1, w - 0.2, d - 0.2), mix(GROUND, '#5a5a4e', 0.35), null); ironFence([[x + 0.1, y + 0.1], [x + w - 0.1, y + 0.1]], 8); ironFence([[x + 0.1, y + 0.1], [x + 0.1, y + d - 0.1]], 8); });
+      for (let k = 0; k < nT; k++) { const gx = x + 0.4 + (k % cols) * 0.5, gy = y + 0.45 + Math.floor(k / cols) * 0.55; push(gx + gy, () => tomb(gx, gy, 0.7)); }
+      push(x + w * 0.8 + y + d * 0.2, () => deadTree(x + w - 0.45, y + 0.4, 0.9));
+      push(x + w + y + d, () => { ironFence([[x + w - 0.1, y + 0.1], [x + w - 0.1, y + d - 0.1]], 8); ironFence([[x + 0.1, y + d - 0.1], [x + w - 0.1, y + d - 0.1]], 8); witchLamp(x + w - 0.1, y + d - 0.1, 0, 12); });
+    }
+    // Windkin perches: tall roost poles in the corners of the high quarters
+    if (LAY.style.perches) for (const [gx, gy] of LAY.deco.perch) push(gx + gy, () => {
+      const [bx, by] = P(gx, gy); line([bx, by], [bx, by - 46], STY.beam, 1.8); line([bx - 7, by - 44], [bx + 7, by - 44], STY.beam, 1.4);
+      perchedHawk(bx + 4, by - 45); pennant(gx, gy, 46, 10);
+    });
     // walls
-    const WL = G.lvl(city, 'wall'), wb = wallBand(WL), wq = qOf('wall').length > 0, wst = G.buildStatus(S, city, 'wall');
+    const WL = G.lvl(city, 'wall'), wb = WL > 0 && TECH.fortification ? Math.max(1, wallBand(WL)) : wallBand(WL), wq = qOf('wall').length > 0, wst = G.buildStatus(S, city, 'wall');
     const sides = ['N', 'W', 'E', 'S'];
     for (const side of sides) {
+      // a gatehouse where a high street leaves, a narrow postern where only a track does
+      const wide = LAY.mainSides.includes(side), g0 = wide ? GATE0 : 11.62, g1 = wide ? GATE1 : 12.38;
       for (let a = WALL_A; a < WALL_B - 0.01; a += 1) {
         const b = a + 1;
         const pieces = [];
-        if (b <= GATE0 || a >= GATE1) pieces.push([a, b]); else { if (a < GATE0) pieces.push([a, GATE0]); if (b > GATE1) pieces.push([GATE1, b]); }
+        if (b <= g0 || a >= g1) pieces.push([a, b]); else { if (a < g0) pieces.push([a, g0]); if (b > g1) pieces.push([g1, b]); }
         for (const [p0, p1] of pieces) {
           const m = (p0 + p1) / 2;
           const gx = side === 'N' || side === 'S' ? m : side === 'W' ? WALL_A : WALL_B;
@@ -2617,12 +3256,16 @@
           addHit('wall', hullBox(fp[0], fp[1], fp[2], fp[3], wb >= 0 ? 22 + wb * 4 : 8), dep);
         }
       }
-      if (wb >= 0) { const m = (GATE0 + GATE1) / 2; const gx = side === 'N' || side === 'S' ? m : side === 'W' ? WALL_A : WALL_B, gy = side === 'N' || side === 'S' ? (side === 'N' ? WALL_A : WALL_B) : m; push(gx + gy + 0.35, () => gate(side, wb)); }
+      if (wb >= 0) { const m = (GATE0 + GATE1) / 2; const gx = side === 'N' || side === 'S' ? m : side === 'W' ? WALL_A : WALL_B, gy = side === 'N' || side === 'S' ? (side === 'N' ? WALL_A : WALL_B) : m; push(gx + gy + 0.35, () => wide ? gate(side, wb) : postern(side, wb, g0, g1)); }
     }
     if (wb >= 2) for (const [gx, gy] of [[WALL_A, WALL_A], [WALL_B, WALL_A], [WALL_A, WALL_B], [WALL_B, WALL_B]]) { push(gx + gy + 0.4, () => wallTower(gx, gy, wb)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); }
+    // more towers along the sides as the wall levels up within its band
+    if (wb >= 1) { const ws = subStep(WL, wallBand(WL)), us = ws >= 4 ? [7.6, 16.4] : ws >= 2 ? [7.6] : []; for (const side of sides) for (const u of us) { const [gx, gy] = side === 'N' ? [u, WALL_A] : side === 'S' ? [u, WALL_B] : side === 'W' ? [WALL_A, u] : [WALL_B, u]; push(gx + gy + 0.4, () => wallTower(gx, gy, Math.min(wb, 2), side)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); } }
     if (wq) for (const [gx, gy] of [[WALL_A + 1.5, WALL_B], [WALL_B, WALL_A + 1.5]]) push(gx + gy + 0.5, () => scaffold(gx - 0.5, gy - 0.3, 1.0, 0.6, 24, qOf('wall').some(e => e.start <= S.time)));
-    if (wb < 0) push(WALL_B + 13.5, () => { // sign at the would-be gate
-      const [sx, sy] = P(13.2, WALL_B + 0.4); c.save(); if (wst.locked) c.globalAlpha = 0.45;
+    const signSide = LAY.mainSides.find(sd => sd === 'S' || sd === 'E') || 'S';
+    const signAt = signSide === 'S' ? [13.2, WALL_B + 0.4] : [WALL_B + 0.4, 13.2];
+    if (wb < 0) push(signAt[0] + signAt[1], () => { // sign at the would-be gate
+      const [sx, sy] = P(signAt[0], signAt[1]); c.save(); if (wst.locked) c.globalAlpha = 0.45;
       line([sx, sy], [sx, sy - 11], '#6a4a30', 1.4); poly([[sx - 5, sy - 15], [sx + 5, sy - 13], [sx + 5, sy - 8], [sx - 5, sy - 10]], '#d9c08a'); c.restore();
       for (const [gx, gy] of [[WALL_A, WALL_A], [WALL_B, WALL_A], [WALL_A, WALL_B], [WALL_B, WALL_B]]) line(P(gx, gy), P(gx, gy, 7), '#7a5a3a', 1.6);
     });
@@ -2632,7 +3275,7 @@
     const DENS = { forest: 1, mountain: 0.5, hills: 0.5, fertile: 0.32, plains: 0.22, lake: 0.2 };
     const raceMul = RACE === 'sylvan' || RACE === 'veil' ? 1.2 : RACE === 'ash' ? 0.65 : RACE === 'grave' || RACE === 'wind' ? 0.85 : 1;
     const nfld = fieldCount(city);
-    const outer = ['mine', 'quarry', 'lumber', 'farm'].map(slotOf).concat(Object.values(GEN));
+    const outer = ['mine', 'quarry', 'lumber', 'farm'].map(slotOf).concat(Object.values(GEN), LAY.cem ? [LAY.cem] : []);
     const blocked = (gx, gy) => {
       if (gx < 0.5 || gy < 0.5 || gx > N - 0.5 || gy > N - 0.5) return true;
       if (gx > 3.3 && gy > 3.3 && gx < 20.7 && gy < 20.7) return true;
@@ -2640,7 +3283,7 @@
       if (Math.abs(gx - 3.4) < 0.35 || Math.abs(gy - 3.4) < 0.35 || Math.abs(gx - 20.5) < 0.35 || Math.abs(gy - 20.5) < 0.35) return true;
       for (const [x, y, w, d] of outer) if (gx > x - 0.5 && gy > y - 0.5 && gx < x + w + 0.3 && gy < y + d + 0.3) return true;
       const m = slotOf('mine'); if (gx > m[0] - 1.1 && gy > m[1] - 1.2 && gx < m[0] + m[2] + 0.6 && gy < m[1] + m[3] + 0.6) return true;
-      for (const [x, y, w, d] of REG.fields.slice(0, nfld)) if (gx > x - 0.2 && gy > y - 0.2 && gx < x + w + 0.2 && gy < y + d + 0.2) return true;
+      for (const [x, y, w, d] of LAY.fields.slice(0, nfld)) if (gx > x - 0.2 && gy > y - 0.2 && gx < x + w + 0.2 && gy < y + d + 0.2) return true;
       if (inWater(REG, gx, gy, 0.15)) return true;
       if (REG.river && G.lvl(city, 'farm') + G.lvl(city, 'bakery') > 0) { const ws = watermillSpot(); const [mx, my] = REG.river.along === 'gx' ? [ws.u, ws.hc] : [ws.hc, ws.u]; if (Math.abs(gx - mx) < 1.0 && Math.abs(gy - my) < 1.0) return true; }
       return false;
@@ -2663,7 +3306,8 @@
       else kind = roll < 0.3 ? 'bush' : roll < 0.5 ? 'tree' : roll < 0.62 ? 'rock' : roll < 0.8 ? 'scrub' : 'flowers';
       if (RACE === 'ash' && kind === 'tree' && Rd() < 0.5) kind = Rd() < 0.5 ? 'bones' : 'scrub';
       if (RACE === 'grave' && (kind === 'tree' || kind === 'bush' || kind === 'flowers') && Rd() < 0.65) kind = Rd() < 0.5 ? 'deadtree' : 'tomb';
-      if (RACE === 'veil' && (kind === 'flowers' || kind === 'bush' || kind === 'scrub') && Rd() < 0.45) kind = 'shrooms';
+      let vk = 0;
+      if (RACE === 'veil' && (kind === 'flowers' || kind === 'bush' || kind === 'scrub') && Rd() < 0.5) { kind = 'veilflora'; vk = Rd(); }
       if (RACE === 'wind' && (kind === 'scrub' || kind === 'flowers' || kind === 'bush') && Rd() < 0.4) kind = 'cairn';
       if (RACE === 'tide' && (kind === 'scrub' || kind === 'rock' || kind === 'flowers') && Rd() < 0.4) kind = 'drift';
       const rockCol = terr === 'mountain' ? '#8f8a84' : '#a39d92';
@@ -2676,7 +3320,7 @@
         : kind === 'reeds' ? () => reeds(gx, gy)
         : kind === 'deadtree' ? () => deadTree(gx, gy, s)
         : kind === 'tomb' ? () => tomb(gx, gy, s * 0.9)
-        : kind === 'shrooms' ? () => mushroomRing(gx, gy, 0.3 * s, 6)
+        : kind === 'veilflora' ? () => veilFlora(gx, gy, s, vk)
         : kind === 'cairn' ? () => { const [x, y] = P(gx, gy); for (let k = 0; k < 4; k++) { c.beginPath(); c.ellipse(x, y - 2 - k * 3.2, 4 * s - k * 0.8, 1.8, 0, 0, TAU); c.fillStyle = F(SNOW && k === 3 ? '#f2f6f8' : k % 2 ? '#a8a090' : '#968e80'); c.fill(); c.strokeStyle = F(OUT); c.lineWidth = 0.6; c.stroke(); } }
         : kind === 'drift' ? () => { log(gx - 0.3, gx + 0.3, gy, 2, 1.6); shellPile(gx + 0.3, gy + 0.2, 3); }
         : kind === 'bones' ? () => { const [x, y] = P(gx, gy); line([x - 5, y], [x + 4, y - 2], '#ece2c8', 1.6); line([x - 2, y - 3], [x + 2, y + 1], '#ece2c8', 1.4); skull(x + 5, y - 2, 0.8); }
@@ -2684,7 +3328,7 @@
       push(gx + gy, fn);
     }
     // a few trees inside the walls
-    const inTrees = RACE === 'sylvan' ? [[4.6, 11.0], [11.0, 4.6], [15.9, 15.9], [19.5, 16.2], [16.2, 19.5], [4.7, 19.3]] : RACE === 'veil' ? [[15.9, 15.9], [4.7, 19.3]] : RACE === 'ash' || RACE === 'grave' || RACE === 'tide' ? [] : [[16.2, 19.4], [19.4, 16.2], [4.6, 11.1]];
+    const inTrees = LAY.deco.trees;
     for (const [gx, gy] of inTrees) push(gx + gy, () => treeDecid(gx, gy, 0.85, RACE === 'sylvan'));
 
     items.sort((a, b) => a.k - b.k);
@@ -2733,7 +3377,7 @@
   const onSeg = (p, a, b) => Math.abs(dist(a, p) + dist(p, b) - dist(a, b)) < 1e-6;
 
   function spawnVillagers(n) {
-    if (!graph) graph = buildGraph();
+    if (!graph) { graph = buildGraph(); graph.sig = LAY.sig + '|' + REG.sig + '|' + CITY.id; }
     const inner = graph.filter(nd => nd.p[0] > 3 && nd.p[1] > 3 && nd.p[0] < 21 && nd.p[1] < 21);
     const pal = STY.cloth.concat(['#6a5a4a', '#8a7a5a', '#4a5a6a']);
     villagers = [];
@@ -2763,7 +3407,8 @@
     const emp = S.empires[city.owner];
     const se = G.season(S).index;
     REG = computeRegion(city);
-    return [city.id, emp.race, se, city.terrain, REG.sig, Object.keys(DATA.buildings).length, 'ley' + leyOf(city), JSON.stringify(city.buildings), (city.buildQueue || []).map(q => q.type + q.level + (q.start <= S.time ? 'a' : 'w')).join(','), city.starving ? 1 : 0, cssW, cssH, dpr].join('|');
+    applyLayout(computeLayout(city, REG));
+    return [city.id, emp.race, se, city.terrain, REG.sig, LAY.sig, techOf(city).sig, actSig(activityOf(city)), Object.keys(typeof CITYART !== 'undefined' ? CITYART[emp.race] || {} : {}).length, Object.keys(DATA.buildings).length, 'ley' + leyOf(city), JSON.stringify(city.buildings), (city.buildQueue || []).map(q => q.type + q.level + (q.start <= S.time ? 'a' : 'w')).join(','), city.starving ? 1 : 0, cssW, cssH, dpr].join('|');
   }
   function sizeCanvas(host) {
     const w = Math.max(280, Math.floor(host.clientWidth || 600));
@@ -2782,9 +3427,10 @@
   function rebuild() {
     const city = S.cities[cityId]; if (!city) return;
     CITY = city;
-    RACE = S.empires[city.owner].race; STY = PAL[RACE] || PAL.hearth;
+    RACE = S.empires[city.owner].race; TECH = techOf(city); ACT = activityOf(city); STY = eraStyle(PAL[RACE] || PAL.hearth, TECH);
     SEASON = G.season(S).index; SNOW = SEASON === 3; STARVE = !!city.starving;
     REG = computeRegion(city);
+    applyLayout(computeLayout(city, REG));
     GROUND = groundColor(city.terrain);
     LEY = leyOf(city);
     const t0 = performance.now();
@@ -2801,7 +3447,8 @@
     drawnKey = layoutKey;
     const want = clampv(Math.round(city.pop / 12), 3, 22);
     const n = city.starving ? Math.max(2, Math.round(want / 2)) : want;
-    if (villagers.length !== n || villagers.cityId !== city.id || villagers.race !== RACE) { spawnVillagers(n); villagers.cityId = city.id; villagers.race = RACE; }
+    if (graph && graph.sig !== LAY.sig + '|' + REG.sig + '|' + city.id) graph = null;   // a new plan: villagers take to its streets
+    if (!graph || villagers.length !== n || villagers.cityId !== city.id || villagers.race !== RACE) { spawnVillagers(n); villagers.cityId = city.id; villagers.race = RACE; }
   }
 
   // --------------------------- per-frame -----------------------------
@@ -2849,6 +3496,7 @@
     perf.frames++; perf.total += ms; perf.last = ms;
   }
 
+  const PRODUCER = { farm: 1, lumber: 1, quarry: 1, mine: 1, smelter: 1, smithy: 1, armory: 1, bakery: 1, runeforge: 1, heartgrove: 1, pearlbeds: 1, workshop: 1, warehouse: 1, market: 1 };
   function refinerOn(city, type) { return G.lvl(city, type) > 0 && !(city.refineOff && city.refineOff[type]) && ((city.refineEff && city.refineEff[type]) || 0) > 0.05; }
   function drawDynamic(city, t, night) {
     const X = ctx;
@@ -2858,9 +3506,10 @@
       if (s.kind === 'house' || s.kind === 'hall') { on = SEASON === 3 || night > 0.6 || s.kind === 'hall' && SEASON === 2; a = 0.8; }
       else if (s.kind === 'smelter' || s.kind === 'smithy' || s.kind === 'armory' || s.kind === 'bakery' || s.kind === 'runeforge') on = refinerOn(city, s.kind);
       else on = false;
-      if (!on) continue;
+      if (!on || dormant(s.bt)) continue;
       if (s.kind !== 'house' && s.kind !== 'hall') a = 0.5 + 0.5 * clampv((city.refineEff || {})[s.kind] || 0, 0, 1);
-      const n = s.dark ? 7 : 5;
+      const slow = stateOf(s.bt) === 'slow'; if (slow) a *= 0.55;
+      const n = (s.dark ? 7 : 5) - (slow ? 2 : 0);
       for (let i = 0; i < n; i++) {
         const p = (t * (s.dark ? 0.28 : 0.2) + i / n + s.seed) % 1;
         const x = s.x + Math.sin(p * 5 + s.seed * 12) * 2.5 + p * 16;
@@ -2874,21 +3523,24 @@
     X.globalAlpha = 1;
     // windmill sails
     for (const s of recd.sails) {
-      const ang = refinerOn(city, 'bakery') ? t * 1.3 : 0.4;
-      X.strokeStyle = '#5a4030'; X.lineWidth = 1.2;
+      // any mill: the sails turn while the building that recorded them works (rec stamps bt), the bakery also needs its refining on;
+      // s.spin false holds them still, s.speed scales, s.col / s.frame recolour the cloth and spars
+      const bt = s.bt || 'bakery', on = s.spin !== false && !dormant(bt) && (bt !== 'bakery' || refinerOn(city, 'bakery'));
+      const ang = (s.ph || 0) + (on ? t * 1.3 * (s.speed || 1) * (stateOf(bt) === 'slow' ? 0.4 : 1) : 0.4);
+      X.strokeStyle = s.frame || '#5a4030'; X.lineWidth = 1.2;
       for (let k = 0; k < 4; k++) {
         const a = ang + k * Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
         const ex = s.x + ca * s.r, ey = s.y + sa * s.r * 0.92;
         X.beginPath(); X.moveTo(s.x, s.y); X.lineTo(ex, ey); X.stroke();
         const px = -sa * 4.5, py = ca * 4.5 * 0.92;
         X.beginPath(); X.moveTo(s.x + ca * 5, s.y + sa * 5 * 0.92); X.lineTo(ex, ey); X.lineTo(ex + px, ey + py); X.lineTo(s.x + ca * 5 + px, s.y + sa * 5 * 0.92 + py); X.closePath();
-        X.fillStyle = '#efe2c4'; X.fill(); X.strokeStyle = '#5a4030'; X.lineWidth = 0.8; X.stroke(); X.beginPath(); X.moveTo(s.x + ca * 10 + px, s.y + sa * 10 * 0.92 + py); X.lineTo(s.x + ca * 10, s.y + sa * 10 * 0.92); X.moveTo(s.x + ca * 15 + px, s.y + sa * 15 * 0.92 + py); X.lineTo(s.x + ca * 15, s.y + sa * 15 * 0.92); X.stroke();
+        X.fillStyle = s.col || '#efe2c4'; X.fill(); X.strokeStyle = s.frame || '#5a4030'; X.lineWidth = 0.8; X.stroke(); X.beginPath(); X.moveTo(s.x + ca * 10 + px, s.y + sa * 10 * 0.92 + py); X.lineTo(s.x + ca * 10, s.y + sa * 10 * 0.92); X.moveTo(s.x + ca * 15 + px, s.y + sa * 15 * 0.92 + py); X.lineTo(s.x + ca * 15, s.y + sa * 15 * 0.92); X.stroke();
       }
       X.fillStyle = '#4a3020'; X.beginPath(); X.arc(s.x, s.y, 2, 0, TAU); X.fill();
     }
     // water wheels
     for (const w of recd.wheels) {
-      const a0 = t * 1.1;
+      const a0 = dormant(w.bt) ? 0.3 : t * 1.1 * (stateOf(w.bt) === 'slow' ? 0.4 : 1);
       X.strokeStyle = '#5a4030'; X.lineWidth = 1.6; X.beginPath(); X.arc(w.x, w.y, w.r, 0, TAU); X.stroke();
       X.lineWidth = 1;
       for (let k = 0; k < 8; k++) { const a = a0 + k * Math.PI / 4; X.beginPath(); X.moveTo(w.x, w.y); X.lineTo(w.x + Math.cos(a) * w.r, w.y + Math.sin(a) * w.r); X.stroke(); X.fillStyle = '#7a5434'; X.fillRect(w.x + Math.cos(a) * w.r - 1.5, w.y + Math.sin(a) * w.r - 1.5, 3, 3); }
@@ -2896,7 +3548,7 @@
     }
     // fires
     for (const f of recd.fires) {
-      if (f.glowOnly) continue;
+      if (f.glowOnly || dormant(f.bt)) continue;
       const fl = 0.75 + 0.25 * Math.sin(t * 13 + f.x) * Math.sin(t * 7.3 + f.y);
       flame(f.x, f.y, 5 * f.s * fl, '#e8582a'); flame(f.x + 1, f.y, 3.4 * f.s * fl, '#ffb03a'); flame(f.x + 0.5, f.y, 1.8 * f.s, '#fff0a0');
     }
@@ -2955,6 +3607,27 @@
       }
       if (G.lvl(city, 'warpit') > 0) for (const pt of recd.pit) { const o = Math.sin(t * 3) * 3; soldier(pt.x - 6 + o, pt.y + 2, '#a3221b', t * 8, 1); soldier(pt.x + 6 - o, pt.y + 2, '#6d4c8d', t * 8 + 2, -1); }
     }
+    // porters at work in front of producing buildings; a badge over blocked ones
+    for (const wk of recd.works) {
+      const st = stateOf(wk.t);
+      if (st === 'blocked') {
+        const [bx, by] = P(wk.x + wk.w / 2, wk.y + wk.d / 2, Math.min(wk.h, 70) + 12), bob = Math.sin(t * 2.2 + wk.x) * 1.5, a = ACT[wk.t] || {};
+        const g = a.good && DATA.goods[a.good] ? a.good : Object.keys(DATA.goods).find(k => a.reason && new RegExp('\\b' + DATA.goods[k].name + '\\b', 'i').test(a.reason));
+        X.fillStyle = 'rgba(30,20,14,0.35)'; X.beginPath(); X.ellipse(bx, by + 10, 5, 1.6, 0, 0, TAU); X.fill();
+        X.fillStyle = '#c0392b'; X.strokeStyle = '#fff4dc'; X.lineWidth = 1.4; X.beginPath(); X.arc(bx, by + bob, 7.5, 0, TAU); X.fill(); X.stroke();
+        X.font = g ? '9px sans-serif' : 'bold 10px sans-serif'; X.textAlign = 'center'; X.textBaseline = 'middle'; X.fillStyle = '#fff';
+        X.fillText(g ? (DATA.goods[g].icon || '!') : '!', bx, by + bob + 0.5); X.textAlign = 'start';
+        continue;
+      }
+      if (st !== 'working' && st !== 'slow') continue;
+      if (!PRODUCER[wk.t] && !ACT[wk.t]) continue;
+      const nP = st === 'slow' ? 1 : wk.band >= 2 ? 2 : 1, sp = st === 'slow' ? 0.25 : 0.5;
+      for (let k = 0; k < nP; k++) {
+        const ph = t * sp + k * 2.1 + wk.x * 1.7, u = 0.5 + 0.5 * Math.sin(ph), dir = Math.cos(ph) > 0 ? 1 : -1;
+        const [px, py] = P(wk.x + 0.15 + (wk.w - 0.3) * u, wk.y + wk.d + 0.12);
+        walker(px, py, STY.cloth[(k + 1) % 4], SKIN[(k + 2) % SKIN.length], t * 8 + k, true, dir);
+      }
+    }
     // builders hammering
     for (const h of recd.hammers) {
       const sw = Math.sin(t * 9);
@@ -2966,7 +3639,7 @@
       if (sw > 0.92) { X.fillStyle = '#ffe9a0'; for (let k = 0; k < 3; k++) X.fillRect(hx + 2 + k * 1.5, hy - 2 + k, 1, 1); }
     }
     // smith at the anvil
-    if (refinerOn(city, 'smithy')) for (const a of recd.anvils) {
+    if (refinerOn(city, 'smithy') && !dormant('smithy')) for (const a of recd.anvils) {
       const sw = Math.sin(t * 7);
       X.strokeStyle = '#3a3a40'; X.lineWidth = 1.3; const ang = -1.2 + sw * 0.8;
       X.beginPath(); X.moveTo(a.x - 4, a.y - 2); X.lineTo(a.x - 4 + Math.cos(ang) * 6, a.y - 2 + Math.sin(ang) * 6); X.stroke();
@@ -3009,6 +3682,7 @@
   function drawLights(city, t, la) {
     const X = ctx;
     for (const s of recd.sparks) {
+      if (s.kind !== 'water' && dormant(s.bt)) continue;
       if (s.kind === 'rune') { const p = 0.55 + 0.45 * Math.sin(t * 2.4 + s.x * 0.3); glowDot(s.x, s.y, 9, 'rgba(110,210,255,A)', (0.25 + la * 0.5) * p); }
       else if (s.kind === 'grove') {
         for (let k = 0; k < 10; k++) { const ph = (t * 0.12 + k / 10) % 1; const a = k * 2.4 + t * 0.3; const x = s.x + Math.cos(a) * s.r * 0.8 * (0.4 + ph * 0.6), y = s.y + s.r * 0.3 - ph * s.r * 1.3; glowDot(x, y, 3.5, 'rgba(190,255,210,A)', (0.35 + la * 0.5) * Math.sin(ph * Math.PI)); }
@@ -3022,7 +3696,7 @@
       else if (s.kind === 'motes') { for (let k = 0; k < s.n; k++) { const ph = (t * 0.07 + k / s.n) % 1, a = k * 2.39 + t * 0.4; const x = s.x + Math.cos(a) * s.r * (0.3 + ph), y = s.y + s.h * 0.35 - ph * s.h * 0.9; glowDot(x, y, 3.2, k % 3 ? 'rgba(220,200,255,A)' : 'rgba(170,240,255,A)', (0.4 + la * 0.5) * Math.sin(ph * Math.PI)); } }
       else if (s.kind === 'water') { for (let k = 0; k < 3; k++) { const ph = (t * 0.6 + k / 3) % 1; const x = s.x + Math.cos(k * 2.1 + Math.floor(t * 0.6 + k / 3)) * s.rx * 0.6, y = s.y + Math.sin(k * 1.7 + Math.floor(t * 0.6 + k / 3)) * s.ry * 0.5; X.fillStyle = `rgba(255,255,255,${0.8 * Math.sin(ph * Math.PI)})`; X.fillRect(x - 1.5, y - 0.4, 3, 0.8); X.fillRect(x - 0.4, y - 1.5, 0.8, 3); } }
     }
-    for (const f of recd.fires) { const fl = 0.8 + 0.2 * Math.sin(t * 11 + f.x); glowDot(f.x, f.y - 3 * f.s, 18 * f.s + 6, 'rgba(255,150,60,A)', (0.18 + la * 0.5) * fl); }
+    for (const f of recd.fires) { if (dormant(f.bt)) continue; const fl = 0.8 + 0.2 * Math.sin(t * 11 + f.x); glowDot(f.x, f.y - 3 * f.s, 18 * f.s + 6, 'rgba(255,150,60,A)', (0.18 + la * 0.5) * fl); }
     // mage towers: a pulsing focus, motes in orbit, and now and then a crackle of lightning
     for (const m of recd.magic) {
       const pulse = 0.75 + 0.25 * Math.sin(t * 2.2 + m.seed * 7);
@@ -3049,7 +3723,7 @@
       glowDot(bm.x, bm.y, 14, 'rgba(255,240,180,A)', 0.6 * la);
     }
     if (la > 0.05) {
-      for (const l of recd.lights) if (l.col !== 'grove') glowDot(l.x, l.y, l.r * 0.55, l.col === 'witch' ? 'rgba(120,255,160,A)' : l.col === 'fey' ? 'rgba(200,170,255,A)' : 'rgba(255,200,110,A)', la * 0.35);
+      for (const l of recd.lights) if (l.col !== 'grove') glowDot(l.x, l.y, l.r * 0.55, l.col === 'witch' ? 'rgba(120,255,160,A)' : l.col === 'fey' ? 'rgba(200,170,255,A)' : l.col === 'storm' ? 'rgba(130,195,255,A)' : l.col === 'sea' ? 'rgba(120,230,230,A)' : 'rgba(255,200,110,A)', la * 0.35);
       const vis = Math.ceil(villagers.length * 0.35);
       for (let i = 0; i < vis; i++) { const v = villagers[i]; if (i % 2 || RACE === 'grave') continue; const gx = v.a.p[0] + (v.b.p[0] - v.a.p[0]) * v.t, gy = v.a.p[1] + (v.b.p[1] - v.a.p[1]) * v.t; const [x, y] = P(gx, gy); glowDot(x + 3, y - 6, 9, 'rgba(255,200,110,A)', la * 0.6); X.fillStyle = `rgba(255,220,140,${la})`; X.fillRect(x + 2.4, y - 6.5, 1.4, 1.6); }
       if (SEASON === 1) for (let k = 0; k < 14; k++) { const x = (k * 137.5 + Math.sin(t * 0.5 + k) * 30) % LW, y = 300 + ((k * 83) % 260) + Math.cos(t * 0.7 + k) * 10; glowDot(x, y, 4, 'rgba(230,255,120,A)', la * Math.max(0, Math.sin(t * 2 + k * 1.3))); }
@@ -3131,7 +3805,8 @@
     const city = S.cities[cityId]; if (!city) return '';
     const b = DATA.buildings[type] || { name: type === 'magetower' ? 'Mage Tower' : type }, L = G.lvl(city, type);
     const q = (city.buildQueue || []).filter(e => e.type === type);
-    if (L) return `${b.name} · Lv ${L}${q.length ? ' (upgrading to ' + q[q.length - 1].level + ')' : ''}`;
+    const a = ACT[type], why = a && a.state && a.state !== 'working' ? ` — ${a.reason || (a.state === 'slow' ? 'working slowly' : a.state === 'idle' ? 'idle' : 'stalled')}` : '';
+    if (L) return `${b.name} · Lv ${L}${q.length ? ' (upgrading to ' + q[q.length - 1].level + ')' : ''}${why}`;
     if (q.length) return `${b.name} · under construction`;
     const st = DATA.buildings[type] ? G.buildStatus(S, city, type) : {};
     if (st.locked) return `${b.name} — ${st.reason}`;
@@ -3201,7 +3876,7 @@
       start();
     } else stop();
   });
-  window.EC_CITYVIEW = { perf, get hits() { return recd && recd.hits; }, rebuild: () => { drawnKey = ''; REGCACHE.clear(); }, region: () => REG, draw: ts => renderFrame(ts == null ? performance.now() : ts), setHover: (type, x, y) => { hover = type ? { type, text: describe(type) } : null; mouse = x == null ? null : { x, y }; },
+  window.EC_CITYVIEW = { perf, get xf() { return [K, OFFX, OFFY]; }, get hits() { return recd && recd.hits; }, rebuild: () => { drawnKey = ''; REGCACHE.clear(); LAYCACHE.clear(); }, layout: () => LAY, region: () => REG, draw: ts => renderFrame(ts == null ? performance.now() : ts), setHover: (type, x, y) => { hover = type ? { type, text: describe(type) } : null; mouse = x == null ? null : { x, y }; },
     get hover() { return hover; }, get reduceMotion() { return reduceMotion; },
     toClient: (x, y) => { const r = cv.getBoundingClientRect(); return { x: r.left + (x * K + OFFX) / dpr, y: r.top + (y * K + OFFY) / dpr }; } };
 })();

@@ -25,7 +25,8 @@
     const h = G.heroOf(S, emp.id);
     if (!h) return '';
     const p = PERS(h);
-    return `<div style="margin-top:6px;font-size:13px">🦸 Champion: <b>${esc(h.name)}</b> · level ${h.level}${p ? ` · ${p.icon} ${p.name}` : ''} · ${statusOf(emp.id)}${famed(emp.id)}${h.metP ? `<div class="muted" style="font-size:12px">Gear seen in battle: ${gearOf(h)}</div>` : ''}</div>`;
+    const pic = ptHtml(heroSpec(h, emp.id), 40, 'pt-card', h.name);
+    return `<div class="pt-champ" style="margin-top:6px;font-size:13px">${pic || '🦸 '}<div>Champion: <b>${esc(h.name)}</b> · level ${h.level}${p ? ` · ${p.icon} ${p.name}` : ''} · ${statusOf(emp.id)}${famed(emp.id)}${h.metP ? `<div class="muted" style="font-size:12px">Gear seen in battle: ${gearOf(h)}</div>` : ''}</div></div>`;
   });
 
   const renderRivalHeroes = () => {
@@ -35,7 +36,7 @@
     return `<div class="card"><h3>⚔️ Rival heroes</h3>
       <p class="muted" style="font-size:12.5px">Every realm has its champion. When two heroes meet in a city battle they duel first: the loser is badly wounded and its side loses heart (a tenth more of its troops fall). Slaying a rival hero earns +${G.HERO_SLAY_RENOWN} renown and maybe one of its items. Heroes of level ${G.HERO_FAME_LEVEL}+ are famed: their armies fight +${Math.round(G.HERO_FAME_LEAD * 100)}% harder.${me.heroesSlain ? ` You have slain ${me.heroesSlain} rival hero${me.heroesSlain > 1 ? 'es' : ''}.` : ''}</p>
       <table><tr><th>Realm</th><th>Hero</th><th>Level</th><th>Bent</th><th>Status</th><th>Gear</th></tr>
-      ${rivals.map(e => { const h = e.hero, p = PERS(h); return `<tr><td><span class="dot" style="background:${e.color};width:10px;height:10px;border-radius:50%;display:inline-block"></span> ${esc(e.name)}</td><td><b>${esc(h.name)}</b>${famed(e.id)}</td><td>${h.level}</td><td>${p ? `<span title="${esc(p.desc)}">${p.icon} ${p.name}</span>` : ''}</td><td>${statusOf(e.id)}</td><td style="font-size:12px">${gearOf(h)}</td></tr>`; }).join('')}
+      ${rivals.map(e => { const h = e.hero, p = PERS(h); return `<tr><td><span class="dot" style="background:${e.color};width:10px;height:10px;border-radius:50%;display:inline-block"></span> ${esc(e.name)}</td><td class="pt-cell">${ptHtml(heroSpec(h, e.id), 36, '', h.name)} <b>${esc(h.name)}</b>${famed(e.id)}</td><td>${h.level}</td><td>${p ? `<span title="${esc(p.desc)}">${p.icon} ${p.name}</span>` : ''}</td><td>${statusOf(e.id)}</td><td style="font-size:12px">${gearOf(h)}</td></tr>`; }).join('')}
       </table></div>`;
   };
   G.renderRivalHeroes = renderRivalHeroes;

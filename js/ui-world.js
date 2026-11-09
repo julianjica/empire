@@ -45,7 +45,7 @@ const renderWorld = city => {
 const intelHtml = t => {
   const i = S.intel[G.tileIdx(S, t)];
   if (!i) return '<p class="muted" style="font-size:12.5px">No scouting report. Send 🦅 scouts to learn what defends it.</p>';
-  return `<p style="font-size:12.5px"><b>Scouted ${ago(i.t)}:</b> ${unitsHtml(i.units)}${i.wall !== undefined ? ` · wall ${i.wall}` : ''}${i.res ? `<br><span class="muted">Stores: ${goodsHtml(i.res)}</span>` : ''}</p>`;
+  return `<p style="font-size:12.5px"><b>Scouted ${ago(i.t)}:</b> ${unitTokens(i.units, t.city && S.cities[t.city] ? S.cities[t.city].owner : null, null, 28)}${i.wall !== undefined ? ` · wall ${i.wall}` : ''}${i.res ? `<br><span class="muted">Stores: ${goodsHtml(i.res)}</span>` : ''}</p>`;
 };
 
 const renderTilePanel = (city, t, vis) => {
@@ -59,7 +59,12 @@ const renderTilePanel = (city, t, vis) => {
   }
   const c = t.city && S.cities[t.city];
   const camp = t.camp && S.camps[t.camp];
-  const head = `<h3>${c ? esc(c.name) : camp ? (camp.kind ? { wyrm: "🐉 The Wyrm's lair", undead: '💀 Horde of the restless dead', star: '☄️ Crater of a fallen star', rift: '👹 Demon rift' }[camp.kind] : '⛺ Brigand camp') : t.oasis ? '🏝️ Oasis' : t.ruin ? '🏚️ Ruins' : terr.name}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${d.toFixed(1)} tiles from ${esc(city.name)}</div>`;
+  const wildOasis = t.oasis && !(t.oasis.owner && S.cities[t.oasis.owner]);
+  const pic = c && c.owner !== 'p' && S.empires[c.owner] ? ptHtml(rulerSpec(S.empires[c.owner]), 64, 'pt-card', `Ruler of ${S.empires[c.owner].name}`)
+    : camp ? ptHtml({ kind: 'monster', role: { wyrm: 'wyrm', undead: 'undead', star: 'elemental', rift: 'demon' }[camp.kind] || 'brigand', seed: t.camp }, 64, 'pt-card', { wyrm: 'The Elder Wyrm', undead: 'The restless dead', star: 'Star-touched beast', rift: 'Rift demon' }[camp.kind] || 'Brigand chief')
+    : wildOasis ? ptHtml({ kind: 'monster', role: 'beast', seed: idx }, 56, 'pt-card', 'Oasis beasts') : '';
+  const head0 = `<h3>${c ? esc(c.name) : camp ? (camp.kind ? { wyrm: "🐉 The Wyrm's lair", undead: '💀 Horde of the restless dead', star: '☄️ Crater of a fallen star', rift: '👹 Demon rift' }[camp.kind] : '⛺ Brigand camp') : t.oasis ? '🏝️ Oasis' : t.ruin ? '🏚️ Ruins' : terr.name}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${terr.name} · ${d.toFixed(1)} tiles from ${esc(city.name)}</div>`;
+  const head = pic ? `<div class="pt-panelhead">${pic}<div>${head0}</div></div>` : head0;
   const islandNote = !terr.impassable && !G.landReachable(S, city, t) ? `<div class="calam good">🏝️ <b>Across the water</b> — no land route from ${esc(city.name)}. Send ships with your army: Transport Cogs from a coastal city's Harbor carry troops and settlers (30 citizens each).</div>` : '';
   const cals = G.calamitiesAt ? G.calamitiesAt(S, t.x, t.y) : [];
   const calHtml = cals.map(q => { const def = DATA.calamities[q.kind]; return `<div class="calam ${def.bad ? 'bad' : 'good'}">${def.icon} <b>${def.name}</b> · ${fmtTime(realSecs(q.end - S.time))} left<br><span style="font-size:12px">${def.text}</span></div>`; }).join('');
@@ -129,7 +134,7 @@ const sendForm = (city, t, modes) => {
       return true;
     };
     const units = Object.entries(city.units).filter(([u, n]) => n > 0 && allow(u));
-    form = units.length ? `<table>${units.map(([u, n]) => { const k = 'send_' + u; const d = G.unitStats(S, 'p', u); return `<tr><td>${d.icon} ${d.name}</td><td class="muted">${n}</td><td><input type="number" min="0" max="${n}" data-k="${k}" value="${esc(UI.form[k] || '')}"></td><td><button class="small" data-act="allUnits" data-u="${u}" data-n="${n}">all</button></td></tr>`; }).join('')}</table>`
+    form = units.length ? `<table>${units.map(([u, n]) => { const k = 'send_' + u; const d = G.unitStats(S, 'p', u); return `<tr><td class="pt-cell">${ptHtml(unitSpec(u, 'p'), 28, '', d.name) || d.icon} ${d.name}</td><td class="muted">${n}</td><td><input type="number" min="0" max="${n}" data-k="${k}" value="${esc(UI.form[k] || '')}"></td><td><button class="small" data-act="allUnits" data-u="${u}" data-n="${n}">all</button></td></tr>`; }).join('')}</table>`
       : `<p class="muted">No suitable troops in ${esc(city.name)}.${UI.mode === 'adventure' ? ' Your hero must be in this city — select the city where your hero is.' : UI.mode === 'scout' ? ' Train scouts at the Barracks.' : ''}</p>`;
   }
   const sending = gatherSend(city);

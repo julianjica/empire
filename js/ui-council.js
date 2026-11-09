@@ -46,6 +46,9 @@
   const textOf = it => esc(it.at ? it.text.replace('{eta}', fmtTime(realSecs(it.at - S.time))) : it.text);
   const portrait = k => {
     const c = G.councilor(S, k);
+    const emp = S.empires.p;
+    const pic = ptHtml({ race: emp.race, kind: 'advisor', role: k, seed: c.name, color: emp.color, era: G.techEra(S, 'p') }, 60, 'pt-card', `${c.title} ${c.name}, ${c.role}`);
+    if (pic) return `<div class="pt-badged">${pic}<span class="pt-badge" aria-hidden="true">${c.icon}</span></div>`;
     return `<div class="cn-portrait" style="border-color:${DATA.races[S.empires.p.race].color}" aria-hidden="true">${c.icon}<span class="cn-ini">${esc(c.initials)}</span></div>`;
   };
   const itemHtml = (it, showWho) => {
@@ -69,12 +72,13 @@
     const wait = g.wait && c.buildQueue.length < G.buildSlots(c) ? `Waiting: ${esc(g.wait.text)}.` : '';
     return `<span class="muted">${DATA.govFocus[g.focus].desc}</span> ${wait ? `<span class="warn">${wait}</span>` : ''} ${last ? `<span class="muted">Last: ${esc(last.text)} (${ago(last.t)})</span>` : ''}`;
   };
+  const govSpec = c => ({ race: S.empires.p.race, kind: 'governor', seed: c.id, color: S.empires.p.color, era: G.techEra(S, 'p') });
   const govRow = c => {
     const g = G.councilState(S).gov[c.id];
     const on = g && g.on;
     const open = UI.cnLog === c.id;
     return `<div class="cn-gov">
-      <button class="link cn-name" data-act="city" data-c="${c.id}">${esc(c.name)}</button>
+      ${on ? ptHtml(govSpec(c), 34, 'pt-card', `Governor of ${c.name}`) : ''}<button class="link cn-name" data-act="city" data-c="${c.id}">${esc(c.name)}</button>
       ${focusSelect(c, g)}
       ${on ? `<label title="The governor never spends gold below this">keep 🪙 <input type="number" min="0" step="100" data-k="gov_res_${c.id}" value="${g.reserve || 0}"></label>` : ''}
       ${on && g.focus === 'military' ? `<label title="Defenders to keep trained here (0 = build only)">garrison <input type="number" min="0" step="5" data-k="gov_troops_${c.id}" value="${g.troops || 0}"></label>` : ''}
@@ -137,7 +141,7 @@
     const mine = G.councilAdvice(S, { city: city.id });
     const top = mine[0];
     const last = on && g.log && g.log[0];
-    return `<div class="cn-cityrow"><span title="A governor manages this city's construction">🏛️ Governor</span>${focusSelect(city, g)}
+    return `<div class="cn-cityrow">${on ? ptHtml(govSpec(city), 30, 'pt-card', `Governor of ${city.name}`) : ''}<span title="A governor manages this city's construction">🏛️ Governor</span>${focusSelect(city, g)}
       ${on ? `<label title="The governor never spends gold below this">keep 🪙 <input type="number" min="0" step="100" data-k="gov_res_${city.id}" value="${g.reserve || 0}"></label>` : ''}
       ${on && last ? `<span class="muted">${esc(last.text)}</span>` : on && g.wait ? `<span class="muted">${esc(g.wait.text)}</span>` : ''}
       ${top ? `<button class="link ${top.priority >= URG() ? 'bad' : ''}" data-act="tab" data-t="council" title="${esc(top.text.replace('{eta}', '…'))}">${mine.length} council note${mine.length === 1 ? '' : 's'}</button>` : ''}</div>`;

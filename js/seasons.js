@@ -22,6 +22,8 @@ DATA.seasonRace = Object.assign({}, {
   sylvan: [1.2, 1, 1, 0.6],        // Sylvani: forest folk bloom in spring and shrug off winter
   ash:    [1, 1.2, 1, 1],          // Ashborn: summer is for war
 }, DATA.seasonRace || {});
+// firewood burnt per season (× G.SINK.firewood per citizen in engine.js), felt as each people feels the season
+DATA.firewoodSeason = [1, 0.4, 1.2, 3];
 // summer campaigns: the Ashborn fight harder when the steppe is dry
 const ASH_SUMMER_ATK = 1.08;
 
@@ -119,3 +121,22 @@ G.seasonChip = city => {
   const left = Math.round((1 - se.progress) * 7200 * G.pace(S).time / S.settings.speed / 60);
   return `<span class="pill season" title="${esc(info.text)}${k !== 1 ? ' Your people feel it ' + (k < 1 ? 'less' : 'more') + ' than most.' : ''}">${info.icon} ${info.name}: ${parts.join(', ')} · ${left} min left</span>`;
 };
+
+// ---------------------------------------------------------------------
+// Upkeep shortages and luxuries as happiness factors (engine.js sets
+// city.short; culture.js has loaded by now, so its G.happiness can be wrapped)
+// ---------------------------------------------------------------------
+if (G.happiness) {
+  const baseHappy = G.happiness;
+  G.happiness = (s, city) => {
+    const h = baseHappy(s, city);
+    const emp = s.empires[city.owner], K = G.SINK, sh = city.short || {};
+    const add = [];
+    if (sh.timber) add.push({ label: G.season(s).index === 3 ? 'Freezing: no firewood' : 'Cold hearths: no firewood', value: -(G.season(s).index === 3 ? K.coldWinterHappy : K.coldHappy) });
+    if (sh.gold) add.push({ label: 'Unpaid wages', value: -K.unpaidHappy });
+    for (const [g, L] of Object.entries(G.LUXURY)) if (emp.race === L.race && (city.res[g] || 0) > 1) add.push({ label: L.label, value: K.luxuryHappy });
+    if (!add.length) return h;
+    const raw = (h.raw !== undefined ? h.raw : h.value) + add.reduce((a, w) => a + w.value, 0);
+    return { ...h, why: [...h.why, ...add], raw, value: G.clamp(Math.round(raw), 0, 100) };
+  };
+}

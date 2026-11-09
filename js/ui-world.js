@@ -138,13 +138,14 @@ const sendForm = (city, t, modes) => {
   else if (G.unitsCount(sending)) { const pl = G.planMarch(S, 'p', city, t, sending); eta = pl.ok ? `${pl.naval ? '⛵ By sea · ' : ''}Travel ${fmtTime(realSecs(pl.dur))} · attack ${fmt(G.atkPower(S, 'p', sending) * G.mod(S, 'p', null, 'atk'))} · carry ${fmt(G.carryOf(S, 'p', sending))}` : `<span class="warn">${esc(pl.reason)}</span>`; }
   let preview = '';
   if (['raid', 'attack', 'conquer'].includes(UI.mode) && G.unitsCount(sending)) {
-    const pv = G.previewBattle(S, city, t, sending, UI.mode);
+    const pv = (G.previewField || G.previewBattle)(S, city, t, sending, UI.mode);
     if (pv && !pv.known) preview = `<div class="preview unknown">🔍 Unknown defenders — scout this target first to see the expected outcome.</div>`;
     else if (pv) {
       const lostN = G.unitsCount(pv.attLost), sentN = G.unitsCount(sending);
       const verdict = pv.win ? (pv.attLoss < 0.15 ? 'Easy victory' : pv.attLoss < 0.45 ? 'Victory' : 'Costly victory') : (UI.mode === 'raid' ? 'Repelled' : 'Defeat');
       preview = `<div class="preview ${pv.win ? 'win' : 'loss'}"><b>${verdict}</b> expected · ⚔️ ${fmt(pv.A)} vs 🛡️ ${fmt(pv.D)}<br>
         You lose about ${lostN} of ${sentN} (${Math.round(pv.attLoss * 100)}%)${lostN ? ': ' + unitsHtml(pv.attLost) : ''}. They lose ${Math.round(pv.defLoss * 100)}%.
+        ${pv.tactics ? (() => { const tc = pv.tactics, sg = p => (p > 0 ? '+' : '−') + Math.abs(p) + '%'; const own = tc.mods.filter(m => m.side === 'att' && (m.kind === 'field' || m.kind === 'counter' || m.kind === 'cap')).map(m => `<span class="${m.pct > 0 ? 'good' : m.pct < 0 ? 'bad' : 'muted'}">${esc(m.label.replace(/^([^:]+): (?!army)/, '$1: your '))}${m.kind === 'cap' ? '' : ' ' + sg(m.pct)}</span>`); const foe = tc.mods.filter(m => m.side === 'def' && (m.kind === 'field' || m.kind === 'counter')).map(m => `<span class="${m.pct > 0 ? 'bad' : 'good'}">${esc(m.label.replace(/^([^:]+): (?!army|holding)/, '$1: their '))} ${sg(m.pct)}</span>`); return `<br>⛰️ ${tc.terrain ? esc(DATA.terrain[tc.terrain].name) : 'Open field'}${tc.crossing ? ' · 🌊 river crossing' : ''}${own.length ? ' · ' + own.join(' · ') : ''}${foe.length ? '<br><span class="muted">Defenders:</span> ' + foe.join(' · ') : ''}`; })() : ''}
         <span class="muted">${pv.estimated ? 'Estimate from the site\'s usual strength.' : 'Based on scouting ' + ago(S.time - pv.age) + '.'}</span></div>`;
     }
   }

@@ -158,6 +158,67 @@ const orig=(s,a,b)=>noTrade(s,()=>G.hostility(s,a,b));
   ok('AI-AI war ends their route', !G.aiTradesWith(s,'a1','a2'));
 }
 
+// ---- routes to free cities ----
+const nearMinor=(s,c,pred=()=>true)=>G.minorsList(s).filter(pred).sort((a,b)=>G.dist(a,c)-G.dist(b,c))[0];
+const flight=(s,r)=>s.moves.some(m=>m.route===r.id);
+{ const s=fresh(); const c=G.capital(s,'p'); c.buildings.market=8; c.res.ore=3000; c.res.timber=3000; c.units.militia=20;
+  const mi=nearMinor(s,c); mi.kind='merchant'; mi.req=null; mi.nextReq=1e12;
+  const idx=mi.y*s.map+mi.x; s.explored[idx]=0;
+  ok('free city route: refused before the city is found', typeof G.createRoute(s,'p',c.id,mi.id,{give:{ore:200}})==='string');
+  s.explored[idx]=1;
+  ok('free city shows up as a route target once found', G.minorRouteTargets(s,'p').includes(mi));
+  const q=G.minorRouteQuote(s,c,mi,{ore:200});
+  const r=G.createRoute(s,'p',c.id,mi.id,{give:{ore:200},every:5,escort:{militia:5}});
+  ok('route to a free city opens', typeof r==='object' && r.to.kind==='minor' && r.to.id===mi.id && !r.foreign && G.routeDest(s,r)===mi, typeof r==='string'?r:JSON.stringify(r.to));
+  ok('quote: influence and gold per trip', q.inf>0 && q.gold>0 && q.goodsPay===50, JSON.stringify(q));
+  const rk=G.routeRisk(s,r); ok('risk works for a free city route', rk && rk.chance===0 && Array.isArray(rk.camps));
+  r.every=1e9;   // a single trip
+  const inf0=G.minorInf(s,mi,'p'), g0=s.empires.p.gold;
+  let n=0; while(!(r.trips>=1 && !flight(s,r)) && n++<600) run(s,5);
+  ok('caravan delivers: influence rises', r.trips===1 && G.minorInf(s,mi,'p')>inf0+1, inf0.toFixed(1)+' -> '+G.minorInf(s,mi,'p').toFixed(1)+' trips '+r.trips);
+  ok('merchant republic pays trade gold and for the goods', r.income>=q.gold-1 && s.empires.p.gold>=g0+r.income-1 && r.influence>0, 'income '+r.income+' gold '+Math.round(g0)+' -> '+Math.round(s.empires.p.gold));
+  ok('escort came home', c.units.militia===20 && !flight(s,r), 'militia '+c.units.militia);
+  ok('the goods were delivered (taken from the city)', r.delivered===200, 'delivered '+r.delivered);
+  const far={...mi,kind:'merchant'}, plain={...mi,kind:'temple'};
+  ok('merchant republics pay more than other free cities', G.minorRouteIncome(s,c,far)>G.minorRouteIncome(s,c,plain) && G.minorRouteIncome(s,c,plain)>0);
+  // ambush on the road to a free city
+  const camp={id:'kM',x:Math.round((c.x+mi.x)/2),y:Math.round((c.y+mi.y)/2),tier:3,units:{brigand:40},loot:{}};
+  s.camps[camp.id]=camp;
+  const rk2=G.routeRisk(s,r); ok('a camp near the road makes a free city route risky', rk2.chance>0 && rk2.camps.length===1, JSON.stringify(rk2));
+  const m={id:'mq',owner:'p',type:'trade',route:r.id,leg:'out',from:c.id,fx:c.x,fy:c.y,x:mi.x,y:mi.y,units:{},cargo:{ore:200},depart:s.time,arrive:s.time+100};
+  const res=G.routeAmbush(s,m,{camp}); ok('free city caravans can be ambushed', m.cargo.ore<200 && res.stolen.ore>0 && r.lost>0);
+  delete s.camps[camp.id];
+  // a route whose caravan is on the road when the route is cancelled: the caravan turns back with goods and escort
+  r.every=G.routeEvery(s,5); r.nextAt=s.time; run(s,15);
+  ok('second caravan leaves', flight(s,r) && c.units.militia===15, 'militia '+c.units.militia);
+  const ore=c.res.ore; G.cancelRoute(s,r.id,'test',true);
+  n=0; while(s.moves.some(x=>x.route===r.id) && n++<600) run(s,5);
+  ok('orphaned caravan turns back home with its goods and escort', c.units.militia===20 && c.res.ore>=ore+199, 'militia '+c.units.militia+' ore '+Math.round(ore)+' -> '+Math.round(c.res.ore));
+}
+{ const s=fresh(); const c=G.capital(s,'p'); c.buildings.market=8; c.res.ore=3000;
+  const [m1,m2]=G.minorsList(s).sort((a,b)=>G.dist(a,c)-G.dist(b,c)); for(const m of [m1,m2]) s.explored[m.y*s.map+m.x]=1;
+  const r1=G.createRoute(s,'p',c.id,m1.id,{give:{ore:100}}), r2=G.createRoute(s,'p',c.id,m2.id,{give:{ore:100}});
+  m1.subject='a1'; delete s.minors[m2.id]; G.tileAt(s,m2.x,m2.y).minor=null;
+  ok('refused to a free city that pays tribute', typeof G.createRoute(s,'p',c.id,m1.id,{give:{ore:100}})==='string');
+  run(s,20);
+  ok('route ends when the free city submits to a realm', !G.routeById(s,r1.id));
+  ok('route ends when the free city is conquered', !G.routeById(s,r2.id));
+}
+{ const s=fresh(); const emp=s.empires.a1; const a=G.capital(s,'a1'); a.buildings.market=4; a.buildings.warehouse=10;
+  const mi=nearMinor(s,a); mi.req=null; mi.nextReq=1e12; const want=DATA.minorKinds[mi.kind].wants.filter(g=>DATA.goods[g])[0];
+  a.res[want]=G.storageCap(s,a)*0.9;
+  const R=T.aiMinorRange; T.aiMinorRange=100;
+  const r=G.aiMinorRoute(s,emp); T.aiMinorRange=R;
+  ok('AI opens a route to a free city that wants its surplus', r && r.owner==='a1' && G.routeIsMinor(r) && r.goods.give[want]>0, r?JSON.stringify(r.goods.give)+' to '+mi.name:'none');
+  ok('only one free city route per realm', !G.aiMinorRoute(s,emp) && G.routes(s).filter(x=>x.owner==='a1'&&G.routeIsMinor(x)).length===1);
+  const i0=G.minorInf(s,mi,'a1'); let n=0; while(r && r.trips<1 && n++<800) { a.res[want]=G.storageCap(s,a)*0.9; run(s,5); }
+  ok('AI route raises its influence', r && r.trips>=1 && G.minorInf(s,mi,'a1')>i0, i0.toFixed(1)+' -> '+G.minorInf(s,mi,'a1').toFixed(1));
+  const s2=G.deserialize(G.serialize(s)); const r2=G.routeById(s2,r.id);
+  ok('save/load keeps free city routes', r2 && G.routeIsMinor(r2) && G.routeDest(s2,r2) && G.routeDest(s2,r2).id===mi.id);
+  const t0=r2.trips; n=0; while(r2.trips<=t0 && n++<800) { s2.cities[a.id].res[want]=G.storageCap(s2,s2.cities[a.id])*0.9; run(s2,5); }
+  ok('loaded game keeps trading with the free city', r2.trips>t0, 'trips '+t0+' -> '+r2.trips);
+}
+
 // ---- save / load ----
 { const s=fresh(); const [c,b]=twoCities(s,4); const a=aiCity(s,'a1'); G.rel(s,'a1').opinion=20;
   const r=G.createRoute(s,'p',c.id,b.id,{give:{ore:200},every:5,escort:{militia:5}}); c.units.militia=10;

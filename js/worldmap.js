@@ -24,8 +24,10 @@
   const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
   // prefers-reduced-motion: freeze decorative animation (clouds, pennants, smoke, rain/snow) and snap camera moves
   const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
-  let reduceMotion = !!(RM && RM.matches);
-  if (RM) { const onRM = () => { reduceMotion = RM.matches; }; if (RM.addEventListener) RM.addEventListener('change', onRM); else if (RM.addListener) RM.addListener(onRM); }
+  // the in-game option (html.ec-reduce-motion, set by ui-core's options panel) counts too
+  const motionPref = () => !!(RM && RM.matches) || document.documentElement.classList.contains('ec-reduce-motion');
+  let reduceMotion = motionPref();
+  if (RM) { const onRM = () => { reduceMotion = motionPref(); }; if (RM.addEventListener) RM.addEventListener('change', onRM); else if (RM.addListener) RM.addListener(onRM); }
   const RM_T = 12000;      // fixed clock (ms) used for drawing while motion is reduced
   const rng = seed => {
     let a = (seed >>> 0) || 1;
@@ -37,7 +39,8 @@
     };
   };
   const hash = str => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
-  const colorOf = owner => (S.empires[owner] && S.empires[owner].color) || '#6b6b6b';
+  // ecDisplayColor (ui-core) maps empire colours to the colour-blind-friendly palette when that option is on
+  const colorOf = owner => { const c = (S.empires[owner] && S.empires[owner].color) || '#6b6b6b'; return window.ecDisplayColor ? window.ecDisplayColor(c) : c; };
 
   // seasonal palettes (watercolour tints + glyph colours)
   const PAL = [
@@ -60,7 +63,7 @@
   let layer = null, layerKey = '', lastBake = -1e9, lastCheck = -1e9;
   let noiseC = null, washC = null, terrC = null, dimGrey = null, dimWash = null;
   let glowC = null, cloudC = null, compassC = null, compassSz = 0, vignette = null;
-  let vis = null, lastFrame = 0;
+  let vis = null, lastFrame = 0, lastDraw = -1e9, lastInput = -1e9;
   let lastCityId = null, lastSelKey = null;
   let hover = null;               // {x, y} tile under the cursor
   const stats = { frames: [], bakeMs: 0, bakes: 0 };
@@ -415,19 +418,29 @@
   }
 
   function paintFog(g, N, L, X, np) {
-    const path = new Path2D(); let any = false;
+    // Only fog tiles on the edge of the explored land get a hand-drawn blob outline: the strokes of
+    // tiles deep inside the fog would be painted over by the opaque fill anyway (each blob reaches at
+    // most ~1.25 tiles out, and every neighbour's own fill covers its square). Deep tiles are filled
+    // as plain squares, which leaves the union unchanged and keeps the bake cheap on big maps.
+    const path = new Path2D(), edge = new Path2D(); let any = false;
+    const fogAt = (x, y) => x < 0 || y < 0 || x >= N || y >= N || !S.explored[y * N + x];
     for (const t of S.tiles) {
       const i = t.y * N + t.x;
       if (S.explored[i]) continue;
-      blob(path, X(t.x + 0.5), X(t.y + 0.5), P * 0.86, null, 18, rng(i * 53 + 29), 0.24); any = true;
+      any = true;
+      let inner = true;
+      for (let dy = -1; dy <= 1 && inner; dy++) for (let dx = -1; dx <= 1; dx++) if (!fogAt(t.x + dx, t.y + dy)) { inner = false; break; }
+      if (inner) path.rect(X(t.x), X(t.y), P, P);
+      else blob(edge, X(t.x + 0.5), X(t.y + 0.5), P * 0.86, null, 18, rng(i * 53 + 29), 0.24);
     }
     if (!any) return;
+    path.addPath(edge);
     g.save();
     g.beginPath(); g.rect(X(0), X(0), N * P, N * P); g.clip();
     g.lineJoin = 'round';
-    g.strokeStyle = 'rgba(120,85,45,0.09)'; g.lineWidth = P * 0.75; g.stroke(path);
-    g.strokeStyle = 'rgba(100,70,38,0.12)'; g.lineWidth = P * 0.36; g.stroke(path);
-    g.strokeStyle = 'rgba(80,55,30,0.5)'; g.lineWidth = P * 0.035; g.stroke(path);
+    g.strokeStyle = 'rgba(120,85,45,0.09)'; g.lineWidth = P * 0.75; g.stroke(edge);
+    g.strokeStyle = 'rgba(100,70,38,0.12)'; g.lineWidth = P * 0.36; g.stroke(edge);
+    g.strokeStyle = 'rgba(80,55,30,0.5)'; g.lineWidth = P * 0.035; g.stroke(edge);
     g.fillStyle = PAPER; g.fill(path); g.fillStyle = np; g.fill(path);
     g.clip(path);
     g.lineWidth = P * 0.012;
@@ -1378,8 +1391,12 @@
     vis = G.visibleSet(S);
     updateDim();
     let ex = 0; for (let i = 0; i < S.explored.length; i++) ex += S.explored[i] ? 1 : 0;
-    const key = S.map + '|' + ex + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0) + '|' + (S.minors ? Object.keys(S.minors).join(',') : '');
-    if (key !== layerKey && (!layer || force || now - lastBake > 1000)) { bake(); layerKey = key; lastBake = now; }
+    // a bake costs 15-40 ms on a 47x47 world: land, cities and seasons rebake within a second, but
+    // newly explored tiles alone (scouts and armies uncover a few every few seconds at high speed)
+    // wait up to 3 s so the map doesn't hitch every second
+    const sKey = S.map + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0) + '|' + (S.minors ? Object.keys(S.minors).join(',') : '') + '|' + (window.ecPaletteKey || '');
+    const key = sKey + '|' + ex;
+    if (key !== layerKey && (!layer || force || now - lastBake > (layerKey.startsWith(sKey + '|') ? 3000 : 1000))) { bake(); layerKey = key; lastBake = now; }
     refreshMagic(now);
   }
   // ley tappers (slow to change) and land reshaped by world-shaping spells
@@ -1401,6 +1418,12 @@
     raf = 0;
     if (!S || UI.tab !== 'world' || document.hidden || !canvas || !canvas.isConnected) return;
     const t0 = performance.now();
+    reduceMotion = motionPref();
+    // throttle: 60 fps while the camera moves or the player is using the map, 30 fps when idle,
+    // and only a few redraws a second when motion is reduced (the picture is frozen anyway)
+    const busy = pts.size || cam.tx != null || cam.tz != null || t0 - lastInput < 1500 || UI.city !== lastCityId || (UI.sel ? UI.sel.x + ',' + UI.sel.y : '') !== lastSelKey;
+    if (!busy && t0 - lastDraw < (reduceMotion ? 250 : 30)) { raf = requestAnimationFrame(frame); return; }
+    lastDraw = t0;
     fit(canvas.parentNode);
     refresh(t0, !layer);
     // follow external selection / city changes
@@ -1475,6 +1498,7 @@
       if (!S || (e.pointerType === 'mouse' && e.button !== 0)) return;
       e.preventDefault();
       UI.holding = true;  // keep render() from rebuilding the DOM mid-gesture
+      lastInput = performance.now();
       pts.set(e.pointerId, local(e));
       cam.tx = cam.ty = cam.tz = null;
       if (pts.size === 1) drag = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, moved: false, slop: e.pointerType === 'mouse' ? 5 : 10 };
@@ -1487,7 +1511,8 @@
     });
     window.addEventListener('pointermove', e => {
       if (!canvas || !S) return;
-      if (!pts.has(e.pointerId)) { if (e.target === canvas && e.pointerType === 'mouse') showTip(e); return; }
+      if (!pts.has(e.pointerId)) { if (e.target === canvas && e.pointerType === 'mouse') { lastInput = performance.now(); showTip(e); } return; }
+      lastInput = performance.now();
       UI.holding = true;
       pts.set(e.pointerId, local(e));
       if (pts.size === 1 && drag) {
@@ -1523,6 +1548,7 @@
     canvas.addEventListener('wheel', e => {
       if (!S) return;
       e.preventDefault();
+      lastInput = performance.now();
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
       const p = local(e);
       zoomAt(p.x, p.y, cam.z * Math.exp(-dy * 0.0016));
@@ -1565,8 +1591,8 @@
   };
 
   Object.assign(act, {
-    wmZoomIn: () => { cam.tz = clamp((cam.tz || cam.z) * 1.4, ZMIN, ZMAX); start(); },
-    wmZoomOut: () => { cam.tz = clamp((cam.tz || cam.z) / 1.4, ZMIN, ZMAX); start(); },
+    wmZoomIn: () => { lastInput = performance.now(); cam.tz = clamp((cam.tz || cam.z) * 1.4, ZMIN, ZMAX); start(); },
+    wmZoomOut: () => { lastInput = performance.now(); cam.tz = clamp((cam.tz || cam.z) / 1.4, ZMIN, ZMAX); start(); },
     wmCancelSpell: () => cancelTargeting(),
     wmCenter: () => { const c = curCity(); if (c) flyTo(c.x, c.y, Math.max(cam.z, 1.5)); start(); },
   });
@@ -1593,7 +1619,9 @@
     cam,
     stats: () => { const f = stats.frames; const avg = f.reduce((a, b) => a + b, 0) / (f.length || 1); return { frames: f.length, avgMs: +avg.toFixed(2), maxMs: +Math.max(0, ...f).toFixed(2), bakeMs: +stats.bakeMs.toFixed(1), bakes: stats.bakes }; },
     tileToClient: (x, y) => { const r = canvas.getBoundingClientRect(), tp = tilePx(); return { x: r.left + W / 2 + (x + 0.5 - cam.x) * tp, y: r.top + H / 2 + (y + 0.5 - cam.y) * tp }; },
-    rebake: () => { layerKey = ''; if (S) refresh(performance.now(), true); },
+    rebake: () => { layerKey = ''; lastDraw = -1e9; if (S) refresh(performance.now(), true); },
+    // CPU cost of n full frames (works while the tab is in the background, when rAF doesn't run)
+    bench: (n = 30) => { if (!S || !canvas || !layer) return null; fit(canvas.parentNode); const t0 = performance.now(); for (let i = 0; i < n; i++) draw(t0 + i * 16); return +((performance.now() - t0) / n).toFixed(2); },
     reset: () => { cam.init = false; },
     layer: () => layer,
     toWorld: (cx, cy) => { const r = canvas.getBoundingClientRect(); return toWorld(cx - r.left, cy - r.top); },

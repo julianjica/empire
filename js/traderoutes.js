@@ -2,6 +2,9 @@
 //  Trade routes: standing agreements that send caravans over and over.
 //  s.routes = [{ id, owner, from, to: { kind: 'city', id, owner }, goods: { give, take },
 //                every (game-sec), nextAt, active, foreign, escort, trips, income, lost, note }]
+//  A route may also run to a free city (js/minors.js): to = { kind: 'minor', id, owner: null, name },
+//  foreign false. Its caravans are gifts: each trip raises the owner's influence there and pays gold
+//  (merchant republics also pay for the goods), and the escort comes home on an empty back leg.
 //  s.aiRoutes = [{ id, a, b, ca, cb, since, income }]   abstract AI-to-AI trade (gold only)
 //  Caravans are real moves: type 'trade' with m.route = routeId and m.leg = 'out' | 'back',
 //  so the world map draws them as carts and brigands or hostile armies can ambush them.
@@ -39,6 +42,12 @@
     aiIncome: 0.5,                   // abstract AI-AI routes pay this share of a 10-minute trip's income per 10 minutes
     aiAvert: 0.4,                    // chance a fresh AI-AI war is talked down when they trade
     hostilityCut: 0.15, hostilityFloor: 0.55, aiHostility: 0.7,
+    // routes to free cities: gold per trip = foreign-route formula (the free city's market counts as 2 + size) x this
+    minorIncome: 0.5, minorMerchant: 1.5,
+    minorGoodsPay: 0.5,              // merchant republics also pay this share of the goods' value, as for a hand-sent caravan
+    minorInf: 0.6,                   // a standing route's goods count for this share of a hand-sent caravan's influence
+    aiMinorLoad: 0.08, aiMinorMax: 500,   // AI caravans to free cities: share of storage, capped
+    aiMinorRange: 10, aiMinorEvery: 2,
   };
   const SPECIALTY = { hearth: ['grain', 'timber', 'bread'], delver: ['ore', 'iron', 'stone', 'tools', 'runesteel'], sylvan: ['timber', 'grain', 'heartwood'], ash: ['weapons', 'ore', 'stone'] };
   G.TRADE_SPECIALTY = SPECIALTY;
@@ -52,6 +61,15 @@
   const goodsText = o => Object.entries(o || {}).filter(([, n]) => n > 0).map(([g, n]) => `${Math.floor(n)} ${g === 'gold' ? 'gold' : DATA.goods[g].name.toLowerCase()}`).join(', ') || 'nothing';
   const shiftOp = (s, id, d) => { const r = G.rel(s, id); r.opinion = G.clamp(r.opinion + d, -100, 100); };
   const seen = (s, ...cs) => cs.some(c => c && s.explored[c.y * s.map + c.x]);
+
+  // where a route goes: a city, or a free city for kind 'minor'
+  const isMinor = r => !!(r && r.to && r.to.kind === 'minor');
+  const minorOf = (s, r) => (isMinor(r) && s.minors && s.minors[r.to.id]) || null;
+  const destOf = (s, r) => (isMinor(r) ? minorOf(s, r) : s.cities[r.to.id]) || null;
+  const destName = (s, r) => { const d = destOf(s, r); return d ? d.name : (r.to.name || '?'); };
+  const valueOf = goods => Object.entries(goods || {}).reduce((a, [g, v]) => a + (DATA.goods[g] && v > 0 ? DATA.goods[g].value * v : 0), 0);
+  G.routeIsMinor = isMinor;
+  G.routeDest = (s, r) => destOf(s, r);
 
   G.routes = s => routes(s);
   G.aiRoutes = s => aiRoutes(s);
@@ -100,6 +118,29 @@
     } else if (G.aiRel(s, owner, partner).status === 'war') return 'They are at war';
     return null;
   };
+  // ---- free cities ----
+  G.minorRouteError = (s, owner, mi) => {
+    if (!mi || !s.minors || s.minors[mi.id] !== mi) return 'No such free city';
+    if (!s.empires[owner] || s.empires[owner].dead) return 'Your realm has fallen';
+    if (mi.subject) return mi.subject === owner ? `${mi.name} already pays you tribute` : `${mi.name} pays tribute to the ${s.empires[mi.subject].name}`;
+    if (owner === 'p' && !s.explored[mi.y * s.map + mi.x]) return 'You have not found this city yet';
+    return null;
+  };
+  G.minorRouteTargets = (s, owner) => (G.minorsList ? G.minorsList(s) : []).filter(mi => !G.minorRouteError(s, owner, mi));
+  G.minorRouteIncome = (s, from, mi) => {
+    const d = G.dist(from, mi);
+    const L = Math.min(G.lvl(from, 'market'), 2 + (mi.size || 1));
+    const k = mi.kind === 'merchant' ? T.minorMerchant : T.minorIncome;
+    return Math.round((T.incomeLin * d + T.incomeSq * d * d) * (1 + T.incomeMarket * L) * G.pace(s).prod * k);
+  };
+  // what one trip would bring: influence now (it shrinks as influence grows) and gold
+  G.minorRouteQuote = (s, from, mi, give) => {
+    const value = valueOf(give), MI = G.MINORS;
+    const inf = MI && G.minorGiftPreview ? G.minorGiftPreview(s, mi, from.owner, value * MI.caravanBonus * T.minorInf) : 0;
+    const goodsPay = mi.kind === 'merchant' ? Math.round(value * T.minorGoodsPay) : 0;
+    return { inf, gold: G.minorRouteIncome(s, from, mi) + goodsPay, goodsPay, value };
+  };
+
   // foreign cities a realm may open a route to (the player only sees cities it has explored)
   G.routeTargets = (s, owner) => Object.values(s.cities).filter(c => c.owner !== owner && !G.tradePartnerError(s, owner, c.owner)
     && G.lvl(c, 'market') >= 1 && (owner !== 'p' || s.explored[c.y * s.map + c.x]));
@@ -110,6 +151,8 @@
   // returns the route, or an error string
   // -------------------------------------------------------------------
   G.createRoute = (s, owner, fromId, toId, opts = {}) => {
+    const mi = !s.cities[toId] && s.minors ? s.minors[toId] : null;
+    if (mi) return createMinorRoute(s, owner, fromId, mi, opts);
     const from = s.cities[fromId], to = s.cities[toId];
     if (!from || from.owner !== owner) return 'Not your city';
     if (!to) return 'No such city';
@@ -146,13 +189,36 @@
     if (owner === 'p') G.log(s, 'p', `🐪 Trade route opened: ${from.name} → ${to.name}${foreign ? ` (${s.empires[to.owner].name})` : ''}.`, 'good');
     return r;
   };
+  const createMinorRoute = (s, owner, fromId, mi, opts) => {
+    const from = s.cities[fromId];
+    if (!from || from.owner !== owner) return 'Not your city';
+    const err = G.minorRouteError(s, owner, mi);
+    if (err) return err;
+    if (G.lvl(from, 'market') < 1) return `Build a Market in ${from.name} first`;
+    if (G.routesFrom(s, fromId).length >= G.routeSlots(s, from)) return `${from.name} can run only ${G.routeSlots(s, from)} route${G.routeSlots(s, from) > 1 ? 's' : ''} (more every ${T.perMarket} market levels)`;
+    const give = {};
+    for (const [g, n] of Object.entries(opts.give || {})) if (DATA.goods[g] && Math.floor(n) > 0) give[g] = Math.floor(n);
+    const total = sum(give);
+    if (!total) return 'Choose goods and an amount';
+    if (total > G.caravanCap(s, from)) return `A caravan from ${from.name} carries at most ${G.caravanCap(s, from)}`;
+    const minutes = Math.max(3, +opts.every || T.defaultEvery);
+    const r = {
+      id: G.newId(s, 'tr'), owner, from: fromId, to: { kind: 'minor', id: mi.id, owner: null, name: mi.name }, goods: { give, take: {} },
+      every: G.routeEvery(s, minutes), nextAt: s.time, active: true, foreign: false,
+      escort: {}, trips: 0, income: 0, influence: 0, lost: 0, created: s.time, note: '',
+    };
+    routes(s).push(r);
+    if (opts.escort) G.setEscort(s, r.id, opts.escort);
+    if (owner === 'p') G.log(s, 'p', `🐪 Trade route opened: ${from.name} → 🏰 ${mi.name}.`, 'good');
+    return r;
+  };
   // why: text for the log; voluntary: the owner broke it (foreign partners resent that)
   G.cancelRoute = (s, id, why, voluntary) => {
     const r = G.routeById(s, id);
     if (!r) return 'No such route';
     s.routes = routes(s).filter(x => x !== r);
-    const from = s.cities[r.from], to = s.cities[r.to.id];
-    const name = `${from ? from.name : '?'} → ${to ? to.name : '?'}`;
+    const from = s.cities[r.from];
+    const name = `${from ? from.name : '?'} → ${destName(s, r)}`;
     if (r.foreign && voluntary && r.owner === 'p' && s.empires[r.to.owner] && !s.empires[r.to.owner].dead) {
       shiftOp(s, r.to.owner, -T.breakPenalty);
       G.log(s, 'p', `🐪 You broke the trade route ${name}. The ${s.empires[r.to.owner].name} are offended (−${T.breakPenalty} opinion).`, 'warn');
@@ -200,7 +266,7 @@
   };
   // per-trip ambush chance for a route (or a route-like {owner, from, to:{id}, foreign, escort})
   G.routeRisk = (s, route) => {
-    const from = s.cities[route.from], to = s.cities[route.to.id];
+    const from = s.cities[route.from], to = destOf(s, route);
     if (!from || !to) return { chance: 0, camps: [], armies: 0, expectedLoss: 0, escortHolds: null };
     const owner = route.owner || from.owner;
     const dur = G.travelTime(s, owner, from, to, T.spd) / 60;
@@ -281,18 +347,19 @@
     });
   };
   G.routeDepart = (s, r) => {
-    const from = s.cities[r.from], to = s.cities[r.to.id];
+    const from = s.cities[r.from], to = destOf(s, r);
     if (!from || !to) return 'Gone';
+    const internal = !r.foreign && !isMinor(r);   // only a city of one's own has storage to fill up
     const cargo = {};
     const cap = G.caravanCap(s, from);
     let room = cap;
     for (const [g, n] of Object.entries(r.goods.give)) {
       let k = Math.min(n, Math.floor(from.res[g] || 0), room);
-      if (!r.foreign) k = Math.min(k, Math.max(0, Math.floor(G.storageCap(s, to) - (to.res[g] || 0))));
+      if (internal) k = Math.min(k, Math.max(0, Math.floor(G.storageCap(s, to) - (to.res[g] || 0))));
       if (k > 0) { cargo[g] = k; room -= k; }
     }
     if (!sum(cargo)) {
-      const full = !r.foreign && Object.keys(r.goods.give).every(g => (to.res[g] || 0) >= G.storageCap(s, to) - 1);
+      const full = internal && Object.keys(r.goods.give).every(g => (to.res[g] || 0) >= G.storageCap(s, to) - 1);
       r.note = full ? `${to.name} is full` : `Waiting for ${Object.keys(r.goods.give).map(g => DATA.goods[g].name.toLowerCase()).join(', ')}`;
       r.nextAt = s.time + Math.min(r.every, 60 * paceT(s));
       return r.note;
@@ -336,6 +403,7 @@
   };
   const arriveOut = (s, m) => {
     const r = G.routeById(s, m.route);
+    if (isMinor(r)) return arriveMinor(s, m, r);
     const to = r && s.cities[r.to.id];
     if (!r || !to || to.owner !== r.to.owner || (r.foreign && (hostileTo(s, r.owner, to.owner) || s.empires[to.owner].dead))) return turnBack(s, m, 'the route is closed');
     const from = s.cities[r.from];
@@ -368,6 +436,49 @@
     if (r.owner === 'p' && r.trips === 1) G.log(s, 'p', `🐪 The first caravan reached ${to.name}: +${inc} gold trade income for both realms.`, 'good');
     pushLeg(s, m, 'back', to, from, back, m.units, from.id);
   };
+  // a route caravan reaches a free city: the goods are gifts (influence), the city pays trade gold
+  // (merchant republics also pay for the goods, as for any caravan), and the escort goes home
+  const arriveMinor = (s, m, r) => {
+    const t = G.tileAt(s, m.x, m.y);
+    const mi = (r ? minorOf(s, r) : null) || (G.minorAt ? G.minorAt(s, t) : null);
+    const from = r && s.cities[r.from];
+    const err = !r ? 'the route is closed' : !mi || mi.id !== r.to.id ? `${r.to.name || 'the free city'} is no longer free` : !from || from.owner !== r.owner ? 'its home city was lost' : G.minorRouteError(s, r.owner, mi);
+    if (err) return turnBack(s, m, err);
+    const MI = G.MINORS;
+    const gifts = { ...(m.cargo || {}) };
+    const rq = mi.req;
+    if (rq && rq.type === 'deliver' && (gifts[rq.good] || 0) >= rq.amount && G.minorCompleteRequest) { gifts[rq.good] -= rq.amount; G.minorCompleteRequest(s, mi, r.owner); }
+    const value = valueOf(gifts);
+    const d = value > 0 && MI ? G.minorAddInfluence(s, mi, r.owner, value / (MI.giftDiv * G.minorScale(s)) * MI.caravanBonus * T.minorInf) : 0;
+    for (const [g, v] of Object.entries(gifts)) if (v > 0 && DATA.goods[g]) mi.stores[g] = (mi.stores[g] || 0) + v * 0.5;
+    const gold = G.minorRouteIncome(s, from, mi) + (mi.kind === 'merchant' ? Math.round(value * T.minorGoodsPay) : 0);
+    const me = s.empires[r.owner];
+    me.gold += gold; me.tradeIncome = (me.tradeIncome || 0) + gold;
+    r.income += gold; r.influence = (r.influence || 0) + d; r.trips++;
+    r.delivered = (r.delivered || 0) + sum(m.cargo);
+    if (G.minorUpdatePatron) G.minorUpdatePatron(s, mi);
+    if (r.owner === 'p' && r.trips === 1) G.log(s, 'p', `🐪 The first caravan reached 🏰 ${mi.name}: +${d.toFixed(1)} influence, +${gold} gold.`, 'good');
+    pushLeg(s, m, 'back', mi, from, {}, m.units, from.id);
+  };
+  // js/minors.js (loaded after this file) wraps G.resolveMove and takes every caravan that reaches a free
+  // city. Route caravans need their own arrival (escort, trips, back leg), so wrap whatever G.resolveMove
+  // is once the first step runs: by then every module has loaded, and step hooks run before arrivals.
+  let minorWrap = false;
+  G.stepHooks.push(() => {
+    if (minorWrap) return;
+    minorWrap = true;
+    const inner = G.resolveMove;
+    G.resolveMove = (s, m) => {
+      if (m && m.route && m.type === 'trade' && m.leg !== 'back') {
+        const r = G.routeById(s, m.route);
+        if (isMinor(r) || (!r && G.minorAt && G.minorAt(s, G.tileAt(s, m.x, m.y)))) {
+          try { arriveMinor(s, m, r); } catch (e) { if (typeof console !== 'undefined') console.error('trade route arrival (free city)', e); }
+          return;
+        }
+      }
+      return inner(s, m);
+    };
+  });
   const plainTrade = (s, m) => {   // engine.js behaviour for ordinary caravans
     const tile = G.tileAt(s, m.x, m.y);
     const tc = tile && tile.city && s.cities[tile.city];
@@ -394,7 +505,15 @@
     }
     // cancellations
     for (const r of [...routes(s)]) {
-      const from = s.cities[r.from], to = s.cities[r.to.id];
+      const from = s.cities[r.from];
+      if (isMinor(r)) {
+        const mi = minorOf(s, r);
+        if (!from || from.owner !== r.owner) G.cancelRoute(s, r.id, `${from ? from.name : 'the city'} changed hands`);
+        else if (!mi) G.cancelRoute(s, r.id, `${r.to.name || 'the free city'} is no longer a free city`);
+        else if (mi.subject) G.cancelRoute(s, r.id, mi.subject === r.owner ? `${mi.name} now pays you tribute` : `${mi.name} now pays tribute to the ${s.empires[mi.subject].name}`);
+        continue;
+      }
+      const to = s.cities[r.to.id];
       if (!from || from.owner !== r.owner) G.cancelRoute(s, r.id, `${from ? from.name : 'the city'} changed hands`);
       else if (!to || to.owner !== r.to.owner) G.cancelRoute(s, r.id, `${to ? to.name : 'the city'} changed hands`);
       else if (r.foreign && s.empires[r.to.owner].dead) G.cancelRoute(s, r.id, `the ${s.empires[r.to.owner].name} have fallen`);
@@ -539,7 +658,7 @@
     const cities = G.citiesOf(s, emp.id);
     if (cities.length < 2) return;
     // drop routes that are no longer needed
-    for (const r of routes(s).filter(x => x.owner === emp.id && !x.foreign)) {
+    for (const r of routes(s).filter(x => x.owner === emp.id && !x.foreign && !isMinor(x))) {
       const from = s.cities[r.from], to = s.cities[r.to.id];
       if (!from || !to) continue;
       const g = Object.keys(r.goods.give)[0];
@@ -555,5 +674,40 @@
       const n = Math.min(G.caravanCap(s, src), Math.round(G.storageCap(s, src) * 0.2));
       if (n >= 50 && typeof G.createRoute(s, emp.id, src.id, dst.id, { give: { [g]: n }, every: T.defaultEvery }) !== 'string') return;
     }
+  });
+
+  // ---- AI routes to free cities: one per realm, a good the free city wants, from a city with a surplus ----
+  G.aiMinorRoute = (s, emp) => {
+    const mine = routes(s).filter(x => x.owner === emp.id && isMinor(x));
+    for (const r of mine) {   // drop it when the surplus is gone (or they fell out with the city)
+      const from = s.cities[r.from], mi = minorOf(s, r), g = Object.keys(r.goods.give)[0];
+      if (!from || !mi) continue;
+      if ((from.res[g] || 0) < G.storageCap(s, from) * 0.2 || (mi.grudge && (mi.grudge[emp.id] || 0) > s.time)) G.cancelRoute(s, r.id, 'no longer worth it');
+    }
+    if (routes(s).some(x => x.owner === emp.id && isMinor(x)) || !G.minorsList) return null;
+    let best = null, bs = -1e9;
+    for (const c of G.citiesOf(s, emp.id)) {
+      if (G.lvl(c, 'market') < 1 || G.routesFrom(s, c.id).length >= G.routeSlots(s, c)) continue;
+      const cap = G.storageCap(s, c);
+      for (const mi of G.minorsList(s)) {
+        const d = G.dist(c, mi);
+        if (d > T.aiMinorRange || G.minorRouteError(s, emp.id, mi) || (mi.grudge && (mi.grudge[emp.id] || 0) > s.time)) continue;
+        const wants = ((DATA.minorKinds[mi.kind] || {}).wants || []).filter(g => DATA.goods[g] && (c.res[g] || 0) > cap * 0.5);
+        if (!wants.length) continue;
+        const sc = (mi.patron === emp.id ? 1.5 : mi.patron ? 0.5 : 1) + (mi.kind === 'merchant' ? 0.6 : 0) - d * 0.12 + Math.random() * 0.3;
+        if (sc > bs) { bs = sc; best = { c, mi, g: wants.sort((a, b) => (c.res[b] || 0) - (c.res[a] || 0))[0] }; }
+      }
+    }
+    if (!best) return null;
+    const n = Math.min(G.caravanCap(s, best.c), Math.round(G.storageCap(s, best.c) * T.aiMinorLoad), T.aiMinorMax);
+    if (n < 50) return null;
+    const r = G.createRoute(s, emp.id, best.c.id, best.mi.id, { give: { [best.g]: n }, every: T.defaultEvery });
+    return typeof r === 'string' ? null : r;
+  };
+  G.aiHooks.push((s, emp, dtMin) => {
+    emp.trmClock = (emp.trmClock || 0) + dtMin;
+    if (emp.trmClock < T.aiMinorEvery * paceT(s)) return;
+    emp.trmClock = 0;
+    G.aiMinorRoute(s, emp);
   });
 })();

@@ -127,6 +127,7 @@ const mkMove=(s,owner,from,to,type,units)=>({ id:G.newId(s,'m'), owner, type, fr
 { const s=fresh(); const id='a1'; const emp=s.empires[id]; emp.heroAdvAt=1e12;
   const pc=G.capital(s,'p'), ac=G.capital(s,id);
   const ph=G.hero(s), ah=emp.hero; ph.points.str=30; ah.points.str=0; ah.hp=100;
+  ah.xp=-1e9;   // no level-up mid-battle: each level heals +30 and would hide the duel wound
   const pu=DATA.races.hearth.units[0], au=DATA.races[emp.race].units[0];
   ac.units[au]=200; pc.units[pu]=150; delete pc.units.hero;
   const m=mkMove(s,'p',pc,ac,'raid',{[pu]:150,hero:1});

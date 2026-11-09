@@ -57,7 +57,20 @@ G.log = (s, owner, text, kind = 'info') => {
 // carry, vision, caravan, upkeep, market, protect
 // ---------------------------------------------------------------------
 const ADDITIVE_RACE = { market: 1, protect: 1 };
+// Inside G.step the same (owner, city, key) is asked for many times; remember answers for that one step.
+// Outside a step (UI, tests, direct calls) there is no cache, so changes show at once.
+G._modCache = null;
 G.mod = (s, owner, city, key) => {
+  const mc = G._modCache;
+  if (mc) {
+    const k = owner + '|' + (city ? city.id : '') + '|' + key;
+    let v = mc.get(k);
+    if (v === undefined) { v = modRaw(s, owner, city, key); mc.set(k, v); }
+    return v;
+  }
+  return modRaw(s, owner, city, key);
+};
+const modRaw = (s, owner, city, key) => {
   const emp = s.empires[owner];
   const race = DATA.races[emp.race];
   let m = 1;
@@ -804,21 +817,114 @@ const casualties = (units, frac) => {
   return { lost, left };
 };
 
+// ---------------------------------------------------------------------
+// Tactics: unit roles, the battlefield, counters and battle phases
+// ---------------------------------------------------------------------
+// role of a unit: explicit `role` in the unit table, else inferred (for units other modules add)
+G.roleOf = u => {
+  const d = DATA.units[u];
+  if (!d) return 'infantry';
+  if (d.role) return d.role;
+  if (d.type === 'ship') return 'ship';
+  if (d.mage) return 'mage';
+  if (d.flying) return 'flyer';
+  if (d.type === 'siege') return 'siege';
+  if (d.type === 'cav') return 'cavalry';
+  if (d.type === 'ranged') return 'ranged';
+  if (d.type === 'civ' || d.type === 'hero') return 'support';
+  return 'infantry';
+};
+G.riverSet = s => {
+  const rv = s.rivers || [];
+  let set = RIVER_SETS.get(rv);
+  if (!set) { set = new Set(rv.flat()); RIVER_SETS.set(rv, set); }
+  return set;
+};
+// the ground a battle is fought on (the defender's tile). path: the attacker's march; its last steps decide a river crossing.
+G.battlefield = (s, x, y, path, naval) => {
+  const tile = G.tileAt(s, x, y);
+  if (!tile) return null;
+  const rs = G.riverSet(s), N = s.map;
+  const tail = (path || []).slice(1).slice(-3);
+  const river = rs.has(y * N + x);
+  const crossing = !naval && (river || tail.some(([px, py]) => rs.has(py * N + px)));
+  const weather = [...new Set((G.calamitiesAt ? G.calamitiesAt(s, x, y) : []).map(c => c.kind).filter(k => DATA.battleRules.weather[k]))];
+  return { x, y, terrain: tile.terrain, river, crossing, coast: G.coastal(s, x, y), season: G.season(s).index, weather, naval: !!naval };
+};
+const tacRoleName = r => (DATA.roleInfo[r] || { name: r }).name.toLowerCase();
+// the labelled terrain/river/weather effects on one unit type ([label, fraction] pairs)
+const tacFieldParts = (f, u, side) => {
+  const d = DATA.units[u] || {}, role = G.roleOf(u), R = DATA.battleRules, out = [];
+  if (!f || d.flying || role === 'support' || role === 'flyer') return out;
+  const T = DATA.battleTerrain[f.terrain];
+  if (T && T.roles[role]) out.push([`${(DATA.terrain[f.terrain] || {}).name || f.terrain}: ${tacRoleName(role)}`, T.roles[role]]);
+  if (d.amphibious && (f.river || f.coast || (side === 'att' && f.crossing))) out.push(['Amphibious at the water', R.amphibious]);
+  else if (side === 'att' && f.crossing && role !== 'ship') out.push([f.season === 0 ? 'River crossing (spring flood)' : 'River crossing', f.season === 0 ? R.riverSpring : R.river]);
+  if (f.season === 3 && R.snow[role]) out.push([`Winter snow: ${tacRoleName(role)}`, R.snow[role]]);
+  for (const w of f.weather) { const W = R.weather[w]; if (W.roles[role]) out.push([`${W.name}: ${tacRoleName(role)}`, W.roles[role]]); }
+  return out;
+};
+G.fieldMult = (f, u, side) => 1 + clamp(tacFieldParts(f, u, side).reduce((a, p) => a + p[1], 0), -DATA.battleRules.cap, DATA.battleRules.cap);
+// counter bonus of an army mix against another (shares by role): up to ±counter
+G.counterBonus = (mine, theirs) => {
+  const B = DATA.battleRules.beats;
+  let b = 0;
+  for (const [r, prey] of Object.entries(B)) {
+    const pred = Object.keys(B).find(k => B[k] === r);
+    b += (mine[r] || 0) * ((theirs[prey] || 0) - (theirs[pred] || 0));
+  }
+  return b * DATA.battleRules.counter;
+};
+const TAC_VOLLEY = { ranged: 1, mage: 1, siege: 1, ship: 1 }, TAC_MOBILE = { cavalry: 1, flyer: 1 };
+const tacPct = x => Math.round(x * 100);
+// split each unit's losses across the three phases (fractions fv, fp; the rest falls in the clash)
+const tacSplit = (lost, fv, fp) => {
+  const v = {}, c = {}, p = {};
+  for (const [u, l] of Object.entries(lost)) {
+    if (!l) continue;
+    const a = Math.min(l, Math.round(l * fv)), b = Math.min(l - a, Math.round(l * fp));
+    if (a) v[u] = a; if (b) p[u] = b; if (l - a - b) c[u] = l - a - b;
+  }
+  return [v, c, p];
+};
+
 // battle(s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode)
+//   mode: 'raid' | 'attack', or an options object { mode, x, y, path, naval, field, labels:[{side,label,mult}] }.
+//   With a position the battlefield's terrain, rivers, season and weather apply. Deterministic.
+//   Returns the classic fields (A, D, win, attLoss, defLoss, attLost, attLeft, defLost, defLeft) plus `tactics`.
 G.battle = (s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode) => {
+  let opts = mode && typeof mode === 'object' ? mode : null;
+  // battles fought by modules during a march's arrival (free cities) pick up the march's battlefield
+  if (!opts && G._field && G._field.units === att && G._field.owner === attOwner) { opts = { ...G._field, mode }; opts.ambient = true; }
+  if (opts) mode = opts.mode || 'attack';
+  const f = opts ? (opts.field || (opts.x !== undefined ? G.battlefield(s, opts.x, opts.y, opts.path, opts.naval) : null)) : null;
+  const R = DATA.battleRules;
   let inf = 0, cav = 0;
+  const aSt = {}, dSt = {};
   for (const [u, n] of Object.entries(att)) {
-    const d = G.unitStats(s, attOwner, u);
+    const d = aSt[u] = G.unitStats(s, attOwner, u);
     if (d.type === 'cav') cav += d.atk * n; else inf += d.atk * n;
   }
-  const A = Math.max(1, (inf + cav) * attMult * (attOwner ? G.mod(s, attOwner, null, 'atk') : 1));
   const share = inf + cav > 0 ? inf / (inf + cav) : 1;
-  let Du = 0;
-  for (const [u, n] of Object.entries(def)) {
-    const d = G.unitStats(s, defOwner, u);
-    Du += n * (d.defI * share + d.defC * (1 - share));
+  // effective power per unit type, on this ground
+  const aRole = {}, dRole = {};
+  let A0 = 0, D0 = 0;
+  for (const [u, n] of Object.entries(att)) {
+    const v = aSt[u].atk * n * G.fieldMult(f, u, 'att');
+    A0 += v; const r = G.roleOf(u); aRole[r] = (aRole[r] || 0) + v;
   }
-  const D = Math.max(1, Du * defMult * (defOwner ? G.mod(s, defOwner, null, 'def') : 1) + flatDef);
+  for (const [u, n] of Object.entries(def)) {
+    const d = dSt[u] = G.unitStats(s, defOwner, u);
+    const v = n * (d.defI * share + d.defC * (1 - share)) * G.fieldMult(f, u, 'def');
+    D0 += v; const r = G.roleOf(u); dRole[r] = (dRole[r] || 0) + v;
+  }
+  const norm = (o, t) => Object.fromEntries(Object.entries(o).filter(([, v]) => v > 0).map(([r, v]) => [r, v / t]));
+  const aSh = A0 > 0 ? norm(aRole, A0) : {}, dSh = D0 > 0 ? norm(dRole, D0) : {};
+  const cA = G.counterBonus(aSh, dSh), cD = G.counterBonus(dSh, aSh);
+  const hold = f && opts.hold !== false ? ((DATA.battleTerrain[f.terrain] || {}).def || 0) : 0;
+  const atkMod = attOwner ? G.mod(s, attOwner, null, 'atk') : 1, defMod = defOwner ? G.mod(s, defOwner, null, 'def') : 1;
+  const A = Math.max(1, A0 * attMult * atkMod * (1 + cA));
+  const D = Math.max(1, D0 * (1 + hold) * defMult * defMod * (1 + cD) + flatDef);
   let attLoss, defLoss;
   const win = A > D;
   if (mode === 'raid') {
@@ -829,22 +935,97 @@ G.battle = (s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode) =>
     if (win) { attLoss = Math.pow(D / A, 1.5); defLoss = 1; }
     else { attLoss = 1; defLoss = Math.pow(A / D, 1.5); }
   }
+  const sum = (sh, set) => Object.entries(sh).reduce((a, [r, v]) => a + (set[r] ? v : 0), 0);
+  const aVol = sum(aSh, TAC_VOLLEY), dVol = sum(dSh, TAC_VOLLEY), aMob = sum(aSh, TAC_MOBILE), dMob = sum(dSh, TAC_MOBILE);
+  // the rout (raids): riders cut down the fleeing, or carry their own side away
+  if (mode === 'raid') {
+    if (win) defLoss = Math.min(1, defLoss * (1 + R.rout * aMob) * (1 - R.rout * dMob));
+    else attLoss = Math.min(1, attLoss * (1 + R.rout * dMob) * (1 - R.rout * aMob));
+  }
   const a = casualties(att, attLoss), d = casualties(def, defLoss);
-  return { A: Math.round(A), D: Math.round(D), win, attLoss, defLoss, attLost: a.lost, attLeft: a.left, defLost: d.lost, defLeft: d.left };
+  // three phases: the opening volley (ranged, mages, engines, ships), the clash, and the pursuit (the winner's riders and flyers)
+  const [aV, aC, aP] = tacSplit(a.lost, R.volley * dVol, win ? 0 : R.pursuit * dMob);
+  const [dV, dC, dP] = tacSplit(d.lost, R.volley * aVol, win ? R.pursuit * aMob : 0);
+  const phases = [
+    { key: 'volley', name: 'Opening volley', icon: '🏹', att: tacPct(aVol), def: tacPct(dVol), attLost: aV, defLost: dV },
+    { key: 'clash', name: 'The clash', icon: '⚔️', attLost: aC, defLost: dC },
+    { key: 'pursuit', name: win ? 'Pursuit and rout' : 'Repulse and rout', icon: '🐎', att: tacPct(aMob), def: tacPct(dMob), attLost: aP, defLost: dP },
+  ];
+  // the breakdown: every labelled modifier, as a percentage
+  const mods = [];
+  if (f) {
+    for (const [side, units] of [['att', att], ['def', def]]) {
+      const seen = {}, capped = {};
+      for (const [u, n] of Object.entries(units)) {
+        if (!(n > 0)) continue;
+        const parts = tacFieldParts(f, u, side);
+        for (const [label, v] of parts) seen[label] = v;
+        const tot = parts.reduce((x, p) => x + p[1], 0);
+        if (Math.abs(tot) > R.cap + 1e-9) capped[G.roleOf(u)] = Math.sign(tot) * R.cap;
+      }
+      for (const [label, v] of Object.entries(seen)) mods.push({ side, label, pct: tacPct(v), kind: 'field' });
+      for (const [r, v] of Object.entries(capped)) mods.push({ side, label: `Limit: ${tacRoleName(r)} capped at ${v > 0 ? '+' : '−'}${tacPct(R.cap)}%`, pct: 0, kind: 'cap' });
+    }
+    if (hold) mods.push({ side: 'def', label: `${(DATA.terrain[f.terrain] || {}).name}: holding the ground`, pct: tacPct(hold), kind: 'field' });
+  }
+  if (Math.abs(cA) >= 0.005) mods.push({ side: 'att', label: 'Counters: army mix', pct: tacPct(cA), kind: 'counter' });
+  if (Math.abs(cD) >= 0.005) mods.push({ side: 'def', label: 'Counters: army mix', pct: tacPct(cD), kind: 'counter' });
+  // multipliers handed in by the caller (hero, mages, walls); anything left over (faith, …) is shown as "other"
+  const labels = (opts && opts.labels) || [];
+  for (const [side, mult] of [['att', attMult], ['def', defMult]]) {
+    let known = 1;
+    for (const l of labels) if (l.side === side) { known *= l.mult; if (Math.abs(l.mult - 1) >= 0.005) mods.push({ side, label: l.label, pct: tacPct(l.mult - 1), kind: l.kind || 'army' }); }
+    if (Math.abs(mult / known - 1) >= 0.005) mods.push({ side, label: side === 'att' ? 'Other blessings (faith, events)' : 'Other defences', pct: tacPct(mult / known - 1), kind: 'army' });
+  }
+  if (Math.abs(atkMod - 1) >= 0.005) mods.push({ side: 'att', label: 'Realm bonuses (research, people, spells)', pct: tacPct(atkMod - 1), kind: 'realm' });
+  if (Math.abs(defMod - 1) >= 0.005) mods.push({ side: 'def', label: 'Realm bonuses (research, people, spells)', pct: tacPct(defMod - 1), kind: 'realm' });
+  if (flatDef > 0) mods.push({ side: 'def', label: 'Fortifications', flat: Math.round(flatDef), kind: 'flat' });
+  const rshares = sh => Object.fromEntries(Object.entries(sh).map(([r, v]) => [r, tacPct(v)]).filter(([, v]) => v > 0));
+  const tactics = {
+    v: 1, mode,
+    terrain: f ? f.terrain : null, river: f ? f.river : false, crossing: f ? f.crossing : false, coast: f ? f.coast : false,
+    season: f ? f.season : null, weather: f ? f.weather.map(w => R.weather[w].name) : [],
+    roles: { att: rshares(aSh), def: rshares(dSh) }, counters: { att: tacPct(cA), def: tacPct(cD) },
+    mods, phases,
+  };
+  const r = { A: Math.round(A), D: Math.round(D), win, attLoss, defLoss, attLost: a.lost, attLeft: a.left, defLost: d.lost, defLeft: d.left, tactics };
+  if (opts && opts.ambient) G._lastTac = { field: G._field, tactics };
+  return r;
+};
+
+// the multipliers an army brings with it (labelled for battle reports and previews)
+G.armyEdge = (s, owner, home, units) => {
+  const labels = [];
+  if (home && G.lvl(home, 'warpit')) labels.push({ side: 'att', label: 'War Pit drill', mult: 1 + 0.01 * G.lvl(home, 'warpit') });
+  if (units.hero && G.heroLeadership) labels.push({ side: 'att', label: 'Hero\'s leadership', mult: G.heroLeadership(s, owner), kind: 'hero' });
+  const mb = G.mageBoost(s, owner, units);
+  if (mb !== 1) labels.push({ side: 'att', label: 'Battle mages', mult: mb, kind: 'mage' });
+  return { mult: labels.reduce((a, l) => a * l.mult, 1), labels };
+};
+// a garrison's multipliers: walls, hero, mages
+G.garrisonEdge = (s, owner, units, wallMult, wallLabel) => {
+  const labels = [];
+  if (wallMult && wallMult !== 1) labels.push({ side: 'def', label: wallLabel || 'Walls', mult: wallMult, kind: 'wall' });
+  if (units && units.hero && G.heroDefense && owner) labels.push({ side: 'def', label: 'Hero on the walls', mult: G.heroDefense(s, owner), kind: 'hero' });
+  const mb = G.mageBoost(s, owner, units || {});
+  if (mb !== 1) labels.push({ side: 'def', label: 'Battle mages', mult: mb, kind: 'mage' });
+  return { mult: labels.reduce((a, l) => a * l.mult, 1), labels };
 };
 
 // Expected outcome of sending `units` from `city` to `tile`, using only what the
 // player knows (scouting intel, or the camp/ruin tier). Returns { known:false } if unscouted.
+// Uses the same battle as the real arrival, on the same ground and route.
 G.previewBattle = (s, city, tile, units, mode) => {
   if (!G.unitsCount(units)) return null;
   const owner = city.owner;
   const intel = s.intel[G.tileIdx(s, tile)];
-  let def, defOwner = null, defMult = 1, flat = 0;
+  let def, defOwner = null, flat = 0, gar = { mult: 1, labels: [] };
   if (tile.city) {
     const c = s.cities[tile.city];
     if (!intel) return { known: false };
     def = intel.units; defOwner = c.owner;
-    defMult = (1 + 0.05 * (intel.wall || 0) * G.mod(s, c.owner, c, 'wall'));
+    const wm = (1 + 0.05 * (intel.wall || 0) * G.mod(s, c.owner, c, 'wall'));
+    gar = G.garrisonEdge(s, c.owner, def, wm, `Walls (level ${intel.wall || 0})`);
     flat = 10 + 5 * (intel.th || 1);
   } else if (tile.camp) {
     const camp = s.camps[tile.camp];
@@ -857,11 +1038,21 @@ G.previewBattle = (s, city, tile, units, mode) => {
     def = intel ? intel.units : { beast: tile.ruin.tier * tile.ruin.tier * 4 + 3 };
     flat = 5 * tile.ruin.tier;
   } else return null;
-  let attMult = 1 + 0.01 * G.lvl(city, 'warpit');
-  if (units.hero && G.heroLeadership) attMult *= G.heroLeadership(s, owner);
-  const r = G.battle(s, owner, units, attMult, defOwner, { ...def }, defMult, flat, mode === 'raid' ? 'raid' : 'attack');
+  const edge = G.armyEdge(s, owner, city, units);
+  const plan = G.planMarch(s, owner, city, tile, units);
+  const opts = { mode: mode === 'raid' ? 'raid' : 'attack', x: tile.x, y: tile.y, path: plan.ok ? plan.path : null, naval: plan.ok && plan.naval, labels: [...edge.labels, ...gar.labels] };
+  const r = G.battle(s, owner, units, edge.mult, defOwner, { ...def }, gar.mult, flat, opts);
   return { known: true, estimated: !intel, age: intel ? s.time - intel.t : null, ...r };
 };
+// the preview as the send form and the AI use it: modules that override previewBattle (free cities)
+// see the same battlefield through the march being planned
+G.previewField = (s, city, tile, units, mode) => {
+  const plan = G.planMarch(s, city.owner, city, tile, units);
+  const prev = G._field;
+  G._field = { owner: city.owner, units, x: tile.x, y: tile.y, path: plan.ok ? plan.path : null, naval: plan.ok && plan.naval };
+  try { return G.previewBattle(s, city, tile, units, mode); } finally { G._field = prev; }
+};
+
 
 G.cityDefense = (s, city, wallBreak = 0) => {
   const wall = Math.max(0, G.lvl(city, 'wall') - wallBreak);
@@ -871,6 +1062,8 @@ G.cityDefense = (s, city, wallBreak = 0) => {
 
 G.report = (s, owners, title, kind, body) => {
   if (!owners.includes('p')) return;
+  // battles fought by modules during a march's arrival (free cities) carry their breakdown too
+  if (body && body.attSent && !body.tactics && G._lastTac && G._field && G._lastTac.field === G._field) body = { ...body, tactics: G._lastTac.tactics };
   s.reports.unshift({ id: G.newId(s, 'r'), t: s.time, owners, title, kind, body, read: false });
   if (s.reports.length > 100) s.reports.length = 100;
 };
@@ -1011,9 +1204,9 @@ G.resolveMove = (s, m) => {
 
   // ---- hostile: raid / attack / conquer ----
   const mode = m.type === 'raid' ? 'raid' : 'attack';
-  let attMult = home ? (1 + 0.01 * G.lvl(home, 'warpit')) : 1;
-  if (m.units.hero && G.heroLeadership) attMult *= G.heroLeadership(s, m.owner);
-  attMult *= G.mageBoost(s, m.owner, m.units);
+  const edge = G.armyEdge(s, m.owner, home, m.units);
+  const attMult = edge.mult;
+  const field = { mode, x: m.x, y: m.y, path: m.path, naval: m.naval };
 
   // neutral sites: brigand camps, wild oases, ruins
   if (tile.camp || (tile.oasis && !tile.oasis.owner) || tile.ruin) {
@@ -1026,7 +1219,7 @@ G.resolveMove = (s, m) => {
     }
     if (tile.ruin && !site.units) site.units = { beast: site.tier * site.tier * 4 + 3 };
     const defHad = { ...site.units };
-    const r = G.battle(s, m.owner, m.units, attMult, null, site.units, 1, 5 * (site.tier || 1), mode);
+    const r = G.battle(s, m.owner, m.units, attMult, null, site.units, 1, 5 * (site.tier || 1), { ...field, labels: edge.labels });
     site.units = r.defLeft;
     let loot = {};
     if (G.unitsCount(r.attLeft) && site.loot) loot = takeLoot(site.loot, 0, G.carryOf(s, m.owner, r.attLeft));
@@ -1045,7 +1238,7 @@ G.resolveMove = (s, m) => {
       } else extra = `${home.name} could not hold the oasis: it must lie within ${(G.cityReach(s, home) + 1.5).toFixed(1)} tiles (a city's reach grows with its population) and the city needs a free oasis slot.`;
     }
     G.report(s, [m.owner], `${r.win ? 'Victory' : 'Defeat'} at ${name} (${m.x}, ${m.y})`, r.win ? 'win' : 'loss',
-      { att: me.name, def: tile.camp ? 'Brigands' : 'Wild beasts', A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot, extra });
+      { att: me.name, def: name === 'the brigand camp' ? 'Brigands' : 'Wild beasts', A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot, extra, tactics: r.tactics });
     for (const h of G.battleHooks) h(s, { m, r, site: tile.ruin ? 'ruin' : tile.oasis ? 'oasis' : 'camp', defOwner: null, tile, defHad });
     G.sendHome(s, m, r.attLeft, loot);
     return;
@@ -1074,11 +1267,10 @@ G.resolveMove = (s, m) => {
   const brk = G.wallBreak(m.units);
   const wallBefore = G.lvl(city, 'wall');
   const cd = G.cityDefense(s, city, brk);
-  let defMult = cd.mult;
-  if (city.units.hero && G.heroDefense) defMult *= G.heroDefense(s, city.owner);
-  defMult *= G.mageBoost(s, city.owner, city.units);
+  const gar = G.garrisonEdge(s, city.owner, city.units, cd.mult, `Walls (level ${Math.max(0, wallBefore - brk).toFixed(brk % 1 ? 1 : 0)}${brk > 0 && wallBefore > 0 ? ', breached' : ''})`);
+  const defMult = gar.mult;
   const defHad = { ...city.units };
-  const r = G.battle(s, m.owner, m.units, attMult, city.owner, city.units, defMult, cd.flat, mode);
+  const r = G.battle(s, m.owner, m.units, attMult, city.owner, city.units, defMult, cd.flat, { ...field, labels: [...edge.labels, ...gar.labels] });
   // siege: surviving rams damage the wall, surviving catapults wreck buildings
   const siegeNotes = [];
   if (r.win && mode === 'attack') {
@@ -1110,7 +1302,7 @@ G.resolveMove = (s, m) => {
       const oldOwner = city.owner;
       const garrison = { ...r.attLeft }; delete garrison.herald;
       G.report(s, [m.owner, oldOwner], `${city.name} has fallen to ${me.name}!`, m.owner === 'p' ? 'win' : 'loss',
-        { att: me.name, def: defEmp.name, A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot: {}, extra: `${city.name} now swears loyalty to ${me.name}.` });
+        { att: me.name, def: defEmp.name, A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot: {}, extra: `${city.name} now swears loyalty to ${me.name}.`, tactics: r.tactics });
       G.log(s, m.owner, `${city.name} has been conquered!`, 'good');
       G.log(s, oldOwner, `${city.name} was conquered by ${me.name}!`, 'bad');
       transferCity(s, city, m.owner, garrison);
@@ -1120,7 +1312,7 @@ G.resolveMove = (s, m) => {
   const pv = m.owner === 'p' ? r.win : !r.win;
   const verb = mode === 'raid' ? 'Raid' : m.type === 'conquer' ? 'Conquest' : 'Assault';
   G.report(s, [m.owner, city.owner], `${verb} on ${city.name}: ${me.name} ${r.win ? 'won' : 'was repelled'}`, pv ? 'win' : 'loss',
-    { att: me.name, def: defEmp.name, A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot, extra });
+    { att: me.name, def: defEmp.name, A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot, extra, tactics: r.tactics });
   if (city.owner === 'p') G.log(s, 'p', `${city.name} was ${mode === 'raid' ? 'raided' : 'attacked'} by ${me.name}! ${r.win ? 'Our defenders fell.' : 'We held the walls.'}`, r.win ? 'bad' : 'good');
   G.sendHome(s, m, r.attLeft, loot);
 };
@@ -1354,6 +1546,24 @@ const threatCavShare = (s, city) => {
   }
   return inf + cav > 0 ? cav / (inf + cav) : 0.3;
 };
+// role mix (by attack) of the armies of hostile realms near this city; null if none
+const aiThreatRoles = (s, city) => {
+  const sh = {}; let tot = 0;
+  for (const o of Object.values(s.cities)) {
+    if (o.owner === city.owner || dist(o, city) > 12 || G.hostility(s, city.owner, o.owner) <= 0.3) continue;
+    for (const [u, n] of Object.entries(o.units)) { const d = DATA.units[u]; if (!d.at || !(n > 0)) continue; const r = G.roleOf(u); sh[r] = (sh[r] || 0) + d.atk * n; tot += d.atk * n; }
+  }
+  if (!tot) return null;
+  for (const r in sh) sh[r] /= tot;
+  return sh;
+};
+// how well a role answers a mix: + for the roles it beats, − for the roles that beat it
+const aiCounterEdge = (role, mix) => {
+  if (!mix) return 0;
+  const B = DATA.battleRules.beats, pred = Object.keys(B).find(k => B[k] === role);
+  return (B[role] ? mix[B[role]] || 0 : 0) - (pred ? mix[pred] || 0 : 0);
+};
+G.aiThreatRoles = aiThreatRoles;
 
 // when a city is about to be hit, nearby cities of the same realm send defenders if they can arrive in time
 const aiDefend = (s, empId) => {
@@ -1390,7 +1600,14 @@ const aiTrain = (s, city) => {
   // value per unit of cost: attackers by attack; defenders by the defence that answers the nearby threat's cavalry share
   const cs = threatCavShare(s, city);
   const price = u => Object.entries(G.unitCost(s, city.owner, u)).reduce((a, [g, v]) => a + v * (g === 'gold' ? 1 : DATA.goods[g].value), 0) || 1;
-  const val = u => { const d = DATA.units[u]; return (wantAtk ? d.atk : d.defI * (1 - cs) + d.defC * cs) / price(u); };
+  // tactics: prefer units that counter the neighbours' armies, and defenders suited to the city's own ground
+  const mix = aiThreatRoles(s, city);
+  const home = G.battlefield(s, city.x, city.y);
+  const val = u => {
+    const d = DATA.units[u];
+    const base = (wantAtk ? d.atk : (d.defI * (1 - cs) + d.defC * cs) * G.fieldMult(home, u, 'def')) / price(u);
+    return base * (1 + 0.3 * aiCounterEdge(G.roleOf(u), mix));
+  };
   let pool = opts.filter(u => DATA.units[u].type !== 'siege');
   // siege engines: some, once the realm means business
   if (wantAtk && G.aiPressure(s) > 0.6 && Math.random() < 0.25) { const sg = opts.filter(u => DATA.units[u].type === 'siege'); if (sg.length) pool = sg; }
@@ -1592,13 +1809,21 @@ const aiWar = (s, empId) => {
     const A = G.atkPower(s, empId, off) * G.mod(s, empId, null, 'atk');   // overseas strikes re-check the strength of what actually sails
     if (A < 250) continue;
     const targets = [];
+    // tactical estimate: the real battle on the target's ground against its known garrison, rescaled to raw attack
+    // (so terrain and counters steer the choice; the wading/naval strike checks in aiStrike compare raw attack to t.d)
+    const est = (x, y, defOwner, units, mult, flat, mode, labels) => {
+      const r = G.battle(s, empId, off, 1, defOwner, units, mult, flat, { mode, x, y, labels });
+      return r.D * A / Math.max(1, r.A);
+    };
     for (const camp of Object.values(s.camps)) {
-      const d = G.defPower(s, null, camp.units) + 5 * camp.tier;
+      let d = G.defPower(s, null, camp.units) + 5 * camp.tier;
+      if (A > d * 1.2) d = est(camp.x, camp.y, null, camp.units, 1, 5 * camp.tier, 'raid');
       if (A > d * 1.5) targets.push({ x: camp.x, y: camp.y, score: dist(c, camp) - 2, type: 'raid', d: d * 1.15 });
     }
     for (const t of s.special) {
       if (t.oasis && !t.oasis.owner && dist(c, t) <= G.cityReach(s, c) + 1.5 && (c.oases || []).length < G.oasisSlots(c)) {
-        const d = G.defPower(s, null, t.oasis.units) + 5 * t.oasis.tier;
+        let d = G.defPower(s, null, t.oasis.units) + 5 * t.oasis.tier;
+        if (A > d * 1.25) d = est(t.x, t.y, null, t.oasis.units, 1, 5 * t.oasis.tier, 'attack');
         if (A > d * 1.6) targets.push({ x: t.x, y: t.y, score: dist(c, t) - 3, type: 'attack', d: d * 1.2 });
       }
     }
@@ -1609,7 +1834,8 @@ const aiWar = (s, empId) => {
       if (o.owner === 'p' && (pressure <= 0 || s.time - (o.lastRaided || -1e9) < 1200 * G.pace(s).time / Math.max(0.3, pressure)
         || s.time - (emp.lastHitP || -1e9) < 900 * G.pace(s).time / Math.max(0.4, pressure))) continue;
       const cd = G.cityDefense(s, o, G.wallBreak(Object.fromEntries(Object.entries(c.units).filter(([u]) => DATA.units[u].type === 'siege'))));
-      const d = G.defPower(s, o.owner, o.units) * cd.mult * G.mod(s, o.owner, null, 'def') + cd.flat;
+      let d = G.defPower(s, o.owner, o.units) * cd.mult * G.mod(s, o.owner, null, 'def') + cd.flat;
+      if (A > d) d = est(o.x, o.y, o.owner, o.units, cd.mult, cd.flat, 'raid');
       const p = o.owner === 'p' ? pressure * s.settings.hostility : 0.6;
       if (A > d * 1.3 && Math.random() < emp.aggr * hate * p) {
         const myN = G.citiesOf(s, empId).length, theirN = G.citiesOf(s, o.owner).length;
@@ -1656,6 +1882,10 @@ const aiThink = (s, dtMin) => {
 // Tick
 // ---------------------------------------------------------------------
 G.step = (s, dt) => {
+  G._modCache = new Map();
+  try { stepInner(s, dt); } finally { G._modCache = null; }
+};
+const stepInner = (s, dt) => {
   s.time += dt;
   const away = {};
   for (const m of s.moves) if (G.unitsCount(m.units)) away[m.from] = G.addUnits(away[m.from] || {}, m.units);
@@ -1663,7 +1893,11 @@ G.step = (s, dt) => {
   stepNeutrals(s, dt);
   for (const h of G.stepHooks) h(s, dt);
   s.moves.sort((a, b) => a.arrive - b.arrive);
-  while (s.moves.length && s.moves[0].arrive <= s.time) G.resolveMove(s, s.moves.shift());
+  while (s.moves.length && s.moves[0].arrive <= s.time) {
+    const m = s.moves.shift();
+    G._field = { owner: m.owner, units: m.units, x: m.x, y: m.y, path: m.path, naval: m.naval };
+    try { G.resolveMove(s, m); } finally { G._field = null; G._lastTac = null; }
+  }
   s.slowClock = (s.slowClock || 0) + dt;
   if (s.slowClock >= 10) {
     const dtMin = s.slowClock / 60;

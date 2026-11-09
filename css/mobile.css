@@ -184,3 +184,12 @@ button, select, .mapctl button { touch-action: manipulation; }   /* no double-ta
   }
   .race:hover, .mapctl button:active { transform: none; }
 }
+
+/* ---------- quality-of-life controls on phones ---------- */
+@media (max-width: 700px) {
+  .top-1 > button[data-act="popKeys"] { display: none; }        /* no keyboard on a phone */
+  #ecPop { left: 8px !important; right: 8px; top: auto !important; bottom: calc(92px + env(safe-area-inset-bottom)); width: auto; max-height: 60vh; }
+  .top-1 > button.ec-pause { min-width: 40px; }
+  .top-1 > button.ec-pause.on { font-size: 0; }
+  .top-1 > button.ec-pause.on::before { content: "▶️"; font-size: 16px; }
+}

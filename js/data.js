@@ -246,56 +246,56 @@ DATA.citySlots = [0, 60, 160, 320, 550, 850, 1250, 1800, 2500];
 // ---------------------------------------------------------------------
 DATA.units = {
   // Hearthfolk
-  militia:   { name: 'Militia',      icon: '🗡️', type: 'inf',    atk: 15,  defI: 30, defC: 25, spd: 6,  carry: 40,  upkeep: 0.5, time: 20, at: 'barracks', req: 1, cost: { grain: 40, gold: 15, weapons: 1 }, desc: 'Farmhands with spears. Cheap, decent at holding the walls.' },
-  pikeman:   { name: 'Pikeman',      icon: '🔱', type: 'inf',    atk: 12,  defI: 50, defC: 70, spd: 5,  carry: 25,  upkeep: 0.6, time: 28, at: 'barracks', req: 3, cost: { grain: 50, gold: 25, weapons: 2 }, desc: 'A hedge of pikes. The bane of cavalry.' },
-  crossbow:  { name: 'Crossbowman',  icon: '🏹', type: 'ranged', atk: 50,  defI: 30, defC: 25, spd: 5,  carry: 30,  upkeep: 0.7, time: 35, at: 'barracks', req: 5, cost: { grain: 60, gold: 40, weapons: 3 }, desc: 'Punches through armor at range.' },
-  knight:    { name: 'Knight',       icon: '🐴', type: 'cav',    atk: 95,  defI: 45, defC: 30, spd: 13, carry: 80,  upkeep: 1.5, time: 60, at: 'stable',   req: 1, cost: { grain: 120, gold: 110, weapons: 6, bread: 15 }, desc: 'Heavy horse, fed on the finest bread.' },
+  militia:   { name: 'Militia',      icon: '🗡️', type: 'inf',    role: 'infantry', atk: 15,  defI: 30, defC: 25, spd: 6,  carry: 40,  upkeep: 0.5, time: 20, at: 'barracks', req: 1, cost: { grain: 40, gold: 15, weapons: 1 }, desc: 'Farmhands with spears. Cheap, decent at holding the walls.' },
+  pikeman:   { name: 'Pikeman',      icon: '🔱', type: 'inf',    role: 'infantry', atk: 12,  defI: 50, defC: 70, spd: 5,  carry: 25,  upkeep: 0.6, time: 28, at: 'barracks', req: 3, cost: { grain: 50, gold: 25, weapons: 2 }, desc: 'A hedge of pikes. The bane of cavalry.' },
+  crossbow:  { name: 'Crossbowman',  icon: '🏹', type: 'ranged', role: 'ranged', atk: 50,  defI: 30, defC: 25, spd: 5,  carry: 30,  upkeep: 0.7, time: 35, at: 'barracks', req: 5, cost: { grain: 60, gold: 40, weapons: 3 }, desc: 'Punches through armor at range.' },
+  knight:    { name: 'Knight',       icon: '🐴', type: 'cav',    role: 'cavalry', atk: 95,  defI: 45, defC: 30, spd: 13, carry: 80,  upkeep: 1.5, time: 60, at: 'stable',   req: 1, cost: { grain: 120, gold: 110, weapons: 6, bread: 15 }, desc: 'Heavy horse, fed on the finest bread.' },
   // Deepdelvers
-  axeguard:  { name: 'Axeguard',     icon: '🪓', type: 'inf',    atk: 35,  defI: 35, defC: 25, spd: 5,  carry: 45,  upkeep: 0.6, time: 26, at: 'barracks', req: 1, cost: { grain: 50, gold: 25, weapons: 2 }, desc: 'Solid all-rounders with heavy axes.' },
-  ironshield:{ name: 'Ironshield',   icon: '🛡️', type: 'inf',    atk: 15,  defI: 75, defC: 55, spd: 4,  carry: 30,  upkeep: 0.8, time: 38, at: 'barracks', req: 3, cost: { grain: 60, gold: 40, weapons: 2, runesteel: 2 }, desc: 'An unbreakable runesteel wall.' },
-  boltcaster:{ name: 'Boltcaster',   icon: '🎯', type: 'ranged', atk: 60,  defI: 30, defC: 30, spd: 4,  carry: 25,  upkeep: 0.8, time: 45, at: 'barracks', req: 5, cost: { grain: 70, gold: 50, weapons: 4 }, desc: 'Clockwork crossbows that hit like hammers.' },
-  boarrider: { name: 'Boar Rider',   icon: '🐗', type: 'cav',    atk: 85,  defI: 55, defC: 45, spd: 10, carry: 70,  upkeep: 1.6, time: 65, at: 'stable',   req: 1, cost: { grain: 130, gold: 110, weapons: 5, runesteel: 4 }, desc: 'Armored riders on great tusked boars.' },
+  axeguard:  { name: 'Axeguard',     icon: '🪓', type: 'inf',    role: 'infantry', atk: 35,  defI: 35, defC: 25, spd: 5,  carry: 45,  upkeep: 0.6, time: 26, at: 'barracks', req: 1, cost: { grain: 50, gold: 25, weapons: 2 }, desc: 'Solid all-rounders with heavy axes.' },
+  ironshield:{ name: 'Ironshield',   icon: '🛡️', type: 'inf',    role: 'infantry', atk: 15,  defI: 75, defC: 55, spd: 4,  carry: 30,  upkeep: 0.8, time: 38, at: 'barracks', req: 3, cost: { grain: 60, gold: 40, weapons: 2, runesteel: 2 }, desc: 'An unbreakable runesteel wall.' },
+  boltcaster:{ name: 'Boltcaster',   icon: '🎯', type: 'ranged', role: 'ranged', atk: 60,  defI: 30, defC: 30, spd: 4,  carry: 25,  upkeep: 0.8, time: 45, at: 'barracks', req: 5, cost: { grain: 70, gold: 50, weapons: 4 }, desc: 'Clockwork crossbows that hit like hammers.' },
+  boarrider: { name: 'Boar Rider',   icon: '🐗', type: 'cav',    role: 'cavalry', atk: 85,  defI: 55, defC: 45, spd: 10, carry: 70,  upkeep: 1.6, time: 65, at: 'stable',   req: 1, cost: { grain: 130, gold: 110, weapons: 5, runesteel: 4 }, desc: 'Armored riders on great tusked boars.' },
   // Sylvani
-  warden:    { name: 'Warden',       icon: '🌿', type: 'inf',    atk: 20,  defI: 40, defC: 40, spd: 7,  carry: 40,  upkeep: 0.5, time: 22, at: 'barracks', req: 1, cost: { grain: 40, gold: 20, weapons: 1 }, desc: 'Woodland guards, quick on their feet.' },
-  thornguard:{ name: 'Thornguard',   icon: '🌵', type: 'inf',    atk: 10,  defI: 60, defC: 55, spd: 6,  carry: 25,  upkeep: 0.6, time: 30, at: 'barracks', req: 3, cost: { grain: 50, gold: 30, weapons: 2, heartwood: 1 }, desc: 'Heartwood spears and thorn-woven shields.' },
-  longbow:   { name: 'Longbow',      icon: '🏹', type: 'ranged', atk: 65,  defI: 20, defC: 25, spd: 6,  carry: 30,  upkeep: 0.7, time: 38, at: 'barracks', req: 5, cost: { grain: 60, gold: 45, weapons: 2, heartwood: 2 }, desc: 'The deadliest archers alive.' },
-  stagrider: { name: 'Stag Rider',   icon: '🦌', type: 'cav',    atk: 75,  defI: 35, defC: 50, spd: 16, carry: 75,  upkeep: 1.4, time: 60, at: 'stable',   req: 1, cost: { grain: 110, gold: 100, weapons: 4, heartwood: 3 }, desc: 'Swift as wind through the trees.' },
+  warden:    { name: 'Warden',       icon: '🌿', type: 'inf',    role: 'infantry', atk: 20,  defI: 40, defC: 40, spd: 7,  carry: 40,  upkeep: 0.5, time: 22, at: 'barracks', req: 1, cost: { grain: 40, gold: 20, weapons: 1 }, desc: 'Woodland guards, quick on their feet.' },
+  thornguard:{ name: 'Thornguard',   icon: '🌵', type: 'inf',    role: 'infantry', atk: 10,  defI: 60, defC: 55, spd: 6,  carry: 25,  upkeep: 0.6, time: 30, at: 'barracks', req: 3, cost: { grain: 50, gold: 30, weapons: 2, heartwood: 1 }, desc: 'Heartwood spears and thorn-woven shields.' },
+  longbow:   { name: 'Longbow',      icon: '🏹', type: 'ranged', role: 'ranged', atk: 65,  defI: 20, defC: 25, spd: 6,  carry: 30,  upkeep: 0.7, time: 38, at: 'barracks', req: 5, cost: { grain: 60, gold: 45, weapons: 2, heartwood: 2 }, desc: 'The deadliest archers alive.' },
+  stagrider: { name: 'Stag Rider',   icon: '🦌', type: 'cav',    role: 'cavalry', atk: 75,  defI: 35, defC: 50, spd: 16, carry: 75,  upkeep: 1.4, time: 60, at: 'stable',   req: 1, cost: { grain: 110, gold: 100, weapons: 4, heartwood: 3 }, desc: 'Swift as wind through the trees.' },
   // Ashborn
-  raider:    { name: 'Raider',       icon: '🔪', type: 'inf',    atk: 35,  defI: 15, defC: 10, spd: 8,  carry: 60,  upkeep: 0.5, time: 16, at: 'barracks', req: 1, cost: { grain: 35, gold: 12, weapons: 1 }, desc: 'Fast, cheap and greedy.' },
-  slinger:   { name: 'Slinger',      icon: '🪃', type: 'ranged', atk: 40,  defI: 30, defC: 20, spd: 7,  carry: 35,  upkeep: 0.6, time: 26, at: 'barracks', req: 3, cost: { grain: 45, gold: 25, weapons: 2 }, desc: 'Stones from afar; useful on the walls too.' },
-  brute:     { name: 'Brute',        icon: '🪨', type: 'inf',    atk: 60,  defI: 25, defC: 20, spd: 6,  carry: 50,  upkeep: 0.8, time: 30, at: 'barracks', req: 5, cost: { grain: 60, gold: 30, weapons: 3 }, desc: 'Huge, angry, hard to stop.' },
-  wolfrider: { name: 'Wolf Rider',   icon: '🐺', type: 'cav',    atk: 105, defI: 25, defC: 20, spd: 17, carry: 110, upkeep: 1.6, time: 55, at: 'stable',   req: 1, cost: { grain: 120, gold: 100, weapons: 6 }, desc: 'The terror of the steppe.' },
+  raider:    { name: 'Raider',       icon: '🔪', type: 'inf',    role: 'infantry', atk: 35,  defI: 15, defC: 10, spd: 8,  carry: 60,  upkeep: 0.5, time: 16, at: 'barracks', req: 1, cost: { grain: 35, gold: 12, weapons: 1 }, desc: 'Fast, cheap and greedy.' },
+  slinger:   { name: 'Slinger',      icon: '🪃', type: 'ranged', role: 'ranged', atk: 40,  defI: 30, defC: 20, spd: 7,  carry: 35,  upkeep: 0.6, time: 26, at: 'barracks', req: 3, cost: { grain: 45, gold: 25, weapons: 2 }, desc: 'Stones from afar; useful on the walls too.' },
+  brute:     { name: 'Brute',        icon: '🪨', type: 'inf',    role: 'infantry', atk: 60,  defI: 25, defC: 20, spd: 6,  carry: 50,  upkeep: 0.8, time: 30, at: 'barracks', req: 5, cost: { grain: 60, gold: 30, weapons: 3 }, desc: 'Huge, angry, hard to stop.' },
+  wolfrider: { name: 'Wolf Rider',   icon: '🐺', type: 'cav',    role: 'cavalry', atk: 105, defI: 25, defC: 20, spd: 17, carry: 110, upkeep: 1.6, time: 55, at: 'stable',   req: 1, cost: { grain: 120, gold: 100, weapons: 6 }, desc: 'The terror of the steppe.' },
   // ---- light cavalry, elites and siege (wallBreak: wall levels negated per ram; wreck: building damage per engine) ----
-  outrider:  { name: 'Outrider',      icon: '🏇', type: 'cav',    atk: 45,  defI: 20, defC: 30, spd: 16, carry: 100, upkeep: 1.0, time: 40, at: 'stable',   req: 3, cost: { grain: 80, gold: 60, weapons: 3 }, desc: 'Fast riders for raiding and running down stragglers.' },
-  royalguard:{ name: 'Royal Guard',   icon: '👑', type: 'inf',    atk: 70,  defI: 85, defC: 75, spd: 5,  carry: 40,  upkeep: 1.4, time: 70, at: 'barracks', req: 10, cost: { grain: 150, gold: 130, weapons: 6, tools: 4, bread: 10 }, desc: 'The crown\'s finest, drilled from childhood. Strong in every role.' },
-  ram_h:     { name: 'Battering Ram', icon: '🪵', type: 'siege',  atk: 40,  defI: 25, defC: 15, spd: 3,  carry: 0,   upkeep: 1.2, time: 90, at: 'workshop', req: 1, cost: { timber: 300, iron: 40, grain: 100, gold: 80 }, wallBreak: 0.25, desc: 'A roofed ram. Each one weakens the enemy wall during the assault.' },
-  treb_h:    { name: 'Trebuchet',     icon: '🎯', type: 'siege',  atk: 70,  defI: 15, defC: 10, spd: 2,  carry: 0,   upkeep: 1.5, time: 120, at: 'workshop', req: 5, cost: { timber: 400, stone: 200, iron: 80, gold: 120 }, wreck: 1, desc: 'Hurls stones over walls. Survivors of a won battle wreck enemy buildings.' },
+  outrider:  { name: 'Outrider',      icon: '🏇', type: 'cav',    role: 'cavalry', atk: 45,  defI: 20, defC: 30, spd: 16, carry: 100, upkeep: 1.0, time: 40, at: 'stable',   req: 3, cost: { grain: 80, gold: 60, weapons: 3 }, desc: 'Fast riders for raiding and running down stragglers.' },
+  royalguard:{ name: 'Royal Guard',   icon: '👑', type: 'inf',    role: 'infantry', atk: 70,  defI: 85, defC: 75, spd: 5,  carry: 40,  upkeep: 1.4, time: 70, at: 'barracks', req: 10, cost: { grain: 150, gold: 130, weapons: 6, tools: 4, bread: 10 }, desc: 'The crown\'s finest, drilled from childhood. Strong in every role.' },
+  ram_h:     { name: 'Battering Ram', icon: '🪵', type: 'siege',  role: 'siege', atk: 40,  defI: 25, defC: 15, spd: 3,  carry: 0,   upkeep: 1.2, time: 90, at: 'workshop', req: 1, cost: { timber: 300, iron: 40, grain: 100, gold: 80 }, wallBreak: 0.25, desc: 'A roofed ram. Each one weakens the enemy wall during the assault.' },
+  treb_h:    { name: 'Trebuchet',     icon: '🎯', type: 'siege',  role: 'siege', atk: 70,  defI: 15, defC: 10, spd: 2,  carry: 0,   upkeep: 1.5, time: 120, at: 'workshop', req: 5, cost: { timber: 400, stone: 200, iron: 80, gold: 120 }, wreck: 1, desc: 'Hurls stones over walls. Survivors of a won battle wreck enemy buildings.' },
 
-  goatrider: { name: 'Crag Rider',    icon: '🐐', type: 'cav',    atk: 50,  defI: 40, defC: 30, spd: 12, carry: 70,  upkeep: 1.1, time: 45, at: 'stable',   req: 3, cost: { grain: 90, gold: 60, weapons: 3 }, desc: 'Sure-footed riders on giant mountain goats.' },
-  runeguard: { name: 'Runeguard',     icon: '💠', type: 'inf',    atk: 80,  defI: 115, defC: 95, spd: 4, carry: 40,  upkeep: 1.6, time: 80, at: 'barracks', req: 10, cost: { grain: 150, gold: 140, weapons: 5, runesteel: 5 }, desc: 'Champions in rune-etched plate. Nearly immovable.' },
-  ram_d:     { name: 'Bore Engine',   icon: '⚙️', type: 'siege',  atk: 45,  defI: 35, defC: 25, spd: 3,  carry: 0,   upkeep: 1.2, time: 90, at: 'workshop', req: 1, cost: { timber: 200, iron: 80, stone: 100, gold: 80 }, wallBreak: 0.35, desc: 'A steam-driven drill that chews through walls faster than any ram.' },
-  treb_d:    { name: 'Thunder Mortar',icon: '💥', type: 'siege',  atk: 90,  defI: 20, defC: 15, spd: 2,  carry: 0,   upkeep: 1.6, time: 130, at: 'workshop', req: 5, cost: { iron: 160, stone: 200, tools: 10, gold: 140 }, wreck: 1.2, desc: 'Blackpowder and runes. Shatters towers.' },
+  goatrider: { name: 'Crag Rider',    icon: '🐐', type: 'cav',    role: 'cavalry', atk: 50,  defI: 40, defC: 30, spd: 12, carry: 70,  upkeep: 1.1, time: 45, at: 'stable',   req: 3, cost: { grain: 90, gold: 60, weapons: 3 }, desc: 'Sure-footed riders on giant mountain goats.' },
+  runeguard: { name: 'Runeguard',     icon: '💠', type: 'inf',    role: 'infantry', atk: 80,  defI: 115, defC: 95, spd: 4, carry: 40,  upkeep: 1.6, time: 80, at: 'barracks', req: 10, cost: { grain: 150, gold: 140, weapons: 5, runesteel: 5 }, desc: 'Champions in rune-etched plate. Nearly immovable.' },
+  ram_d:     { name: 'Bore Engine',   icon: '⚙️', type: 'siege',  role: 'siege', atk: 45,  defI: 35, defC: 25, spd: 3,  carry: 0,   upkeep: 1.2, time: 90, at: 'workshop', req: 1, cost: { timber: 200, iron: 80, stone: 100, gold: 80 }, wallBreak: 0.35, desc: 'A steam-driven drill that chews through walls faster than any ram.' },
+  treb_d:    { name: 'Thunder Mortar',icon: '💥', type: 'siege',  role: 'siege', atk: 90,  defI: 20, defC: 15, spd: 2,  carry: 0,   upkeep: 1.6, time: 130, at: 'workshop', req: 5, cost: { iron: 160, stone: 200, tools: 10, gold: 140 }, wreck: 1.2, desc: 'Blackpowder and runes. Shatters towers.' },
 
-  winddancer:{ name: 'Wind Dancer',   icon: '🍃', type: 'cav',    atk: 55,  defI: 25, defC: 35, spd: 18, carry: 80,  upkeep: 1.0, time: 40, at: 'stable',   req: 3, cost: { grain: 80, gold: 60, weapons: 2, heartwood: 1 }, desc: 'Riders who seem to vanish between the trees.' },
-  groveguard:{ name: 'Grove Keeper',  icon: '🌲', type: 'inf',    atk: 90,  defI: 100, defC: 105, spd: 3, carry: 0,  upkeep: 1.5, time: 90, at: 'barracks', req: 10, cost: { grain: 120, gold: 120, heartwood: 8 }, desc: 'An awakened tree-giant that marches to war.' },
-  ram_s:     { name: 'Rootbreaker',   icon: '🌳', type: 'siege',  atk: 45,  defI: 30, defC: 20, spd: 3,  carry: 0,   upkeep: 1.0, time: 90, at: 'workshop', req: 1, cost: { timber: 350, heartwood: 6, grain: 100, gold: 60 }, wallBreak: 0.25, desc: 'Living roots that pry stones apart.' },
-  treb_s:    { name: 'Thornhurler',   icon: '🌵', type: 'siege',  atk: 65,  defI: 20, defC: 15, spd: 3,  carry: 0,   upkeep: 1.2, time: 110, at: 'workshop', req: 5, cost: { timber: 450, heartwood: 8, gold: 100 }, wreck: 0.9, desc: 'A great bent tree that flings thorned boulders.' },
+  winddancer:{ name: 'Wind Dancer',   icon: '🍃', type: 'cav',    role: 'cavalry', atk: 55,  defI: 25, defC: 35, spd: 18, carry: 80,  upkeep: 1.0, time: 40, at: 'stable',   req: 3, cost: { grain: 80, gold: 60, weapons: 2, heartwood: 1 }, desc: 'Riders who seem to vanish between the trees.' },
+  groveguard:{ name: 'Grove Keeper',  icon: '🌲', type: 'inf',    role: 'infantry', atk: 90,  defI: 100, defC: 105, spd: 3, carry: 0,  upkeep: 1.5, time: 90, at: 'barracks', req: 10, cost: { grain: 120, gold: 120, heartwood: 8 }, desc: 'An awakened tree-giant that marches to war.' },
+  ram_s:     { name: 'Rootbreaker',   icon: '🌳', type: 'siege',  role: 'siege', atk: 45,  defI: 30, defC: 20, spd: 3,  carry: 0,   upkeep: 1.0, time: 90, at: 'workshop', req: 1, cost: { timber: 350, heartwood: 6, grain: 100, gold: 60 }, wallBreak: 0.25, desc: 'Living roots that pry stones apart.' },
+  treb_s:    { name: 'Thornhurler',   icon: '🌵', type: 'siege',  role: 'siege', atk: 65,  defI: 20, defC: 15, spd: 3,  carry: 0,   upkeep: 1.2, time: 110, at: 'workshop', req: 5, cost: { timber: 450, heartwood: 8, gold: 100 }, wreck: 0.9, desc: 'A great bent tree that flings thorned boulders.' },
 
-  shaman:    { name: 'Ash Shaman',    icon: '🔮', type: 'ranged', atk: 55,  defI: 35, defC: 30, spd: 6,  carry: 20,  upkeep: 0.9, time: 45, at: 'barracks', req: 7, cost: { grain: 80, gold: 70, weapons: 2 }, desc: 'Calls down ash and fire from behind the lines.' },
-  warlordblade:{ name: 'Warlord\'s Blade', icon: '🗡️', type: 'inf', atk: 125, defI: 40, defC: 35, spd: 6, carry: 70, upkeep: 1.5, time: 70, at: 'barracks', req: 10, cost: { grain: 140, gold: 120, weapons: 8 }, desc: 'The warlord\'s sworn killers. All offence.' },
-  ram_a:     { name: 'Skull Ram',     icon: '💀', type: 'siege',  atk: 50,  defI: 20, defC: 10, spd: 4,  carry: 0,   upkeep: 1.0, time: 70, at: 'workshop', req: 1, cost: { timber: 250, ore: 120, grain: 80, gold: 50 }, wallBreak: 0.3, desc: 'Crude, cheap and terrifying.' },
-  treb_a:    { name: 'Rock Flinger',  icon: '🪨', type: 'siege',  atk: 75,  defI: 15, defC: 10, spd: 3,  carry: 0,   upkeep: 1.2, time: 100, at: 'workshop', req: 5, cost: { timber: 350, stone: 250, ore: 80, gold: 80 }, wreck: 1, desc: 'Ogres heave boulders from a giant sling.' },
+  shaman:    { name: 'Ash Shaman',    icon: '🔮', type: 'ranged', role: 'ranged', atk: 55,  defI: 35, defC: 30, spd: 6,  carry: 20,  upkeep: 0.9, time: 45, at: 'barracks', req: 7, cost: { grain: 80, gold: 70, weapons: 2 }, desc: 'Calls down ash and fire from behind the lines.' },
+  warlordblade:{ name: 'Warlord\'s Blade', icon: '🗡️', type: 'inf', role: 'infantry', atk: 125, defI: 40, defC: 35, spd: 6, carry: 70, upkeep: 1.5, time: 70, at: 'barracks', req: 10, cost: { grain: 140, gold: 120, weapons: 8 }, desc: 'The warlord\'s sworn killers. All offence.' },
+  ram_a:     { name: 'Skull Ram',     icon: '💀', type: 'siege',  role: 'siege', atk: 50,  defI: 20, defC: 10, spd: 4,  carry: 0,   upkeep: 1.0, time: 70, at: 'workshop', req: 1, cost: { timber: 250, ore: 120, grain: 80, gold: 50 }, wallBreak: 0.3, desc: 'Crude, cheap and terrifying.' },
+  treb_a:    { name: 'Rock Flinger',  icon: '🪨', type: 'siege',  role: 'siege', atk: 75,  defI: 15, defC: 10, spd: 3,  carry: 0,   upkeep: 1.2, time: 100, at: 'workshop', req: 5, cost: { timber: 350, stone: 250, ore: 80, gold: 80 }, wreck: 1, desc: 'Ogres heave boulders from a giant sling.' },
   // Common
-  settlers:  { name: 'Settlers',     icon: '🧺', type: 'civ',    atk: 0,   defI: 10, defC: 10, spd: 5,  carry: 0,   upkeep: 1,   time: 120, at: 'townhall', req: 5, cost: { grain: 600, timber: 600, stone: 500, gold: 400, tools: 20 }, desc: 'Families ready to found a new city on an empty tile.' },
-  herald:    { name: 'Herald',       icon: '📯', type: 'civ',    atk: 30,  defI: 20, defC: 20, spd: 5,  carry: 0,   upkeep: 2,   time: 180, at: 'townhall', req: 8, cost: { grain: 800, gold: 1500, weapons: 30, tools: 30 }, desc: 'Sent with a conquering army. Each victory with a surviving herald lowers a city\'s loyalty; at zero it swears to you.' },
-  scout:     { name: 'Scout',        icon: '🦅', type: 'civ',    atk: 0,   defI: 2,  defC: 2,  spd: 16, carry: 0,   upkeep: 0.3, time: 15, at: 'barracks', req: 1, cost: { grain: 30, gold: 25 }, desc: 'Sneaks close to report troops, stores and walls. Enemy scouts can catch them.' },
-  hero:      { name: 'Hero',         icon: '🦸', type: 'hero',   atk: 0,   defI: 0,  defC: 0,  spd: 7,  carry: 0,   upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Your champion.' },
+  settlers:  { name: 'Settlers',     icon: '🧺', type: 'civ',    role: 'support', atk: 0,   defI: 10, defC: 10, spd: 5,  carry: 0,   upkeep: 1,   time: 120, at: 'townhall', req: 5, cost: { grain: 600, timber: 600, stone: 500, gold: 400, tools: 20 }, desc: 'Families ready to found a new city on an empty tile.' },
+  herald:    { name: 'Herald',       icon: '📯', type: 'civ',    role: 'support', atk: 30,  defI: 20, defC: 20, spd: 5,  carry: 0,   upkeep: 2,   time: 180, at: 'townhall', req: 8, cost: { grain: 800, gold: 1500, weapons: 30, tools: 30 }, desc: 'Sent with a conquering army. Each victory with a surviving herald lowers a city\'s loyalty; at zero it swears to you.' },
+  scout:     { name: 'Scout',        icon: '🦅', type: 'civ',    role: 'support', atk: 0,   defI: 2,  defC: 2,  spd: 16, carry: 0,   upkeep: 0.3, time: 15, at: 'barracks', req: 1, cost: { grain: 30, gold: 25 }, desc: 'Sneaks close to report troops, stores and walls. Enemy scouts can catch them.' },
+  hero:      { name: 'Hero',         icon: '🦸', type: 'hero',   role: 'support', atk: 0,   defI: 0,  defC: 0,  spd: 7,  carry: 0,   upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Your champion.' },
   // Ships (shared by all peoples; built at a Harbor in a coastal city). capacity: citizens a transport can carry
-  transport: { name: 'Transport Cog',  icon: '⛵', type: 'ship', atk: 5,  defI: 40, defC: 40, spd: 10, carry: 400, upkeep: 1.0, time: 90, at: 'harbor', req: 1, pop: 4, capacity: 30, cost: { timber: 400, gold: 100, tools: 10 }, desc: 'Carries up to 30 citizens\' worth of troops or settlers across water, and hauls plunder home.' },
-  warship:   { name: 'War Galley',     icon: '🚢', type: 'ship', atk: 80, defI: 70, defC: 70, spd: 11, carry: 100, upkeep: 2.0, time: 150, at: 'harbor', req: 5, pop: 6, cost: { timber: 600, iron: 120, tools: 20, gold: 200 }, desc: 'Rams and archers afloat. Raids and defends coastal cities and escorts transports.' },
+  transport: { name: 'Transport Cog',  icon: '⛵', type: 'ship', role: 'ship', atk: 5,  defI: 40, defC: 40, spd: 10, carry: 400, upkeep: 1.0, time: 90, at: 'harbor', req: 1, pop: 4, capacity: 30, cost: { timber: 400, gold: 100, tools: 10 }, desc: 'Carries up to 30 citizens\' worth of troops or settlers across water, and hauls plunder home.' },
+  warship:   { name: 'War Galley',     icon: '🚢', type: 'ship', role: 'ship', atk: 80, defI: 70, defC: 70, spd: 11, carry: 100, upkeep: 2.0, time: 150, at: 'harbor', req: 5, pop: 6, cost: { timber: 600, iron: 120, tools: 20, gold: 200 }, desc: 'Rams and archers afloat. Raids and defends coastal cities and escorts transports.' },
   // Neutral
-  beast:     { name: 'Wild beast',   icon: '🐻', type: 'inf',    atk: 25,  defI: 30, defC: 22, spd: 6,  carry: 0,   upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Wolves, bears and worse guard the wild places.' },
-  brigand:   { name: 'Brigand',      icon: '☠️', type: 'inf',    atk: 20,  defI: 25, defC: 25, spd: 6,  carry: 40,  upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Outlaws holed up in the wilds.' },
+  beast:     { name: 'Wild beast',   icon: '🐻', type: 'inf',    role: 'infantry', atk: 25,  defI: 30, defC: 22, spd: 6,  carry: 0,   upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Wolves, bears and worse guard the wild places.' },
+  brigand:   { name: 'Brigand',      icon: '☠️', type: 'inf',    role: 'infantry', atk: 20,  defI: 25, defC: 25, spd: 6,  carry: 40,  upkeep: 0,   time: 0, at: null, req: 0, cost: {}, desc: 'Outlaws holed up in the wilds.' },
 };
 DATA.commonUnits = ['scout', 'settlers', 'herald', 'transport', 'warship'];
 
@@ -343,4 +343,44 @@ DATA.homeland = {
   delver: { terrain: { mountain: 0.45, hills: 0.4, forest: 0.15 }, seeks: { ore: 1, stone: 0.6, grain: 0.6 } },
   sylvan: { terrain: { forest: 0.7, fertile: 0.2, hills: 0.1 }, seeks: { timber: 1, grain: 0.3 } },
   ash:    { terrain: { plains: 0.45, hills: 0.4, mountain: 0.15 }, seeks: { ore: 0.8, stone: 0.8 } },
+};
+
+// ---------------------------------------------------------------------
+// Battlefields. Units fight on the defender's tile.
+//   def:   extra defence for whoever holds the ground (rough terrain)
+//   roles: per unit role, a bonus/penalty to attack (attackers) or defence (defenders)
+// Flyers ignore terrain. Every role's combined terrain/river/weather effect is
+// clamped to ±25% (DATA.battleRules.cap).
+// Roles: infantry, cavalry, ranged, siege, flyer, ship, mage, support
+// (explicit `role` on each unit; G.roleOf infers it for units added elsewhere).
+// ---------------------------------------------------------------------
+DATA.battleTerrain = {
+  plains:   { def: 0,    roles: { cavalry: 0.10, siege: 0.05 },                                   text: 'Open ground: cavalry charge freely.' },
+  fertile:  { def: 0,    roles: { cavalry: 0.05 },                                                text: 'Farmland: good riding country.' },
+  forest:   { def: 0.08, roles: { cavalry: -0.20, ranged: -0.10, siege: -0.15, infantry: 0.05 },  text: 'Trees break charges and block arrows.' },
+  hills:    { def: 0.08, roles: { ranged: 0.15, cavalry: -0.10, siege: -0.10 },                   text: 'High ground for archers; slopes slow riders.' },
+  mountain: { def: 0.12, roles: { cavalry: -0.20, siege: -0.20, ranged: 0.10, infantry: 0.05 },   text: 'Narrow passes: foot soldiers hold, horses and engines struggle.' },
+  lake:     { def: 0,    roles: { ship: 0.10 },                                                   text: 'Open water.' },
+};
+DATA.roleInfo = {
+  infantry: { name: 'Infantry', icon: '🛡️' }, cavalry: { name: 'Cavalry', icon: '🐎' }, ranged: { name: 'Ranged', icon: '🏹' },
+  siege: { name: 'Siege', icon: '🪵' }, flyer: { name: 'Flyers', icon: '🦅' }, ship: { name: 'Ships', icon: '⛵' },
+  mage: { name: 'Mages', icon: '🔮' }, support: { name: 'Support', icon: '🧺' },
+};
+DATA.battleRules = {
+  cap: 0.25,             // no role's terrain/weather effect beyond ±25%
+  river: -0.15,          // attacking across a river (the last steps of the march), not flyers or amphibious troops
+  riverSpring: -0.20,    // rivers run high in spring
+  amphibious: 0.10,      // amphibious troops at a river or on the shore
+  snow: { cavalry: -0.10 },                           // winter
+  weather: {                                          // calamities over the battlefield
+    flood:    { name: 'Flooded fields', roles: { cavalry: -0.10, siege: -0.10 } },
+    eruption: { name: 'Ash fall',       roles: { ranged: -0.10 } },
+    tempest:  { name: 'Arcane tempest', roles: { mage: 0.10 } },
+  },
+  counter: 0.10,         // infantry beats cavalry, cavalry beats ranged, ranged beats infantry: up to ±10% by army shares
+  beats: { infantry: 'cavalry', cavalry: 'ranged', ranged: 'infantry' },
+  volley: 0.5,           // share of casualties the enemy's ranged/mage/siege power inflicts in the opening volley
+  pursuit: 0.5,          // share of the loser's casualties the winner's riders and flyers inflict in the rout
+  rout: 0.15,            // in raids, the winner's riders kill up to 15% more of the fleeing; the loser's riders save up to 15%
 };

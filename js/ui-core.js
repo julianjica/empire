@@ -31,6 +31,38 @@ const extras = (list, ...a) => list.map(f => { try { return f(...a) || ''; } cat
 const runMountHooks = () => { for (const h of MOUNT_HOOKS) { try { h(UI.tab); } catch (e) { console.error(e); } } };
 
 // ---------------------------------------------------------------------
+// player options (stored apart from saves, so they survive new games and never touch S)
+// ---------------------------------------------------------------------
+const OPT_KEY = 'emberCrown_options';
+const OPT_DEF = { reduceMotion: false, largeText: false, cbColors: false, autosave: 15 };
+const AUTOSAVE_CHOICES = [10, 15, 30, 60, 120];
+const OPTS = (() => { try { return { ...OPT_DEF, ...JSON.parse(localStorage.getItem(OPT_KEY) || '{}') }; } catch (e) { return { ...OPT_DEF }; } })();
+const saveOpts = () => { try { localStorage.setItem(OPT_KEY, JSON.stringify(OPTS)); } catch (e) { } };
+// colour-blind-friendly empire colours (Okabe–Ito): applied to the rendered HTML and the map only, S keeps its colours
+const CB_PAL = ['#0072b2', '#e69f00', '#009e73', '#cc79a7', '#d55e00', '#56b4e9', '#f0e442', '#8c8c8c'];
+let cbSig = '', cbMap = null, cbRe = null;
+const cbMapping = () => {
+  const emps = Object.values(S.empires).sort((a, b) => (a.id === 'p' ? -1 : b.id === 'p' ? 1 : 0));
+  const sig = emps.map(e => e.id + e.color).join();
+  if (sig !== cbSig) {
+    cbSig = sig; cbMap = new Map(); let i = 0;
+    for (const e of emps) { const k = String(e.color || '').toLowerCase(); if (/^#[0-9a-f]{3,8}$/.test(k) && !cbMap.has(k)) cbMap.set(k, e.id === 'p' ? CB_PAL[0] : CB_PAL[1 + (i++ % (CB_PAL.length - 1))]); }
+    cbRe = cbMap.size ? new RegExp([...cbMap.keys()].sort((a, b) => b.length - a.length).join('|') + '(?![0-9a-f])', 'gi') : null;
+  }
+  return cbMap;
+};
+// the map asks for colours many times a frame: use the mapping built by the last render (rebuilt when empires change)
+window.ecDisplayColor = c => (OPTS.cbColors && S && (cbMap || cbMapping()).get(String(c).toLowerCase())) || c;
+const paint = html => (OPTS.cbColors && S && cbMapping() && cbRe ? html.replace(cbRe, m => cbMap.get(m.toLowerCase()) || m) : html);
+const applyOpts = () => {
+  const h = document.documentElement;
+  h.classList.toggle('ec-reduce-motion', !!OPTS.reduceMotion);
+  h.classList.toggle('ec-large-text', !!OPTS.largeText);
+  window.ecPaletteKey = OPTS.cbColors ? 'cb' : '';
+};
+applyOpts();
+
+// ---------------------------------------------------------------------
 // formatting
 // ---------------------------------------------------------------------
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -132,7 +164,7 @@ const savesHtml = inGame => {
       <span class="spacer"></span>${inGame ? `<button class="small" data-act="saveSlot" data-n="${n}">Save here</button>` : ''}${i ? `<button class="small ${inGame ? '' : 'primary'}" data-act="loadSlot" data-n="${n}">Load</button><button class="small" data-act="clearSlot" data-n="${n}" title="Delete this save">✕</button>` : ''}</div>`;
   }).join('');
   return `<div class="card saves"><h3>💾 Saved realms</h3>
-    <p class="muted" style="font-size:12.5px;margin-top:0">The game autosaves in this browser every 15 seconds. Keep extra copies in slots, or export a file to back up or move your realm to another browser.</p>
+    <p class="muted" style="font-size:12.5px;margin-top:0">The game autosaves in this browser every ${OPTS.autosave} seconds. Keep extra copies in slots, or export a file to back up or move your realm to another browser.</p>
     ${slots}
     <div class="row" style="margin-top:8px">${inGame ? '<button class="small" data-act="exportSave">⬇️ Export to file</button>' : ''}<button class="small" data-act="importSave">⬆️ Import from file</button><input type="file" id="importFile" accept=".json,application/json" style="display:none"></div></div>`;
 };
@@ -149,6 +181,7 @@ const readStart = () => {
 const incoming = () => S.moves.filter(m => m.owner !== 'p' && ['raid', 'attack', 'conquer'].includes(m.type) &&
   (() => { const t = G.tileAt(S, m.x, m.y); return (t.city && S.cities[t.city].owner === 'p') || (t.oasis && t.oasis.owner && S.cities[t.oasis.owner] && S.cities[t.oasis.owner].owner === 'p'); })());
 
+const SPEEDS = [1, 2, 5, 10, 25];
 const renderTop = city => {
   const emp = S.empires.p;
   const e = G.econ(S, city);
@@ -161,10 +194,13 @@ const renderTop = city => {
       <span title="Renown: total building levels + victories. Unlocks new cities.">⭐ <b>${ren}</b> <span class="muted">${next === Infinity ? '' : '/ ' + next + ' for next city'}</span></span>
       <span class="spacer"></span>
       <span class="muted" title="${DATA.pace[S.settings.pace].name} pace · ${DATA.modes[S.settings.mode].name}">${calendar()} · ${clock(S.time)}</span>
-      <label class="muted">Speed <select id="speedSel">${[1, 2, 5, 10, 25].map(v => `<option value="${v}" ${S.settings.speed === v ? 'selected' : ''}>${v}×</option>`).join('')}</select></label>
+      <button class="small ec-pause ${UI.paused ? 'on' : ''}" data-act="togglePause" title="${UI.paused ? 'Resume (Space)' : 'Pause (Space)'}" aria-label="${UI.paused ? 'Resume' : 'Pause'}" aria-pressed="${UI.paused ? 'true' : 'false'}">${UI.paused ? '▶️ Paused' : '⏸'}</button>
+      <label class="muted">Speed <select id="speedSel">${SPEEDS.map(v => `<option value="${v}" ${S.settings.speed === v ? 'selected' : ''}>${v}×</option>`).join('')}</select></label>
       ${TOP_EXTRAS.map(f => { try { return f() || ''; } catch (e) { return ''; } }).join('')}
       <button class="small" data-act="save">Save</button>
       <button class="small" data-act="newgame">New game</button>
+      <button class="small" data-act="popKeys" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" aria-expanded="${UI.pop === 'keys'}">⌨️</button>
+      <button class="small" data-act="popOptions" title="Options: motion, text size, colours, autosave" aria-label="Options" aria-expanded="${UI.pop === 'options'}">🎛️</button>
     </div>
     <div class="res-bar">
       <div class="res" title="Citizens / housing left for civilians. Workers needed: ${e.workersReq}. Soldiers enrolled: ${e.soldiers} (barracks quarters ${e.quarters}).">
@@ -431,7 +467,31 @@ const reportBody = r => {
       <tr><td>Troops</td><td>${unitsHtml(b.attSent)}</td><td>${unitsHtml(b.defHad)}</td></tr>
       <tr><td>Losses</td><td class="bad">${unitsHtml(b.attLost)}</td><td class="bad">${unitsHtml(b.defLost)}</td></tr>
       <tr><td>Plunder</td><td colspan="2">${goodsHtml(b.loot)}</td></tr>
-    </table>${b.extra ? `<p>${esc(b.extra)}</p>` : ''}`;
+    </table>${tacticsHtml(b)}${b.extra ? `<p>${esc(b.extra)}</p>` : ''}`;
+};
+// the battle breakdown (reports from before tactical battles have none)
+const tacticsHtml = b => {
+  const t = b.tactics;
+  if (!t || !Array.isArray(t.phases)) return '';
+  const T = t.terrain && DATA.terrain[t.terrain];
+  const ground = [T ? `<b>${esc(T.name)}</b>` : '', t.crossing ? '🌊 across a river' : t.river ? '🏞️ by a river' : '', t.coast ? '💧 on the shore' : '',
+    t.season != null && G.SEASONS ? esc(G.SEASONS[t.season]) : '', ...(t.weather || []).map(esc)].filter(Boolean).join(' · ');
+  const bt = t.terrain && DATA.battleTerrain && DATA.battleTerrain[t.terrain];
+  const sign = p => (p > 0 ? '+' : p < 0 ? '−' : '±') + Math.abs(p) + '%';
+  const mods = side => {
+    const l = (t.mods || []).filter(m => m.side === side);
+    return l.length ? l.map(m => `<div class="${m.flat ? '' : m.pct > 0 ? 'good' : m.pct < 0 ? 'bad' : 'muted'}">${esc(m.label)} <b>${m.flat ? '+' + fmt(m.flat) : m.kind === 'cap' ? '' : sign(m.pct)}</b></div>`).join('') : '<div class="muted">none</div>';
+  };
+  const roles = side => Object.entries((t.roles || {})[side] || {}).sort((a, c) => c[1] - a[1])
+    .map(([r, v]) => `<span title="${esc((DATA.roleInfo[r] || { name: r }).name)}">${(DATA.roleInfo[r] || {}).icon || ''} ${v}%</span>`).join(' ') || '<span class="muted">—</span>';
+  const lost = u => Object.values(u || {}).some(n => n > 0) ? unitsHtml(u) : '<span class="muted">—</span>';
+  return `<div style="margin-top:10px;font-size:12.5px">
+    <div>⛰️ Battlefield: ${ground || '<span class="muted">open field</span>'}${bt && bt.text ? ` <span class="muted">— ${esc(bt.text)}</span>` : ''}</div>
+    <table style="margin-top:6px"><tr><th></th><th>${esc(b.att)}</th><th>${esc(b.def)}</th></tr>
+      <tr><td>Army mix</td><td>${roles('att')}</td><td>${roles('def')}</td></tr>
+      <tr><td>Modifiers</td><td style="vertical-align:top">${mods('att')}</td><td style="vertical-align:top">${mods('def')}</td></tr>
+      ${t.phases.map(ph => `<tr><td>${ph.icon || ''} ${esc(ph.name)}</td><td class="bad">${lost(ph.attLost)}</td><td class="bad">${lost(ph.defLost)}</td></tr>`).join('')}
+    </table></div>`;
 };
 const renderReports = () => {
   if (!S.reports.length) return '<div class="card"><h3>📜 Reports</h3><p class="muted">No battles yet. Send your hero to a ruin, or raid a brigand camp once you have troops.</p></div>';
@@ -483,13 +543,14 @@ const renderHelp = () => `<div class="card help"><h2>How to play</h2>
     <li><b>Location matters.</b> A city's yields come from the land within 2 tiles: forests give timber, hills stone, mountains ore, fertile land grain. Rivers and lakes make a city more prosperous. Each people's homeland suits its specialty, and the site survey on the World map rates open land before you settle. Trade covers what your land lacks.</li>
     <li><b>Seas and ships.</b> Armies march around lakes and seas, so routes follow the land. A coastal city can build a <b>Harbor</b>: fishing boats add grain, and shipwrights build Transport Cogs (each carries 30 citizens' worth of troops or settlers) and War Galleys. Send ships with your army to cross water — that's the only way to reach islands, which often hide unclaimed land and treasures.</li>
     <li><b>Explore.</b> The map is hidden until your cities, armies or scouts 🦅 see it. Scouts bring back troop counts, stores and walls. <b>Oases</b> 🏝️ guarded by beasts give a nearby city +25% of a good once claimed (attack and win; one slot per 5 Town Hall levels).</li>
-    <li><b>Fight.</b> Raid brigand camps for plunder and renown. Defenders with high 🐎🛡️ stop cavalry, high 🛡️ stops infantry. Rivals leave you alone at first; their pressure grows over time.</li>
+    <li><b>Fight.</b> Raid brigand camps for plunder and renown. Defenders with high 🐎🛡️ stop cavalry, high 🛡️ stops infantry. Rivals leave you alone at first; their pressure grows over time.
+      Battles are fought on the defender's tile: forests (+8% defence) break cavalry (−20%) and hinder archers and engines; hills (+8%) favour archers (+15%); mountains (+12%) favour foot soldiers and cripple riders and siege; open plains and farmland favour cavalry (+10%/+5%). Attacking across a river costs −15% (−20% in spring), amphibious troops gain +10% at rivers and shores, flyers ignore the ground, winter snow slows cavalry and floods, ash or tempests over the field matter too — no role's ground effect exceeds ±25%. Mixes counter each other (infantry beats cavalry, cavalry beats ranged, ranged beats infantry; up to ±10%). Each battle has an opening volley, the clash and a pursuit; the send form's preview and every battle report show the full breakdown.</li>
     <li><b>Diplomacy</b> 🕊️: send gifts, make peace, form alliances, demand tribute, and trade with foreign merchants. Breaking a treaty angers everyone.</li>
     <li><b>Expand & conquer.</b> Renown unlocks city slots; Settlers found cities. A <b>Herald</b> marching with a winning army lowers a city's loyalty; at zero it is yours.</li>
     <li><b>Calamities & wonders.</b> Now and then a wyrm wakes, a blight spreads, the dead rise, the earth shakes, rivers flood or a star falls. Each strikes a whole region — every realm's cities inside it. Some can be fought (storm the wyrm's lair, destroy the hordes, claim the star-iron); others must be endured, and some leave boons behind.</li>
     <li><b>Modes.</b> Conquest ends when every rival falls. In Endless, fallen realms rise again as new dynasties and warlords keep coming.</li>
   </ol>
-  <p class="muted">Quests (right column) guide you early and pay rewards. Events may ask for your decision; if you don't answer in time, the default happens. Time keeps running at normal (1×) speed while the game is closed, up to 12 hours. The game autosaves every 15 seconds in this browser.</p></div>`;
+  <p class="muted">Quests (right column) guide you early and pay rewards. Events may ask for your decision; if you don't answer in time, the default happens. Time keeps running at normal (1×) speed while the game is closed, up to 12 hours. The game autosaves in this browser (how often is set in 🎛️ Options). Keys: 1–9 open tabs, [ and ] switch cities, space pauses — see ⌨️.</p></div>`;
 
 Object.assign(TABS, {
   city: { label: '🏛️ City', render: renderCity },
@@ -526,39 +587,81 @@ const endgameBanner = () => {
 // render
 // ---------------------------------------------------------------------
 let lastFull = 0;
+// The page is rebuilt every second, but only the regions whose HTML actually changed are replaced:
+// the top bar (clock, stocks) changes every tick, while the side nav, the right column and quiet tabs
+// (help, reports, empire…) often don't, so their DOM, scroll positions and canvases stay put.
+const REGION = { top: '', side: '', main: '', right: '', mainEl: null };
+const PERF = { renders: 0, full: 0, regions: { top: 0, side: 0, main: 0, right: 0 }, ms: [] };
+// phones: the header's controls slide away on scroll and the gold / renown / clock row stays pinned
+// (mobile.css). The controls may wrap to two rows, so offset the sticky bar by their real height.
+const pinPhoneHeader = () => {
+  const bar = $app.querySelector('.top-1');
+  if (!bar) return;
+  if (window.innerWidth > 700) { if (bar.style.top) bar.style.top = ''; return; }
+  const sp = bar.querySelector(':scope > .spacer');
+  if (sp) bar.style.top = -Math.max(0, sp.offsetTop) + 'px';
+};
 const render = (force) => {
-  if (!S) { if (force) renderStart(); return; }
+  if (!S) { REGION.mainEl = null; if (force) renderStart(); return; }
   const city = curCity();
   if (!city) {
-    $app.innerHTML = `<div class="start"><div class="banner lose">Your last city has fallen. The ${DATA.races[S.empires.p.race].name} chronicle ends here.</div><p style="text-align:center"><button class="primary" data-act="newgame">Begin anew</button></p>${extras(DEFEAT_EXTRAS)}</div>`;
+    REGION.mainEl = null;
+    $app.innerHTML = paint(`<div class="start"><div class="banner lose">Your last city has fallen. The ${DATA.races[S.empires.p.race].name} chronicle ends here.</div><p style="text-align:center"><button class="primary" data-act="newgame">Begin anew</button></p>${extras(DEFEAT_EXTRAS)}</div>`);
     runMountHooks();
     return;
   }
   const active = document.activeElement;
-  const editing = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT') && $app.contains(active);
+  const editing = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA') && $app.contains(active);
   const slowTab = UI.tab === 'world' && typeof worldMapHtml !== 'function' && Date.now() - lastFull < 2500;
   if ((editing || UI.holding || UI.touching || slowTab) && !force) {
     const top = $app.querySelector('.top');
-    if (top && !(active && active.id === 'speedSel')) top.outerHTML = renderTop(city);
+    if (top && !(active && active.id === 'speedSel')) {
+      const h = paint(renderTop(city));
+      if (h !== REGION.top) { top.outerHTML = h; REGION.top = h; pinPhoneHeader(); }
+    }
     return;
   }
+  const t0 = performance.now();
   lastFull = Date.now();
-  const scroll = window.scrollY;
-  const logEl = $app.querySelector('.log');
-  const logScroll = logEl ? logEl.scrollTop : 0;
-  // sideways scroll positions (phone tab bar, wide tables) survive the rebuild
-  const navEl = $app.querySelector('.nav');
-  const navScroll = navEl ? navEl.scrollLeft : 0;
-  const cardScroll = [...$app.querySelectorAll('main .card')].map(c => c.scrollLeft);
   const tab = TABS[UI.tab] || TABS.city;
-  $app.innerHTML = renderTop(city) + `<div class="layout">${renderSide(city)}<main>${endgameBanner()}${S.gameOver || S.victory ? extras(ENDGAME_EXTRAS) : ''}${tab.render(city)}</main>${renderRight()}</div>`;
-  window.scrollTo(0, scroll);
-  const logEl2 = $app.querySelector('.log');
-  if (logEl2) logEl2.scrollTop = logScroll;
-  const navEl2 = $app.querySelector('.nav');
-  if (navEl2 && navScroll) navEl2.scrollLeft = navScroll;
-  $app.querySelectorAll('main .card').forEach((c, i) => { if (cardScroll[i]) c.scrollLeft = cardScroll[i]; });
+  const html = {
+    top: paint(renderTop(city)),
+    side: paint(renderSide(city)),
+    main: paint(`${awayHtml()}${endgameBanner()}${S.gameOver || S.victory ? extras(ENDGAME_EXTRAS) : ''}${tab.render(city)}`),
+    right: paint(renderRight()),
+  };
+  const scroll = window.scrollY;
+  const intact = REGION.mainEl && REGION.mainEl.isConnected && $app.contains(REGION.mainEl);
+  PERF.renders++;
+  if (!intact) {
+    $app.innerHTML = html.top + `<div class="layout">${html.side}<main>${html.main}</main>${html.right}</div>`;
+    Object.assign(REGION, html, { mainEl: $app.querySelector('.layout > main') });
+    PERF.full++;
+    window.scrollTo(0, scroll);
+  } else {
+    const swap = (k, sel, inner) => {
+      if (html[k] === REGION[k]) return false;
+      const el = $app.querySelector(sel);
+      if (!el) return false;
+      if (inner) el.innerHTML = html[k]; else el.outerHTML = html[k];
+      REGION[k] = html[k]; PERF.regions[k]++;
+      return true;
+    };
+    swap('top', ':scope > .top');
+    // sideways scroll positions (phone tab bar, wide tables) and the chronicle's scroll survive a rebuild
+    const navEl = $app.querySelector('.nav'), navScroll = navEl ? navEl.scrollLeft : 0;
+    if (swap('side', '.layout > aside.side:not(.right)')) { const n = $app.querySelector('.nav'); if (n && navScroll) n.scrollLeft = navScroll; }
+    const cardScroll = html.main !== REGION.main ? [...REGION.mainEl.querySelectorAll('.card')].map(c => c.scrollLeft) : null;
+    if (swap('main', '.layout > main', true)) {
+      REGION.mainEl.querySelectorAll('.card').forEach((c, i) => { if (cardScroll[i]) c.scrollLeft = cardScroll[i]; });
+      window.scrollTo(0, scroll);
+    }
+    const logEl = $app.querySelector('aside.right .log'), logScroll = logEl ? logEl.scrollTop : 0;
+    if (swap('right', '.layout > aside.right')) { const l = $app.querySelector('aside.right .log'); if (l) l.scrollTop = logScroll; }
+  }
+  pinPhoneHeader();
   runMountHooks();
+  PERF.ms.push(performance.now() - t0); if (PERF.ms.length > 120) PERF.ms.shift();
 };
 
 // ---------------------------------------------------------------------
@@ -657,3 +760,172 @@ document.addEventListener('change', ev => {
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && ev.target.dataset && ev.target.dataset.k) { ev.target.blur(); render(true); }
 });
+
+// ---------------------------------------------------------------------
+// quality of life: pause, keyboard shortcuts, options, "while you were away"
+// ---------------------------------------------------------------------
+UI.paused = false;     // a session-only pause: never saved, so saves are untouched
+UI.pop = null;         // 'keys' | 'options' — popovers live outside #app, so the per-second render leaves them alone
+UI.away = null;        // summary shown after an offline catch-up
+
+// --- while you were away ---------------------------------------------
+const awaySnap = () => {
+  if (!S) return null;
+  const cities = {};
+  for (const c of G.citiesOf(S, 'p')) cities[c.id] = { name: c.name, pop: c.pop, tier: G.tier(c).name, lv: Object.values(c.buildings).reduce((a, b) => a + (b || 0), 0) };
+  return { t: S.time, cities, gold: S.empires.p.gold, units: G.citiesOf(S, 'p').reduce((a, c) => a + G.unitsCount(c.units), 0) };
+};
+// compares a snapshot taken before G.catchUp with the state after it; reuses the log and reports
+const awaySummary = (before, gameSecs) => {
+  if (!S || !before) return null;
+  const now = awaySnap();
+  const grown = [], lost = [], gained = [];
+  for (const [id, b] of Object.entries(before.cities)) {
+    const c = now.cities[id];
+    if (!c) { lost.push(b.name); continue; }
+    const bits = [];
+    if (c.tier !== b.tier) bits.push(`now a ${c.tier}`);
+    if (Math.floor(c.pop) - Math.floor(b.pop) >= 1) bits.push(`+${fmt(c.pop - b.pop)} people`);
+    if (c.lv > b.lv) bits.push(`+${c.lv - b.lv} building level${c.lv - b.lv > 1 ? 's' : ''}`);
+    if (bits.length) grown.push(`${esc(c.name)} (${bits.join(', ')})`);
+  }
+  for (const [id, c] of Object.entries(now.cities)) if (!before.cities[id]) gained.push(c.name);
+  const reps = S.reports.filter(r => r.t > before.t);
+  const battles = reps.filter(r => r.body && (r.body.attSent || r.body.defHad));
+  const wins = battles.filter(r => r.kind === 'win').length, defeats = battles.filter(r => r.kind === 'loss').length;
+  const me = S.empires.p.name;
+  let fallen = 0;
+  for (const r of battles) {
+    const b = r.body;
+    if (b.att === me) fallen += G.unitsCount(b.attLost);
+    else if (b.def === me) fallen += G.unitsCount(b.defLost);
+  }
+  const logs = S.log.filter(l => l.t > before.t);
+  const notable = logs.filter(l => l.kind === 'bad' || l.kind === 'warn').slice(0, 4).concat(logs.filter(l => l.kind === 'good').slice(0, 3)).slice(0, 6);
+  return { gameSecs, grown, lost, gained, wins, defeats, fallen, reports: reps.length, events: logs.length, capped: logs.length >= 100, gold: now.gold - before.gold, notable, unread: reps.filter(r => !r.read).length };
+};
+const awayHtml = () => {
+  const a = UI.away;
+  if (!a) return '';
+  const line = (icon, txt) => `<li><span aria-hidden="true">${icon}</span> ${txt}</li>`;
+  const items = [];
+  if (a.grown.length) items.push(line('🌱', `Grew: ${a.grown.slice(0, 4).join(' · ')}${a.grown.length > 4 ? ` · and ${a.grown.length - 4} more` : ''}`));
+  if (a.gained.length) items.push(line('🏰', `New cities: ${a.gained.map(esc).join(', ')}`));
+  if (a.lost.length) items.push(line('🔥', `<b class="bad">Lost: ${a.lost.map(esc).join(', ')}</b>`));
+  if (a.wins || a.defeats) items.push(line('⚔️', `${a.wins} battle${a.wins === 1 ? '' : 's'} won, <span class="${a.defeats ? 'bad' : ''}">${a.defeats} lost</span>${a.fallen ? ` · ${fmt(a.fallen)} of your troops fell` : ''}`));
+  items.push(line('🪙', `Treasury ${a.gold >= 0 ? '+' : '−'}${fmt(Math.abs(a.gold))} gold`));
+  return `<div class="card ec-away" role="status"><div class="row"><h3 style="margin:0">🕯️ While you were away <span class="muted" style="font-size:13px">${fmtTime(a.gameSecs)} of game time</span></h3><span class="spacer"></span><button class="small" data-act="awayDismiss" aria-label="Dismiss summary (Esc)">✕</button></div>
+    <ul>${items.join('')}</ul>
+    ${a.notable.length ? `<div class="log ec-away-log">${a.notable.map(l => `<div class="${l.kind}"><time>${clock(l.t).replace(/^Day /, 'D')}</time>${esc(l.text)}</div>`).join('')}</div>` : ''}
+    <div class="row muted" style="font-size:12.5px">${a.events}${a.capped ? '+' : ''} chronicle entr${a.events === 1 ? 'y' : 'ies'} · ${a.reports} report${a.reports === 1 ? '' : 's'}${a.unread ? ` <button class="small" data-act="tab" data-t="reports">Read reports</button>` : ''}</div></div>`;
+};
+
+// --- pause & speed -----------------------------------------------------
+const setSpeed = dir => {
+  const i = SPEEDS.indexOf(S.settings.speed), j = Math.max(0, Math.min(SPEEDS.length - 1, (i < 0 ? 0 : i) + dir));
+  S.settings.speed = SPEEDS[j];
+  toast(`Speed ${SPEEDS[j]}×`);
+};
+const togglePause = () => { UI.paused = !UI.paused; toast(UI.paused ? '⏸ Paused — press Space to resume' : '▶️ Resumed'); };
+
+// --- popovers (keyboard help, options) --------------------------------
+const tabKeys = () => Object.keys(TABS).slice(0, 9);
+const popHtml = () => {
+  if (UI.pop === 'keys') {
+    const k = s => `<kbd>${s}</kbd>`;
+    return `<div class="hd"><span>⌨️ Keyboard shortcuts</span><button class="small" data-act="popClose" aria-label="Close">✕</button></div>
+      <table>
+        ${tabKeys().map((t, i) => `<tr><td>${k(i + 1)}</td><td>${TABS[t].label}</td></tr>`).join('')}
+        <tr><td>${k('[')} ${k(']')}</td><td>Previous / next city</td></tr>
+        <tr><td>${k('Space')}</td><td>Pause / resume</td></tr>
+        <tr><td>${k('+')} ${k('−')}</td><td>Faster / slower</td></tr>
+        <tr><td>${k('Esc')}</td><td>Close panels, clear the selection</td></tr>
+      </table><p class="muted">Shortcuts are off while you type in a field.</p>`;
+  }
+  if (UI.pop === 'options') {
+    const cb = (k, label, sub) => `<label class="ec-opt"><input type="checkbox" data-opt="${k}" ${OPTS[k] ? 'checked' : ''}><span>${label}${sub ? `<small class="muted">${sub}</small>` : ''}</span></label>`;
+    return `<div class="hd"><span>🎛️ Options</span><button class="small" data-act="popClose" aria-label="Close">✕</button></div>
+      ${cb('reduceMotion', 'Reduce motion', 'No animations; the map stays still and redraws less')}
+      ${cb('largeText', 'Larger text')}
+      ${cb('cbColors', 'Colour-blind-friendly realm colours', 'Only changes how realms are shown, not your save')}
+      <label class="ec-opt"><span>Autosave every</span><select data-opt="autosave">${AUTOSAVE_CHOICES.map(v => `<option value="${v}" ${+OPTS.autosave === v ? 'selected' : ''}>${v < 60 ? v + ' seconds' : v / 60 + ' minute' + (v > 60 ? 's' : '')}</option>`).join('')}</select></label>
+      <p class="muted">Kept in this browser, apart from your saves.</p>`;
+  }
+  return '';
+};
+let popEl = null;
+const renderPop = () => {
+  if (!popEl) { popEl = document.createElement('div'); popEl.id = 'ecPop'; popEl.setAttribute('role', 'dialog'); document.body.appendChild(popEl); }
+  const html = UI.pop && S ? popHtml() : '';
+  popEl.innerHTML = html;
+  popEl.classList.toggle('on', !!html);
+  if (!html) return;
+  popEl.setAttribute('aria-label', UI.pop === 'keys' ? 'Keyboard shortcuts' : 'Options');
+  const btn = document.querySelector(`[data-act="${UI.pop === 'keys' ? 'popKeys' : 'popOptions'}"]`);
+  if (btn && window.innerWidth > 700) {
+    const r = btn.getBoundingClientRect(), w = popEl.offsetWidth || 280;
+    popEl.style.top = Math.round(r.bottom + 6) + 'px';
+    popEl.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))) + 'px';
+  } else { popEl.style.top = ''; popEl.style.left = ''; }
+};
+const openPop = which => { UI.pop = UI.pop === which ? null : which; render(true); renderPop(); };
+window.addEventListener('resize', () => { if (UI.pop) renderPop(); });
+document.addEventListener('click', ev => {   // a click outside closes a popover
+  if (!UI.pop || !popEl) return;
+  if (popEl.contains(ev.target) || ev.target.closest('[data-act="popKeys"], [data-act="popOptions"]')) return;
+  UI.pop = null; renderPop();
+}, true);
+document.addEventListener('change', ev => {
+  const k = ev.target.dataset && ev.target.dataset.opt;
+  if (!k || !popEl || !popEl.contains(ev.target)) return;
+  OPTS[k] = ev.target.type === 'checkbox' ? ev.target.checked : +ev.target.value;
+  saveOpts(); applyOpts();
+  if (k === 'cbColors' && window.ECMAP) { cbSig = ''; try { ECMAP.rebake(); } catch (e) { } }
+  render(true);
+});
+
+Object.assign(act, {
+  togglePause: () => { togglePause(); render(true); },
+  popKeys: () => openPop('keys'),
+  popOptions: () => openPop('options'),
+  popClose: () => { UI.pop = null; renderPop(); },
+  awayDismiss: () => { UI.away = null; render(true); },
+});
+
+// --- keyboard ------------------------------------------------------------
+const typingIn = el => !!el && (el.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+document.addEventListener('keydown', ev => {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented || window.ecCatching) return;
+  if (typingIn(ev.target) || typingIn(document.activeElement)) return;
+  const k = ev.key;
+  if (k === 'Escape') {
+    const audio = document.getElementById('ecAudioPop');
+    if (UI.pop) { UI.pop = null; renderPop(); }
+    else if (audio && audio.classList.contains('on')) audio.classList.remove('on');
+    else if (UI.spellTarget) return;   // the world map cancels spell targeting itself
+    else if (UI.away) { UI.away = null; render(true); }
+    else if (UI.openReport) { UI.openReport = null; render(true); }
+    else if (UI.sel) { UI.sel = null; render(true); }
+    else return;
+    ev.preventDefault();
+    return;
+  }
+  if (!S || !curCity()) return;
+  if (/^[1-9]$/.test(k)) {
+    const t = tabKeys()[+k - 1];
+    if (!t) return;
+    ev.preventDefault(); act.tab({ t });
+  } else if (k === '[' || k === ']') {
+    const list = G.citiesOf(S, 'p');
+    if (list.length < 2) return;
+    const i = Math.max(0, list.findIndex(c => c.id === UI.city));
+    UI.city = list[(i + (k === ']' ? 1 : -1) + list.length) % list.length].id;
+    ev.preventDefault(); toast(`🏛️ ${S.cities[UI.city].name}`); render(true);
+  } else if (k === ' ' || k === 'Spacebar') {
+    if (document.activeElement && /^(BUTTON|A|SUMMARY)$/.test(document.activeElement.tagName)) return;   // Space presses the focused button
+    ev.preventDefault(); togglePause(); render(true);
+  } else if (k === '+' || k === '=') { ev.preventDefault(); setSpeed(1); render(true); }
+  else if (k === '-' || k === '_') { ev.preventDefault(); setSpeed(-1); render(true); }
+});
+// a mouse click shouldn't leave the button focused (Space would press it again instead of pausing)
+document.addEventListener('click', ev => { if (ev.detail > 0) { const b = ev.target.closest && ev.target.closest('button[data-act]'); if (b && b.isConnected) b.blur(); } });

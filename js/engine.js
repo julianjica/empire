@@ -875,8 +875,10 @@ const transferCity = (s, city, newOwner, garrison) => {
   city.units = garrison;
   city.mods = [];
   city.taxPolicy = 'normal'; city.placated = 0;
-  for (const t of ['bakery', 'runeforge', 'heartgrove', 'warpit']) {
-    if (DATA.buildings[t].race !== s.empires[newOwner].race) delete city.buildings[t];
+  // buildings unique to another people (including their wonders) are torn down by the new masters
+  for (const t of Object.keys(city.buildings)) {
+    const b = DATA.buildings[t];
+    if (b && b.race && b.race !== s.empires[newOwner].race) delete city.buildings[t];
   }
   s.empires[newOwner].conquests = (s.empires[newOwner].conquests || 0) + 1;
   if (!G.citiesOf(s, oldOwner).length) {

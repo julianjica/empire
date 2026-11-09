@@ -557,7 +557,13 @@ const render = (force) => {
 // actions
 // ---------------------------------------------------------------------
 Object.assign(act, {
-  pickRace: d => { readStart(); UI.start.race = d.r; renderStart(); },
+  pickRace: d => {
+    readStart();
+    // keep a custom city name; otherwise suggest one that fits the people
+    const defaults = ['Hearthstead', ...Object.values(DATA.aiNames).map(l => l[0])];
+    if (!UI.start.city || defaults.includes(UI.start.city)) UI.start.city = d.r === 'hearth' ? 'Hearthstead' : (DATA.aiNames[d.r] || ['Hearthstead'])[0];
+    UI.start.race = d.r; renderStart();
+  },
   begin: () => {
     readStart();
     const st = UI.start;

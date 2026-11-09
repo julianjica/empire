@@ -133,6 +133,55 @@
       o.frequency.setValueAtTime(mtof(m - 1), t); o.frequency.exponentialRampToValueAtTime(mtof(m), t + 0.09); // scoop up
       const rasp = gainNode(g); rasp.gain.value = 0.25; noise(t, dur + 0.2, filt('bandpass', 1800, 2, rasp));
     },
+    whistle(t, m, dur, v, dest) {            // tin whistle: bright, breathy, quick vibrato
+      const g = gainNode(dest);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06 * v, t + 0.04);
+      g.gain.setValueAtTime(0.06 * v, t + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.0008, t + dur + 0.15);
+      const lp = filt('lowpass', 4200, 0.6, g);
+      const o = tone('triangle', mtof(m), t, dur + 0.2, lp);
+      o.frequency.setValueAtTime(mtof(m + 1), t); o.frequency.exponentialRampToValueAtTime(mtof(m), t + 0.05);   // a little flick into the note
+      const sq = gainNode(lp); sq.gain.value = 0.18; tone('square', mtof(m), t, dur + 0.2, sq);
+      const lg = N(ctx.createGain()); lg.gain.value = mtof(m) * 0.009; lg.connect(o.frequency);
+      tone('sine', 6.3, t + dur * 0.3, dur * 0.7 + 0.2, lg);
+      const breath = gainNode(g); breath.gain.value = 0.08; noise(t, 0.08, filt('bandpass', mtof(m) * 3, 4, breath));
+    },
+    glass(t, m, dur, v, dest) {              // glass bell: pure, slightly inharmonic partials, long shimmer
+      const f = mtof(m);
+      [[1, 0.07], [2.32, 0.03], [4.25, 0.018], [6.63, 0.008]].forEach(([k, a], i) => {
+        const g = gainNode(dest); env(g, t, 0.002, a * v, 2.6 - i * 0.5);
+        const o = tone('sine', f * k, t, 2.7, g); o.detune.value = (i % 2 ? 3 : -3);
+      });
+    },
+    organ(t, m, dur, v, dest) {              // drawbar organ: octaves and a fifth, slow swell, no decay
+      const g = gainNode(dest);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.045 * v, t + 0.5);
+      g.gain.setValueAtTime(0.045 * v, t + dur * 0.85); g.gain.exponentialRampToValueAtTime(0.0008, t + dur + 0.8);
+      const lp = filt('lowpass', 1400, 0.5, g);
+      for (const [k, a] of [[0.5, 0.7], [1, 1], [1.5, 0.45], [2, 0.5], [4, 0.15]]) {
+        const pg = gainNode(lp); pg.gain.value = a; tone('sine', mtof(m) * k, t, dur + 0.9, pg);
+      }
+    },
+    toll(t, m, dur, v, dest) {               // distant tolling bell: low FM strike, long hum, muffled by distance
+      const f = mtof(m), lp = filt('lowpass', 1100, 0.4, dest), g = gainNode(lp); env(g, t, 0.004, 0.16 * v, 5.5);
+      const c = tone('sine', f, t, 5.6, g);
+      const mg = N(ctx.createGain()); mg.gain.setValueAtTime(f * 2.2, t); mg.gain.exponentialRampToValueAtTime(f * 0.02, t + 3);
+      mg.connect(c.frequency); tone('sine', f * 1.41, t, 5.6, mg);
+      const hum = gainNode(lp); env(hum, t, 0.05, 0.05 * v, 6); tone('sine', f / 2, t, 6.1, hum);
+    },
+    swell(t, m, dur, v, dest) {              // a wave: filtered noise rising and falling
+      const g = gainNode(dest);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.09 * v, t + dur * 0.45); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      const lp = filt('lowpass', 300, 0.7, g);
+      lp.frequency.setValueAtTime(260, t); lp.frequency.linearRampToValueAtTime(1300, t + dur * 0.45); lp.frequency.linearRampToValueAtTime(220, t + dur);
+      noise(t, dur, lp);
+    },
+    gust(t, m, dur, v, dest) {               // wind gust: bandpassed noise whose pitch sweeps with the gust
+      const g = gainNode(dest);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06 * v, t + dur * 0.3); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      const bp = filt('bandpass', 700, 2.5, g), f0 = 500 + rnd() * 500;
+      bp.frequency.setValueAtTime(f0, t); bp.frequency.exponentialRampToValueAtTime(f0 * (1.8 + rnd()), t + dur * 0.35); bp.frequency.exponentialRampToValueAtTime(f0 * 0.7, t + dur);
+      noise(t, dur, bp);
+    },
   };
 
   // ---------------------------------------------------------------
@@ -142,6 +191,7 @@
     ionian: [0, 2, 4, 5, 7, 9, 11], mixolydian: [0, 2, 4, 5, 7, 9, 10], dorian: [0, 2, 3, 5, 7, 9, 10],
     lydian: [0, 2, 4, 6, 7, 9, 11], phrygian: [0, 1, 3, 5, 7, 8, 10], aeolian: [0, 2, 3, 5, 7, 8, 10],
     phrygDom: [0, 1, 4, 5, 7, 8, 10], locrianish: [0, 1, 3, 5, 6, 8, 10],
+    wholetone: [0, 2, 4, 6, 8, 10], harmMinor: [0, 2, 3, 5, 7, 8, 11],
   };
   const THEMES = {
     hearth: { root: 50, modes: ['mixolydian', 'ionian'], tense: 'aeolian', tempo: 84, prog: [0, 3, 4, 0, 5, 3, 6, 4],
@@ -152,6 +202,14 @@
       drone: { types: ['sine', 'triangle'], ints: [-12, -5], gain: 0.045 } },
     ash: { root: 40, modes: ['phrygian'], tense: 'phrygDom', tempo: 70, prog: [0, 1, 0, 6, 0, 1, 5, 0],
       drone: { types: ['sawtooth', 'sine'], ints: [0, -12], gain: 0.04 } },
+    tide: { root: 50, modes: ['dorian', 'mixolydian'], tense: 'aeolian', tempo: 66, prog: [0, 3, 4, 0, 6, 3, 4, 0],
+      drone: { types: ['triangle', 'sine'], ints: [-12, -5], gain: 0.04 } },
+    veil: { root: 57, modes: ['lydian', 'wholetone'], tense: 'locrianish', tempo: 58, prog: [0, 1, 0, 3, 0, 1, 4, 0],
+      drone: { types: ['sine', 'sine'], ints: [-12, -6], gain: 0.03 } },
+    grave: { root: 36, modes: ['aeolian', 'harmMinor'], tense: 'locrianish', tempo: 52, prog: [0, 5, 3, 4, 0, 1, 5, 0],
+      drone: { types: ['sawtooth', 'triangle'], ints: [0, -12], gain: 0.035 } },
+    wind: { root: 62, modes: ['mixolydian', 'ionian'], tense: 'dorian', tempo: 80, prog: [0, 4, 0, 3, 0, 4, 3, 0],
+      drone: { types: ['sine', 'triangle'], ints: [-24, -17], gain: 0.03 } },
   };
   //            spring summer autumn winter
   const SEASON = [{ tempo: 1, dens: 0.85, bright: 1 }, { tempo: 1.06, dens: 1, bright: 1.2 },
@@ -252,6 +310,33 @@
         if (!m.tense && [0, 6, 8, 11].includes(s16) && rnd() < (s16 === 0 ? 0.9 : dens * 0.6)) play('taiko', 0, 0.5, s16 === 0 ? 1 : 0.6);
         if (!phraseRest && s16 % 4 === 0 && rnd() < dens * 0.6) play('reed', scaleNote(th, scale, walk(s16 === 0), 1), sd * pick([3, 4, 6]));
         if (!phraseRest && s16 % 4 === 2 && rnd() < dens * 0.2) play('reed', scaleNote(th, scale, deg + 1, 1), sd * 1.5, 0.7);
+        break;
+      case 'tide':                                        // rolling swells, a lilting harp, a tin whistle over the waves
+        if (s16 === 0 && bar % 2 === 0) play('swell', 0, sd * 14, 0.8 + 0.3 * se.dens);
+        if (s16 % 4 === 0 && rnd() < dens * 0.85) {
+          const d = [0, 2, 4, 2][s16 / 4];
+          play('harp', scaleNote(th, scale, chord + d, 0), sd * 3, vel * 0.8);
+        }
+        if (!phraseRest && (s16 % 4 === 0 || s16 % 4 === 3) && rnd() < dens * 0.45) play('whistle', scaleNote(th, scale, walk(s16 % 8 === 0), 2), sd * (s16 % 4 ? 1 : 2.5));
+        if (s16 === 0 && rnd() < 0.6) play('bowed', scaleNote(th, scale, chord, -1), sd * 12, 0.55);
+        break;
+      case 'veil':                                        // shimmering glass bells over a whole-tone / lydian haze
+        if (s16 === 0 && bar % 2 === 0) [0, 2, 4, 6].forEach(d => play('pad', scaleNote(th, scale, chord + d), sd * 30, 0.75));
+        if (s16 % 4 === 0 && rnd() < dens * 0.55) play('glass', scaleNote(th, scale, walk(s16 === 0), 2), 2, 0.8);
+        if (s16 % 8 === 6 && rnd() < dens * 0.3) [0, 3].forEach((k, i) => { INST.glass(t + i * sd * 0.66, scaleNote(th, scale, deg + 2 + k, 3), 2, vel * 0.5, musicFilter); stats.notes++; });
+        if (!phraseRest && s16 % 8 === 4 && rnd() < dens * 0.35) play('flute', scaleNote(th, scale, chord + pick([2, 4, 5]), 1), sd * 5, 0.6);
+        break;
+      case 'grave':                                       // organ drones in a low minor, a bell tolling far away
+        if (s16 === 0 && bar % 2 === 0) [0, 2, 4].forEach(d => play('organ', scaleNote(th, scale, chord + d, 1), sd * 30, 0.9));
+        if (s16 === 0 && bar % 4 === 0 && rnd() < 0.8) play('toll', th.root + 12, 6, 0.9);
+        if (s16 === 8 && bar % 4 === 2 && rnd() < 0.35) play('toll', th.root + 19, 6, 0.5);
+        if (!phraseRest && s16 % 8 === 0 && rnd() < dens * 0.5) play('bowed', scaleNote(th, scale, walk(s16 === 0), 1), sd * 7, 0.7);
+        break;
+      case 'wind':                                        // a high flute over open fifths, gusts sweeping the peaks
+        if (s16 === 0 || (s16 === 8 && rnd() < 0.6)) [0, 4].forEach(d => play('harp', scaleNote(th, scale, chord + d, s16 ? 0 : -1), sd * 6, 0.75));
+        if (!phraseRest && s16 % 4 === 0 && rnd() < dens * 0.6) play('flute', scaleNote(th, scale, walk(s16 % 8 === 0), 1), sd * pick([2, 3, 4]), 0.95);
+        if (s16 === 4 && bar % 2 === 0 && rnd() < 0.5) play('pad', scaleNote(th, scale, chord + 4), sd * 24, 0.7);
+        if (s16 % 8 === 2 && rnd() < 0.12 + 0.12 * se.dens) play('gust', 0, sd * (6 + rnd() * 8), 0.9);
         break;
     }
     if (m.tense) {                                        // danger: low drums for every people

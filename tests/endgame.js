@@ -26,7 +26,9 @@ const setup = race => {
   let guard = 0;
   while (G.lvl(c, 'wonder_hearth') < 10 && guard++ < 400) { rich(c); if (!c.buildQueue.length) G.queueBuild(s, c.id, 'wonder_hearth'); G.advance(s, 1200, 40); }
   ok('wonder reaches stage 10', G.lvl(c, 'wonder_hearth') === 10, 'game time ' + (s.time / 3600).toFixed(1) + 'h');
-  ok('stages grant boons', G.mod(s, 'p', c, 'grain') > g0 * 1.25, g0.toFixed(2) + ' -> ' + G.mod(s, 'p', c, 'grain').toFixed(2));
+  // compare at the same moment (seasons change over 8 hours): with and without the wonder's stages
+  const withW = G.mod(s, 'p', c, 'grain'); const lv = s.empires.p._wonderLevel; s.empires.p._wonderLevel = 0; const without = G.mod(s, 'p', c, 'grain'); s.empires.p._wonderLevel = lv;
+  ok('stages grant boons', withW > without * 1.25, without.toFixed(2) + ' -> ' + withW.toFixed(2));
   ok('finishing the wonder wins a conquest game', s.victory === 'wonder');
 }
 { // an AI finishing first is a defeat

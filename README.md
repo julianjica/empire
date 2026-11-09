@@ -45,6 +45,7 @@ node tests/naval.js               # seas, islands, harbors, ships, paths
 node tests/magic.js               # mana, ley enclaves, schools, spells, wild magic, the Great Working
 node tests/heroes.js              # rival heroes, duels, arcana
 node tests/religion.js            # faiths, spread, priests, miracles, holy war, religious victory
+node tests/races.js               # the eight peoples: units, buildings, goods, flying/amphibious, raising the dead
 node tests/traderoutes.js         # internal and foreign routes, ambushes, escorts
 node tests/sim.js standard 6 army # balance: a bot player vs the AI for 6 game-hours (paces: quick, standard, long)
 node tests/late.js                # 12-hour run: AI expansion, conquests, snowballing

@@ -1,0 +1,3 @@
+/* portraits: .pt wrappers — see js/portraits.js */
+.pt{display:inline-block;flex:none;vertical-align:middle;line-height:0}
+.pt svg{display:block;width:100%;height:100%}

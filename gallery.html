@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Portrait Gallery</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/portraits.css">
+<style>
+  body { padding: 16px; }
+  h1 { margin: 0 0 4px; }
+  .gbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0 16px; }
+  .race { margin: 18px 0; }
+  .race h2 { margin: 0 0 6px; font-size: 18px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .cell { width: var(--w, 112px); text-align: center; font-size: 11.5px; }
+  .cell .lbl { margin-top: 3px; line-height: 1.2; }
+  .cell .sub { opacity: .65; }
+  .small .pt + .pt { margin-left: 4px; }
+</style>
+</head>
+<body>
+<h1>Portrait Gallery</h1>
+<div class="muted">Every portrait in the game, drawn by js/portraits.js and js/portrait-gear.js. Reload after edits.</div>
+<div class="gbar">
+  <label>Size <select id="size"><option>128</option><option selected>96</option><option>64</option><option>40</option><option>32</option></select></label>
+  <label>Section <select id="sec"><option value="all">All</option><option value="units">Troops</option><option value="heroes">Heroes</option><option value="council">Advisors & governors</option><option value="others">Spies, rulers, citizens, monsters</option></select></label>
+  <label>People <select id="race"><option value="all">All eight</option></select></label>
+  <label><input type="checkbox" id="small"> also show at 32px</label>
+</div>
+<div id="out"></div>
+<script>window.localStorage||(window.localStorage={getItem(){return null},setItem(){},removeItem(){}});</script>
+<script src="js/data.js"></script>
+<script src="js/races2.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/research.js"></script>
+<script src="js/forge.js"></script>
+<script src="js/hero.js"></script>
+<script src="js/diplomacy.js"></script>
+<script src="js/events.js"></script>
+<script src="js/calamities.js"></script>
+<script src="js/culture.js"></script>
+<script src="js/wonders.js"></script>
+<script src="js/seasons.js"></script>
+<script src="js/religion.js"></script>
+<script src="js/traderoutes.js"></script>
+<script src="js/rivalheroes.js"></script>
+<script src="js/magic.js"></script>
+<script src="js/espionage.js"></script>
+<script src="js/minors.js"></script>
+<script src="js/portraits.js"></script>
+<script src="js/portrait-gear.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  for (const r of DATA.raceOrder) $('race').insertAdjacentHTML('beforeend', `<option value="${r}">${DATA.races[r].name}</option>`);
+  const cell = (spec, label, sub) => {
+    const size = +$('size').value;
+    return `<div class="cell" style="--w:${Math.max(size, 80) + 12}px">${G.portraitHtml(spec, size)}${$('small').checked ? `<div class="small">${G.portraitHtml(spec, 32)}${G.portraitHtml(spec, 24)}</div>` : ''}<div class="lbl">${label}${sub ? `<div class="sub">${sub}</div>` : ''}</div></div>`;
+  };
+  const sharedUnits = () => Object.keys(DATA.units).filter(u => DATA.units[u].at && !DATA.raceOrder.some(r => DATA.races[r].units.includes(u)));
+  const draw = () => {
+    const sec = $('sec').value, rf = $('race').value;
+    const races = rf === 'all' ? DATA.raceOrder : [rf];
+    let h = '';
+    for (const r of races) {
+      const R = DATA.races[r], col = R.color, HN = R.heroNames || ['Aldric', 'Mira', 'Corwen', 'Ysolt'];
+      let g = '';
+      if (sec === 'all' || sec === 'units') g += R.units.map((u, i) => cell({ race: r, kind: 'unit', unit: u, color: col, rank: i % 4 === 3 ? 6 : i % 3 }, DATA.units[u].name, G.roleOf(u))).join('');
+      if (sec === 'all' || sec === 'heroes') g += [0, 3, 7, 10].map((rk, i) => cell({ race: r, kind: 'hero', seed: HN[i] || i, color: col, rank: rk, wounded: i === 2 ? 0.6 : 0, female: i % 2 === 1 }, HN[i] || 'Hero', 'hero · rank ' + rk)).join('')
+        + cell({ race: r, kind: 'hero', seed: 'fallen', color: col, rank: 5, dead: true }, 'Fallen hero', 'dead');
+      if (sec === 'all' || sec === 'council') g += ['steward', 'marshal', 'spymaster', 'priest', 'archmage'].map(a => cell({ race: r, kind: 'advisor', role: a, seed: a, color: col }, a, 'advisor')).join('')
+        + [0, 1].map(i => cell({ race: r, kind: 'governor', seed: 'gov' + i, color: col }, 'Governor', '')).join('');
+      if (sec === 'all' || sec === 'others') g += cell({ race: r, kind: 'spy', seed: 'spy', color: col, rank: 3 }, 'Spy', '') + cell({ race: r, kind: 'ruler', seed: 'ruler', color: col, rank: 10 }, (DATA.aiRulers && DATA.aiRulers[r]) || 'Ruler', 'ruler')
+        + [0, 1].map(i => cell({ race: r, kind: 'citizen', seed: 'cit' + i, color: col }, 'Citizen', '')).join('');
+      h += `<div class="race"><h2 style="color:${col}">${R.name}</h2><div class="grid">${g}</div></div>`;
+    }
+    if (rf === 'all' && (sec === 'all' || sec === 'units')) h += `<div class="race"><h2>Shared troops</h2><div class="grid">${sharedUnits().map(u => cell({ race: 'hearth', kind: 'unit', unit: u, color: '#8a6d3b' }, DATA.units[u].name, G.roleOf(u))).join('')}</div></div>`;
+    if (rf === 'all' && (sec === 'all' || sec === 'others')) h += `<div class="race"><h2>Monsters</h2><div class="grid">${['wyrm', 'demon', 'undead', 'beast', 'brigand', 'elemental'].map(m => cell({ race: 'hearth', kind: 'monster', role: m, seed: m }, m, 'monster')).join('')}</div></div>`;
+    $('out').innerHTML = h;
+  };
+  for (const id of ['size', 'sec', 'race', 'small']) $(id).addEventListener('change', draw);
+  draw();
+})();
+</script>
+</body>
+</html>

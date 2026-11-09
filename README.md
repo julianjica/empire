@@ -61,6 +61,8 @@ node tests/portraits.js           # procedural portraits
 node tests/generals.js            # generals, army stances
 node tests/monsters.js            # roaming monsters, migrations, the late crisis
 node tests/logistics.js           # supply lines and the realm ledger
+node tests/dynasty.js             # rulers, heirs, succession, marriages
+node tests/treaties.js            # treaties, negotiations, vassals
 node tests/parity.js              # AI-vs-AI fairness across the eight peoples
 node tests/sim.js standard 6 army # balance: a bot player vs the AI for 6 game-hours (paces: quick, standard, long)
 node tests/late.js                # 12-hour run: AI expansion, conquests, snowballing

@@ -6,7 +6,7 @@
 const fs = require('fs');
 global.localStorage = { _: {}, getItem(k) { return this._[k] ?? null; }, setItem(k, v) { this._[k] = String(v); }, removeItem(k) { delete this._[k]; } };
 const hours = +(process.argv[2] || 6), worlds = +(process.argv[3] || 8), pace = process.argv[4] || 'standard', seed = +(process.argv[5] || 1000);
-const files = ['js/data.js', 'js/races2.js', 'js/engine.js', 'js/research.js', 'js/forge.js', 'js/hero.js', 'js/diplomacy.js', 'js/events.js', 'js/calamities.js', 'js/culture.js','js/traditions.js', 'js/wonders.js', 'js/seasons.js', 'js/religion.js', 'js/traderoutes.js', 'js/rivalheroes.js', 'js/magic.js', 'js/espionage.js', 'js/minors.js', 'js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js'].filter(f => fs.existsSync(f));
+const files = ['js/data.js', 'js/races2.js', 'js/engine.js', 'js/research.js', 'js/forge.js', 'js/hero.js', 'js/diplomacy.js', 'js/events.js', 'js/calamities.js', 'js/culture.js','js/traditions.js', 'js/wonders.js', 'js/seasons.js', 'js/religion.js', 'js/traderoutes.js', 'js/rivalheroes.js', 'js/magic.js', 'js/espionage.js', 'js/minors.js', 'js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/dynasty.js'].filter(f => fs.existsSync(f));
 eval(files.map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
 if (typeof initRaces2 === 'function') initRaces2();
 const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };

@@ -343,5 +343,44 @@ const offUnit=(s,o)=>DATA.races[s.empires[o].race].units.filter(u=>DATA.units[u]
   ok('old saves load and run', !!o2 && !err && typeof o2.monsters==='object', err&&err.message);
 }
 
+// ---------------------------------------------------------------- intercepting a creature on the move
+{
+  const s=fresh(); s.time=3*H; const cap=G.capital(s,'p'); cap.units={militia:200,knight:80};
+  const spot=landTile(s,t=>G.dist(t,cap)>=4&&G.dist(t,cap)<=6&&G.landReachable(s,t,cap)&&!s.tiles.some(o=>o.city&&G.dist(o,t)<2));
+  const tr=G.spawnMonster(s,'trolls',spot,{n:6}); tr.raidAt=1e12; finishLeg(s,tr); tr.rest=1e12;
+  ok('a resting creature cannot be intercepted: the hunt is the way', /not on the move/.test(G.canIntercept(s,'p',tr)||''), G.canIntercept(s,'p',tr));
+  // send it walking along a long leg (slowly, so riders can cut across its trail)
+  let plan=null;
+  for (let i=0;i<40&&!(plan&&plan.ok);i++){
+    const d=landTile(s,t=>G.dist(t,tr)>=5&&G.dist(t,tr)<=8&&G.dist(t,cap)>=3&&G.landReachable(s,t,tr));
+    if(!d) continue; place(s,tr,spot);
+    if(!G.monsterLegTo(s,tr,d.x,d.y)) continue;
+    tr.arrive=s.time+(tr.arrive-tr.depart)*3; tr.depart=s.time;   // a slow leg
+    plan=G.interceptPlan(s,'p',cap,tr,{knight:80});
+  }
+  ok('a creature on the move: a meeting point on its trail', plan&&plan.ok, plan&&plan.reason);
+  if (plan&&plan.ok) {
+    ok('the preview of the interception shows the fight', (()=>{ const pv=G.previewIntercept(s,cap,tr,{knight:80},null,plan); return pv && pv.monster && pv.estimated && pv.A>0; })());
+    const err=G.sendIntercept(s,cap.id,tr.id,{knight:80});
+    const I=s.moves.find(m=>m.type==='intercept'&&m.owner==='p');
+    ok('troops go out to lie in wait: an interception tagged as a hunt', !err && I && I.monster===tr.id && I.target===tr.id && I.x===plan.x && I.y===plan.y, err);
+    ok('the log says hunters lie in wait', s.log.some(l=>/lie in wait for the troll/.test(l.text)));
+    let k=0; while(s.moves.includes(I) && k++<4000) G.step(s,2);
+    const rep=s.reports.find(r=>/troll/i.test(r.title));
+    ok('the meeting is fought as a hunt on its trail', rep && (/Victory against the troll|Defeat against the troll|followed|trail/.test(rep.title)), rep&&rep.title);
+    ok('the creature was slain where they met', !s.monsters[tr.id], rep&&rep.title);
+    const back=s.moves.find(m=>m.owner==='p'&&m.type==='return');
+    ok('the hunters walk home only as long as they marched', back && back.arrive-back.depart<=I.march+1, back&&(back.arrive-back.depart)+' vs '+I.march);
+  }
+  // a creature that vanished before they met: the hunt finds nothing
+  { const s2=fresh(); s2.time=3*H; const c2=G.capital(s2,'p'); c2.units={knight:80};
+    const sp2=landTile(s2,t=>G.dist(t,c2)>=4&&G.dist(t,c2)<=6&&G.landReachable(s2,t,c2)&&!s2.tiles.some(o=>o.city&&G.dist(o,t)<2));
+    const t2=G.spawnMonster(s2,'trolls',sp2,{n:4}); t2.raidAt=1e12; finishLeg(s2,t2); t2.rest=1e12;
+    let p2=null; for(let i=0;i<40&&!(p2&&p2.ok);i++){ const d=landTile(s2,t=>G.dist(t,t2)>=5&&G.dist(t,t2)<=8&&G.landReachable(s2,t,t2)); if(!d) continue; place(s2,t2,sp2); if(!G.monsterLegTo(s2,t2,d.x,d.y)) continue; t2.arrive=s2.time+(t2.arrive-t2.depart)*3; t2.depart=s2.time; p2=G.interceptPlan(s2,'p',c2,t2,{knight:80}); }
+    if (p2&&p2.ok) { G.sendIntercept(s2,c2.id,t2.id,{knight:80}); delete s2.monsters[t2.id]; const I2=s2.moves.find(m=>m.type==='intercept'); let k2=0; while(s2.moves.includes(I2)&&k2++<4000) G.step(s2,2);
+      ok('a creature gone before the meeting: the hunt comes to nothing, the troops go home', s2.reports.some(r=>/came to nothing/.test(r.title)) && s2.moves.some(m=>m.type==='return'&&m.owner==='p')); }
+  }
+}
+
 console.log(fails?fails+' FAILED':'all monster checks passed');
 `);

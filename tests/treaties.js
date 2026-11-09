@@ -1,7 +1,7 @@
 // Treaties, negotiation, war score and peace terms, vassals, AI diplomacy, save/load.  node tests/treaties.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra!==undefined&&!cond?' '+extra:'')); };
@@ -323,6 +323,46 @@ ok('every treaty kind has name, icon, desc', DATA.treatyOrder.every(k=>{const K=
   ok('six hours of AI diplomacy run without errors', !err, err&&err.stack);
   ok('no treaty with a fallen realm and no stale wars', G.treatiesOf(s,'p').every(t=>!s.empires[t.a].dead&&!s.empires[t.b].dead) && Object.values(s.dip.wars).every(w=>G.statusOf(s,w.a,w.b)==='war'));
   console.log('  treaties after 6h:', s.dip.treaties.map(t=>t.kind+':'+t.a+'-'+t.b).join(' '), '| history', s.dip.hist.length, '| trust p', Math.round(G.trustOf(s,'p')));
+}
+
+// ---- the late crisis: a grand truce, and no new wars on those who fight it ----
+{ const setupCrisis=()=>{ const s=fresh(); s.time=8*3600; s.monsterAt=1e12; s.crisisNext=1e12;
+    const a1=G.capital(s,'a1'), a2=G.capital(s,'a2');
+    if (G.dist(a1,a2)>9) { const t=near(s,a2,3,6); G.foundCity(s,'a1',t.x,t.y,'Borderwatch'); }
+    return s; };
+  const s=setupCrisis();
+  G.aiRel(s,'a1','a2').status='war'; G.rel(s,'a3').status='war';
+  G.startCrisis(s);
+  ok('the crisis: warring AI realms swear a grand truce (a treaty)', G.hasTreaty(s,'a1','a2','crisis') && G.aiRel(s,'a1','a2').status==='peace');
+  const offer=(s.pending||[]).find(p=>p.kind==='crisis');
+  ok('the rivals offer the player the grand truce', !!offer && /grand truce/.test(offer.title), offer&&offer.title);
+  ok('accepting it signs the truce with every rival at war or neutral', offer && G.resolvePending(s,offer.id,'truce')===null && G.hasTreaty(s,'p','a3','crisis') && G.rel(s,'a3').status==='peace');
+  ok('the grand truce forbids attacking: it is a pact', G.pactBetween(s,'p','a3') && DATA.treatyKinds.crisis.pact);
+  ok('the truce blocks AI war declarations on the bound realm', G.crisisWarBlocked(s,'a3','p'));
+  // helping against the crisis warms every court
+  s.crisis.contrib.p=40;
+  const part=G.opinionParts(s,'a1').parts.find(x=>x.key==='crisis');
+  ok('helping against the crisis: an opinion bonus with every court', part && part.v>0 && part.v<=20 && /crisis/.test(part.label), part&&part.v);
+  // a crisis fighter is safe from new AI wars
+  const s2=setupCrisis(); G.startCrisis(s2); s2.pending=[];
+  for (const t of [...s2.dip.treaties]) G.endTreaty(s2,t,'ended');
+  G.aiRel(s2,'a1','a2').status='neutral'; s2.empires.a1.aggr=1; s2.empires.a2.aggr=0.9;
+  const ctl=G.deserialize(G.serialize(s2));
+  s2.crisis.contrib.a2=10;
+  ok('a realm that gave to the rite or slew crisis creatures is a crisis fighter', G.crisisFighter(s2,'a2') && !G.crisisFighter(s2,'a1'));
+  const roll=(st)=>{ const r0=Math.random, ap=G.aiPressure; Math.random=()=>0.001; G.aiPressure=()=>1;
+    try { withPower({a1:500,a2:500},()=>{ for(let i=0;i<120 && G.aiRel(st,'a1','a2').status!=='war';i++) hooks(st,1); }); } finally { Math.random=r0; G.aiPressure=ap; } quiet(); };
+  roll(s2); roll(ctl);
+  ok('no AI declares war on a realm fighting the crisis', G.aiRel(s2,'a1','a2').status!=='war', G.aiRel(s2,'a1','a2').status);
+  ok('(control) without the crisis fight, the same warlike neighbour does declare war', G.aiRel(ctl,'a1','a2').status==='war', G.aiRel(ctl,'a1','a2').status);
+  // nor does a stronger, hostile AI tear up its pact with a player who fights the crisis
+  const s3=setupCrisis(); G.startCrisis(s3); s3.pending=[]; s3.crisis.contrib.p=5;
+  G.signTreaty(s3,'nap','p','a1',{mins:600}); s3.empires.a1.aggr=0.9;
+  let broke=0; withPower({p:100,a1:1000},()=>{ for (let i=0;i<200 && !broke;i++){ TRT.aiBreak=60; G.rel(s3,'a1').opinion=-50; hooks(s3,1); if (G.rel(s3,'a1').status==='war') broke=1; } }); quiet();
+  ok('a hostile, stronger AI keeps its pact while the player fights the crisis', !broke);
+  // the truce ends with the crisis
+  G.endCrisis(s,true);
+  ok('the grand truce ends with the crisis; the peace it made stays', !s.dip.treaties.some(t=>t.kind==='crisis') && G.rel(s,'a3').status==='peace' && !G.crisisWarBlocked(s,'a3','p'));
 }
 
 console.log(fails?fails+' FAILED':'ALL PASS');

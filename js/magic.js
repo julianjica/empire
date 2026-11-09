@@ -188,12 +188,40 @@ const leyPowerRaw = (s, city) => {
 };
 G.nodesOf = (s, owner) => (s.ley ? s.ley.nodes.filter(n => { const c = G.nodeTapper(s, n); return c && c.owner === owner; }) : []);
 
+// Mana is a flow to spend, not a hoard:
+//  · the ley gives with diminishing returns (a second enclave adds less than the first);
+//  · each city holds only so much: a little in its cellars, more in a Warehouse, most in a Mage Tower's wards.
+//    What the land gives beyond that is lost, and a store above it (an old save, a windfall) bleeds back down.
+G.MANA = { leyDim: 0.3, capBase: 120, capWarehouse: 20, capTower: 150, capTower2: 20, bleed: 0.03, sellAt: 0.9, sellTo: 0.7 };
+G.leyEffective = lp => lp / (1 + G.MANA.leyDim * lp);
+G.manaCap = (s, city) => {
+  const M = G.MANA, L = G.lvl(city, 'magetower'), W = G.lvl(city, 'warehouse');
+  return Math.min(G.storageCap(s, city), Math.round(M.capBase + M.capWarehouse * W + M.capTower * L + M.capTower2 * L * L));
+};
+G.manaCapOf = (s, owner) => G.citiesOf(s, owner).reduce((a, c) => a + G.manaCap(s, c), 0);
 // every city makes a little mana; towers and enclaves make much more
 G.econHooks.push((s, city, raw, eff) => {
   const L = G.lvl(city, 'magetower');
-  const lp = G.leyPower(s, city);
+  const lp = G.leyEffective(G.leyPower(s, city));
   const base = 0.6 + lp * 2 + (L ? (1.5 * L * Math.pow(1.1, L - 1)) * (1 + lp * 0.35) : 0);
   raw.mana = (raw.mana || 0) + base * Math.max(0.5, eff) * G.mod(s, city.owner, city, 'mana');
+});
+// enforce the mana store after every step: growth past the cap is lost, an older excess bleeds away
+const MANA_PREV = new WeakMap();
+G.stepHooks.push((s, dt) => {
+  const k = Math.pow(1 - G.MANA.bleed, dt / 60);
+  for (const c of Object.values(s.cities)) {
+    const cur = c.res.mana || 0;
+    if (cur <= G.MANA.capBase) { MANA_PREV.set(c, cur); continue; }       // under any cap: nothing to do (cheap path)
+    const cap = G.manaCap(s, c);
+    if (cur > cap) {
+      const prev = MANA_PREV.get(c);
+      let v = prev !== undefined && cur > prev ? Math.max(cap, prev) : cur;
+      if (v > cap) v = cap + (v - cap) * k;
+      c.res.mana = v;
+    }
+    MANA_PREV.set(c, c.res.mana);
+  }
 });
 
 // ---------------------------------------------------------------------
@@ -600,15 +628,42 @@ const AI_TAG = {
 };
 for (const [tag, ids] of Object.entries(AI_TAG)) for (const id of ids) if (DATA.spells[id] && !DATA.spells[id].ai) DATA.spells[id].ai = tag;
 DATA.spells.manaward.ai = 'ward'; DATA.spells.raisedead.ai = 'raise';
+// an AI short of gold for a magical end (a school's fee) sells mana it can spare at its markets; returns the gold raised
+G.aiSellMana = (s, owner, gold, keep = 0) => {
+  let got = 0;
+  for (const c of G.citiesOf(s, owner)) {
+    if (got >= gold || !G.lvl(c, 'market')) continue;
+    const rate = G.marketRates(s, c, 'mana').sell;
+    const spare = Math.max(0, manaOf(s, owner) - keep);
+    const n = Math.floor(Math.min(c.res.mana || 0, spare, (gold - got) / rate + 1));
+    if (n > 0 && G.trade(s, c.id, 'mana', n, 'sell') === null) got += n * rate;
+  }
+  return got;
+};
+// how full the realm's mana stores are (0..1): a realm near its cap spends freely, as mana past it is lost
+G.manaFill = (s, owner) => { const cap = G.manaCapOf(s, owner); return cap > 0 ? manaOf(s, owner) / cap : 0; };
 G.aiHooks.push((s, emp, dtMin) => {
-  if (Math.random() > 0.35) return;
   const cities = G.citiesOf(s, emp.id).filter(c => G.lvl(c, 'magetower') > 0);
   if (!cities.length) return;
+  const fill = G.manaFill(s, emp.id), flush = fill > 0.6;
+  // a spill valve: stores about to overflow and a Market at hand — sell the surplus to the merchants rather than lose it
+  if (fill > G.MANA.sellAt && emp.gold < 1500) for (const c of G.citiesOf(s, emp.id)) {
+    const cap = G.manaCap(s, c), n = Math.floor((c.res.mana || 0) - cap * G.MANA.sellTo);
+    if (G.lvl(c, 'market') && (c.res.mana || 0) > cap * 0.85 && n > 0) G.trade(s, c.id, 'mana', n, 'sell');
+  }
+  if (!flush && Math.random() > 0.35) return;
   const M = magic(s);
   const best = cities.sort((a, b) => G.lvl(b, 'magetower') - G.lvl(a, 'magetower'))[0];
-  if ((M.strain[best.id] || 0) > 45) return;
+  const strain = M.strain[best.id] || 0;
+  if (strain > (flush ? 55 : 45)) return;
   const mana = manaOf(s, emp.id);
-  const can = (id, k = 1.6) => { const st = G.spellStatus(s, emp.id, best.id, id); return st.ok && mana > st.cost * k ? st : null; };
+  // brimming stores lower the bar for peaceful magic only (econ, wards, transmutation); war spells keep their caution
+  const can = (id, k = 1.6) => {
+    if (strain > 45) return null;
+    const st = G.spellStatus(s, emp.id, best.id, id);
+    return st.ok && mana > st.cost * (flush && DATA.spells[id].ai !== 'strike' ? Math.min(k, 1.15) : k) ? st : null;
+  };
+  const canEasy = (id, k) => { const st = G.spellStatus(s, emp.id, best.id, id); return st.ok && mana > st.cost * (flush ? Math.min(k, 1.15) : k) ? st : null; };
   const spells = G.spellsOf(s, emp.id);
   const tagged = tag => spells.filter(id => DATA.spells[id].ai === tag).sort((a, b) => DATA.spells[b].tier - DATA.spells[a].tier);
   // defend a city under threat
@@ -629,8 +684,14 @@ G.aiHooks.push((s, emp, dtMin) => {
   }
   // the Great Working, when the stars align
   if (G.aiPressure(s) > 0.9 && G.workingStatus(s, emp.id).ok && Math.random() < 0.3) { G.beginWorkingStage(s, emp.id); return; }
-  // otherwise, an economic spell on its best city
-  for (const id of tagged('econ')) if ((DATA.spells[id].target === 'city' || DATA.spells[id].target === 'realm') && can(id, 3) && Math.random() < 0.5) { if (G.castSpell(s, emp.id, best.id, id, best.id) === null) return; }
+  // otherwise, an economic spell on its best city (always, when the stores are near full)
+  for (const id of tagged('econ')) if ((DATA.spells[id].target === 'city' || DATA.spells[id].target === 'realm') && canEasy(id, 3) && (flush || Math.random() < 0.5)) { if (G.castSpell(s, emp.id, best.id, id, best.id) === null) return; }
+  // stores still spilling over: turn a glut into what a city lacks
+  if (flush && spells.includes('transmute') && canEasy('transmute', 1.6)) {
+    const glut = c => { const cap = G.storageCap(s, c); return ['grain', 'timber', 'stone', 'ore'].some(g => (c.res[g] || 0) > cap * 0.7); };
+    const c = G.citiesOf(s, emp.id).find(glut);
+    if (c) G.castSpell(s, emp.id, best.id, 'transmute', c.id);
+  }
 });
 
 // new games get a ley network

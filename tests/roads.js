@@ -1,8 +1,9 @@
-// Roads and bridges: wear from caravans, levels, paving, decay, faster paths, fords, bridges (auto, ordered, AI), old saves.
+// Roads and bridges: wear from caravans, levels, paving, decay, faster paths, fords, bridges (auto, ordered, AI), terrain
+// costs (roads override them, peoples at home in rough country), A* optimality vs Dijkstra, a path-speed budget, old saves.
 // node tests/roads.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra!==undefined?' '+extra:'')); };
@@ -47,7 +48,8 @@ const site=(s,t,lo=2,hi=5)=>G.freeTile(s,x=>G.dist(x,t)>=lo&&G.dist(x,t)<=hi&&G.
   ok('more trips make a Road', plan.path.every(([x,y])=>G.roadLevel(s,x,y)===2));
   const army=G.roadsWear(s,{owner:'p',type:'attack',fx:0,fy:0,x:0,y:0,path:plan.path});
   ok('an army wears the road only a little', Math.abs((s.roads.wear[idx(s,c2)])-(RD.T[1]+RD.T[2]+RD.wOther))<1e-9, s.roads.wear[idx(s,c2)]);
-  ok('fliers (two-point straight paths) leave no trace', walk(s,'p',[[cap.x,cap.y],[cap.x+5,cap.y]])===0 && !s.roads.wear[idx(s,cap)+5]);
+  const wf=s.roads.wear[idx(s,cap)+5];
+  ok('fliers (two-point straight paths) leave no trace', walk(s,'p',[[cap.x,cap.y],[cap.x+5,cap.y]])===0 && s.roads.wear[idx(s,cap)+5]===wf);
   ok('a caravan from a realm-less owner leaves no trace', G.roadsWear(s,{owner:'nobody',type:'trade',path:plan.path})===0);
   // trade-route caravans carry no path: the road follows the land path
   const before=s.roads.wear[idx(s,c2)];
@@ -73,16 +75,21 @@ const site=(s,t,lo=2,hi=5)=>G.freeTile(s,x=>G.dist(x,t)>=lo&&G.dist(x,t)<=hi&&G.
 
 // ---- unused roads decay one level at a time ----
 { const s=fresh(); const cap=G.capital(s,'p');
-  const t=G.freeTile(s,x=>G.dist(x,cap)>=1&&G.dist(x,cap)<=1.5&&!G.isWater(x)); const p=[[cap.x,cap.y],[t.x,t.y]];
+  // the neighbour on the far side from every rival capital (AI priests and envoys walking in must not wear it)
+  const rivals=Object.keys(s.empires).filter(o=>o!=='p').map(o=>G.capital(s,o)).filter(Boolean);
+  const t=s.tiles.filter(x=>G.dist(x,cap)>=1&&G.dist(x,cap)<=1.5&&!G.isWater(x)&&!x.city).sort((a,b)=>Math.min(...rivals.map(c=>G.dist(b,c)))-Math.min(...rivals.map(c=>G.dist(a,c))))[0];
+  const p=[[cap.x,cap.y],[t.x,t.y]];
   for(let k=0;k<RD.T[2];k++) walk(s,'p',p);
   ok('the road is built', G.roadLevel(s,t.x,t.y)===2);
   const idle=RD.idle*60*G.pace(s).time;
+  const rw=G.roadsWear; G.roadsWear=()=>0;   // no other traffic (rival priests, envoys, trade routes) during the wait
   G.advance(s,idle*0.5,100);
   ok('a road is still a road after a while without traffic', G.roadLevel(s,t.x,t.y)===2);
   G.advance(s,idle*0.6,100);
   ok('long idle: the road fades to a track', G.roadLevel(s,t.x,t.y)===1);
   G.advance(s,idle*1.1,100);
   ok('longer still: the track is gone', G.roadLevel(s,t.x,t.y)===0);
+  G.roadsWear=rw;
   ok('decay invalidated the path costs (epoch moved)', s.roads.epoch>=2, s.roads.epoch);
 }
 
@@ -92,8 +99,10 @@ const site=(s,t,lo=2,hi=5)=>G.freeTile(s,x=>G.dist(x,t)>=lo&&G.dist(x,t)<=hi&&G.
   const lr=G.landRegions(s); let A=null,B=null;
   for(const t of s.tiles){ if(A) break; if(t.x<2||t.y<3||t.x+10>=s.map||t.y+3>=s.map) continue;
     let clear=true; for(let dy=-2;dy<=2&&clear;dy++) for(let dx=0;dx<=8;dx++){ const u=G.tileAt(s,t.x+dx,t.y+dy); if(!u||G.isWater(u)||u.city){clear=false;break;} }
+    if(clear) for(let dy=-2;dy<=2;dy++) for(let dx=0;dx<=8;dx++) G.tileAt(s,t.x+dx,t.y+dy).terrain='plains';   // open ground (terrain costs are tested below)
     if(clear){ A=t; B=G.tileAt(s,t.x+8,t.y); } }
   ok('found an open stretch of land', !!A);
+  G.clearPaths(s);
   const p0=G.path(s,A,B,false);
   ok('the path is memoised (same object twice)', G.path(s,A,B,false)===p0);
   ok('without roads the straight path costs 8', Math.abs(p0.len-8)<1e-6, p0.len);
@@ -188,6 +197,7 @@ const site=(s,t,lo=2,hi=5)=>G.freeTile(s,x=>G.dist(x,t)>=lo&&G.dist(x,t)<=hi&&G.
   const [r,a,b]=X;
   const c=G.foundCity(s,'a1',...(t=>[t.x,t.y])(site(s,r,2,4)),'AiFerry'); c.res.timber=1000;
   const path=[[a.x,a.y],[r.x,r.y],[b.x,b.y]];
+  const pf0=G.path(s,a,b,false).len;
   for(let k=0;k<RD.bridge.aiFords;k++) walk(s,'a1',path);
   ok('below the automatic threshold no bridge yet', !G.bridgeAt(s,r.x,r.y));
   G.advance(s,4*60,100);
@@ -195,8 +205,61 @@ const site=(s,t,lo=2,hi=5)=>G.freeTile(s,x=>G.dist(x,t)>=lo&&G.dist(x,t)<=hi&&G.
   ok('the AI commissions a bridge on its busy crossing', br && br.o==='a1', JSON.stringify(br));
   G.advance(s,RD.bridge.wood.min*60*G.pace(s).time+30,100);
   ok('and it gets finished', G.bridgeAt(s,r.x,r.y)&&G.bridgeAt(s,r.x,r.y).d===1);
-  ok('the AI bridge serves the player too (roads are double-edged)', G.path(s,a,b,false).len<2+RD.ford-0.1);
+  ok('the AI bridge serves the player too (roads are double-edged)', G.path(s,a,b,false).len<pf0-RD.ford+0.1, G.path(s,a,b,false).len.toFixed(2)+' vs '+pf0.toFixed(2));
   ok('an AI may not bridge the player\\'s land', (()=>{ const cap=G.capital(s,'p'); const X2=crossing(s,t=>G.landOwner(s,t.x,t.y)==='p'); if(!X2) return true; return !!G.bridgeQuote(s,'a1',X2[0].x,X2[0].y,{auto:true}).err; })());
+}
+
+// ---- terrain: rough country is slow off-road; a road overrides the terrain ----
+{ const s=fresh(); s.rivers=[]; G.clearPaths(s);
+  ok('terrain factors: open ground 1, forest, hills and mountains dearer in that order',
+    RD.terrain.plains===1 && RD.terrain.fertile===1 && 1<RD.terrain.forest && RD.terrain.forest<RD.terrain.hills && RD.terrain.hills<RD.terrain.mountain, JSON.stringify(RD.terrain));
+  // a 13x7 block of land away from cities and water; paint it, then march 8 tiles along its middle row
+  let A=null;
+  for(const t of s.tiles){ if(A) break; if(t.x<1||t.y<4||t.x+12>=s.map||t.y+4>=s.map) continue;
+    let clear=true; for(let dy=-3;dy<=3&&clear;dy++) for(let dx=-2;dx<=10;dx++){ const u=G.tileAt(s,t.x+dx,t.y+dy); if(!u||G.isWater(u)||u.city||u.camp){clear=false;break;} }
+    if(clear) A=t; }
+  ok('found a block of open land', !!A);
+  const B=G.tileAt(s,A.x+8,A.y);
+  const paint=(f)=>{ for(let dy=-3;dy<=3;dy++) for(let dx=-2;dx<=10;dx++){ const u=G.tileAt(s,A.x+dx,A.y+dy); u.terrain=f(dx,dy); } G.clearPaths(s); };
+  const C=()=>G.roadCosts(s);
+  const len=()=>G.path(s,A,B,false).len;
+  paint(()=>'plains'); const lp=len();
+  ok('across plains the 8-tile march costs 8', Math.abs(lp-8)<1e-6, lp);
+  const durP=G.planMarch(s,'p',A,B,{}).dur;
+  for(const k of ['forest','hills','mountain']){
+    paint(()=>k); const L=len();
+    ok(k+': the tile factor is RD.terrain.'+k, Math.abs(C().fac[A.y*s.map+A.x+1]-RD.terrain[k])<1e-6, C().fac[A.y*s.map+A.x+1]);
+    ok(k+': the same march costs 8 x '+RD.terrain[k], Math.abs(L-8*RD.terrain[k])<1e-4, L.toFixed(3));
+  }
+  paint(()=>'hills'); const durH=G.planMarch(s,'p',A,B,{}).dur;
+  ok('the march ETA through hills reflects the terrain', Math.abs(durH/durP-RD.terrain.hills)<0.05, durP+' -> '+durH);
+  ok('travelTime (caravans, trade previews) reflects it too', G.travelTime(s,'p',A,B,8)===durH, G.travelTime(s,'p',A,B,8)+' vs '+durH);
+  // a mountain ridge across the middle row with open plains one row north: the march goes round
+  paint((dx,dy)=>dy===0?'mountain':'plains');
+  const pm=G.path(s,A,B,false);
+  ok('a mountain ridge is walked around through open ground', pm.len<8*RD.terrain.mountain-3 && pm.path.filter(([x,y])=>y!==A.y).length>=5, pm.len.toFixed(2));
+  // roads override the terrain: a road along the ridge itself
+  paint(()=>'mountain');
+  for(let dx=0;dx<=8;dx++) s.roads.lvl[A.y*s.map+A.x+dx]=2;
+  flush(s);
+  ok('a road tile costs the road factor, whatever the ground', Math.abs(C().fac[A.y*s.map+A.x+3]-RD.F[2])<1e-6, C().fac[A.y*s.map+A.x+3]);
+  const lr=len();
+  ok('a road through the mountains costs 8 x the road factor', Math.abs(lr-8*RD.F[2])<1e-4, lr.toFixed(3));
+  ok('so roads matter most in rough country (×'+(8*RD.terrain.mountain/lr).toFixed(1)+' faster here vs ×'+(1/RD.F[2]).toFixed(1)+' on plains)', 8*RD.terrain.mountain/lr>1/RD.F[2]*2);
+  for(let dx=0;dx<=8;dx++) delete s.roads.lvl[A.y*s.map+A.x+dx];
+  flush(s);
+  // peoples at home in rough country
+  paint(()=>'forest');
+  const pf=G.path(s,A,B,false);
+  s.empires.p.race='sylvan';
+  ok('Sylvani march through forest as on open ground', Math.abs(G.marchLen(s,'p',pf)-8*RD.raceTerrain.sylvan.forest)<1e-4, G.marchLen(s,'p',pf).toFixed(2));
+  ok('their forest ETA is shorter than other peoples\\' (same route)', G.planMarch(s,'p',A,B,{}).dur<G.planMarch(s,'a1',A,B,{}).dur || s.empires.a1.race==='sylvan');
+  s.empires.p.race='delver'; paint(()=>'hills');
+  ok('Deepdelvers take hills nearly in stride', Math.abs(G.marchLen(s,'p',G.path(s,A,B,false))-8*RD.raceTerrain.delver.hills)<1e-4);
+  s.empires.p.race='hearth';
+  ok('other peoples pay the full terrain', Math.abs(G.marchLen(s,'p',G.path(s,A,B,false))-8*RD.terrain.hills)<1e-4);
+  ok('the tile panel helper reports the factor', G.terrainFactor(s,A.x+1,A.y)===RD.terrain.hills);
+  ok('a spell reshaping the land refreshes the costs', (G.reshape?(G.reshape(s,G.tileAt(s,A.x+1,A.y),'plains'),Math.abs(C().fac[A.y*s.map+A.x+1]-1)<1e-6):true));
 }
 
 // ---- roads emerge in a real game (AI caravans and supply lines) ----
@@ -205,6 +268,48 @@ const site=(s,t,lo=2,hi=5)=>G.freeTile(s,x=>G.dist(x,t)>=lo&&G.dist(x,t)<=hi&&G.
   const lv=Object.values(s.roads.lvl);
   ok('after a few hours the realms have worn tracks and roads', lv.length>10 && lv.some(v=>v>=2), lv.length);
   ok('the road epoch moved only a modest number of times', s.roads.epoch<200, s.roads.epoch);
+  // the landmark heuristic keeps A* optimal: random land paths match a plain Dijkstra over the same costs (terrain, roads, fords)
+  const N=s.map, lr=G.landRegions(s), wm=G.waterMask(s), land=s.tiles.filter(t=>!G.isWater(t));
+  let seed=11; const rr=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  const pairs=[]; while(pairs.length<200){ const a=land[Math.floor(rr()*land.length)], b=land[Math.floor(rr()*land.length)]; if(a!==b&&lr[idx(s,a)]===lr[idx(s,b)]) pairs.push([a,b]); }
+  const dijkstra=(a,b)=>{ const C=G.roadCosts(s), D=new Float64Array(N*N).fill(Infinity), done=new Uint8Array(N*N), g=idx(s,b); D[idx(s,a)]=0;
+    const H=[[0,idx(s,a)]]; const push=e=>{ H.push(e); let k=H.length-1; while(k>0){ const p=(k-1)>>1; if(H[p][0]<=H[k][0]) break; [H[p],H[k]]=[H[k],H[p]]; k=p; } };
+    const pop=()=>{ const top=H[0], last=H.pop(); if(H.length){ H[0]=last; let k=0; for(;;){ let c=2*k+1; if(c>=H.length) break; if(c+1<H.length&&H[c+1][0]<H[c][0]) c++; if(H[c][0]>=H[k][0]) break; [H[c],H[k]]=[H[k],H[c]]; k=c; } } return top; };
+    while(H.length){ const [du,u]=pop(); if(done[u]) continue; done[u]=1; if(u===g) break; const ux=u%N, uy=(u-ux)/N;
+      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ if(!dx&&!dy) continue; const vx=ux+dx,vy=uy+dy; if(vx<0||vy<0||vx>=N||vy>=N) continue; const v=vy*N+vx; if(wm[v]&&v!==g) continue; if(dx&&dy&&wm[uy*N+vx]&&wm[vy*N+ux]) continue;
+        const nd=du+(dx&&dy?1.4142:1)*(C.fac[u]+C.fac[v])*0.5+(C.ford&&v!==g?C.ford[v]:0); if(nd<D[v]){ D[v]=nd; push([nd,v]); } } }
+    return D[g]; };
+  const check=()=>{ let worst=0;
+    for(const [a,b] of pairs.slice(0,40)){ const d=dijkstra(a,b), p=G.path(s,a,b,false), e=Math.abs(d-(p?p.len:Infinity));
+      if(process.env.DBG&&e>1e-6){
+        const C=G.roadCosts(s), h=C.heur(idx(s,b)), g=idx(s,b), Dg=new Float64Array(N*N).fill(Infinity), dn=new Uint8Array(N*N); Dg[g]=0;
+        for(;;){ let u=-1,bb=Infinity; for(let i=0;i<N*N;i++) if(!dn[i]&&Dg[i]<bb){bb=Dg[i];u=i;} if(u<0) break; dn[u]=1; const ux=u%N,uy=(u-ux)/N;
+          for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ if(!dx&&!dy) continue; const vx=ux+dx,vy=uy+dy; if(vx<0||vy<0||vx>=N||vy>=N) continue; const v=vy*N+vx; if(wm[v]) continue; if(dx&&dy&&wm[uy*N+vx]&&wm[vy*N+ux]) continue;
+            const nd=Dg[u]+(dx&&dy?1.4142:1)*(C.fac[u]+C.fac[v])*0.5+(C.ford&&u!==g?C.ford[u]:0); if(nd<Dg[v]) Dg[v]=nd; } }
+        let bad=0, ex=null; for(let i=0;i<N*N;i++) if(Dg[i]<Infinity&&h(i)>Dg[i]+1e-6){ bad++; if(!ex||h(i)-Dg[i]>ex[1]) ex=[i,h(i)-Dg[i]]; }
+        const rc0=G.roadCosts; G.roadCosts=s2=>{ const v=rc0(s2); return {...v, heur:null, hm:0}; }; flush(s); const p0=G.path(s,a,b,false); G.roadCosts=rc0; flush(s); const p2=G.path(s,a,b,false);
+        console.log('pair',a.x,a.y,'->',b.x,b.y,'dij',d,'astar',p.len,'h0',p0.len,'again',p2.len,'inadmissible nodes',bad,'worst',ex,JSON.stringify(G.altStats(s)));
+      }
+      worst=Math.max(worst,e); }
+    return worst; };
+  let worst=check();   // no flush first: cities founded since the last road epoch must not leave stale paths behind
+  ok('landmark A* matches Dijkstra on 40 random paths of a played map (roads, fords, terrain)', worst<1e-6, worst);
+  // ... also while slack is in play (a fresh paved stretch the landmarks did not know of)
+  const fresh3=pairs[3][0]; for(let dx=0;dx<2;dx++){ const t=G.tileAt(s,fresh3.x+dx,fresh3.y); if(t&&!G.isWater(t)) s.roads.lvl[idx(s,t)]=3; } flush(s);
+  worst=check();
+  ok('... and after new roads appear (landmarks patched in place: '+JSON.stringify(G.altStats(s))+')', worst<1e-6, worst);
+  // performance budget: 200 uncached paths (the memo is dropped by an epoch bump; the landmarks survive)
+  const now=()=>Number(process.hrtime.bigint())/1e6;
+  const timeAll=()=>{ let best=Infinity; for(let rep=0;rep<3;rep++){ flush(s); G.path(s,pairs[0][1],pairs[0][0],false); const t0=now(); for(const [a,b] of pairs) G.path(s,a,b,false); best=Math.min(best,now()-t0); } return best; };
+  const tRoads=timeAll();
+  const saved=s.roads.lvl; s.roads.lvl={}; flush(s); const tNone=timeAll();
+  s.roads.lvl={[idx(s,pairs[5][0])]:3}; flush(s); const tOne=timeAll();
+  s.roads.lvl=saved; flush(s);
+  ok('a single paved tile no longer slows every search (one paved tile vs none, 200 paths)', tOne<tNone*1.6+5, tOne.toFixed(1)+' vs '+tNone.toFixed(1)+' ms');
+  ok('a road network does not either', tRoads<tNone*1.6+5, tRoads.toFixed(1)+' vs '+tNone.toFixed(1)+' ms');
+  ok('200 uncached paths stay within budget (< 300 ms, generous for loaded machines)', tRoads<300 && tNone<300, tRoads.toFixed(1)+' / '+tNone.toFixed(1)+' ms');
+  const st=G.altStats(s);
+  ok('landmark upkeep stays cheap (builds and patches)', st && st.builds<150 && st.ms/Math.max(1,st.builds+st.patches)<25, JSON.stringify(st));
 }
 
 // ---- old saves without s.roads load ----

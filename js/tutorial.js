@@ -9,7 +9,13 @@
 //  in sight, the omens of the crisis…). Each has a short checklist; ticked
 //  goals stay ticked, and a finished stage pays a small reward once.
 //  State: S.tutorial = { v: 2, stage, done{}, started{}, ticks{}, paid{},
-//  vis{}, seenTip, off, min, list, pin } (old saves are migrated).
+//  vis{}, seenTip, off, min, list, pin } (old saves are migrated), plus
+//  sticky "seen once" flags set by observe(): maxQ, surveyed, sawSupply,
+//  sawGrim, sawRoad, sawColumn, moved, met, maxStudies, grim0.
+//  Situation stages a player has not met yet stay out of the count and the
+//  list, so newer systems (Grimoire, magi, parallel research, moving troops,
+//  interception, roads) never lengthen the guide for those who never reach them.
+//  Triggers run every second: keep them O(cities) or cached (roadSpot).
 // =====================================================================
 'use strict';
 
@@ -103,6 +109,24 @@
   };
   const visited = (k, since) => { const t = T(); return t.vis && t.vis[k] !== undefined && t.vis[k] >= (since || 0); };
   const MIN = m => m * 60 * (G.pace ? G.pace(S).time : 1);
+  // hostile columns marching on one of our cities (ui-core's incoming(): a filter over S.moves)
+  const threats = () => (typeof incoming === 'function' ? incoming() : []);
+  // a road or ford the player can see: rescanned only when the road network changes (G.roadsRev)
+  let roadMemo = { s: null, rev: -1, spot: null };
+  const roadSpot = () => {
+    if (!S || !S.roads || !G.roadsRev) return null;
+    const rev = G.roadsRev(S);
+    if (roadMemo.s === S && roadMemo.rev === rev) return roadMemo.spot;
+    const R = S.roads, ex = S.explored;
+    let k = null;
+    for (const i in R.ford || {}) { const f = R.ford[i]; if (f && f.p > 0) { k = +i; break; } }
+    if (k === null) for (const i in R.lvl || {}) if (R.lvl[i] > 0 && ex[+i]) { k = +i; break; }
+    if (k === null) for (const i in R.br || {}) if (ex[+i]) { k = +i; break; }
+    roadMemo = { s: S, rev, spot: k === null ? null : { x: k % S.map, y: Math.floor(k / S.map) } };
+    return roadMemo.spot;
+  };
+  const grim = () => (G.grimoire ? G.grimoire(S, 'p') : null);
+  const govs = () => Object.entries(safe(() => G.councilState(S).gov) || {}).filter(([cid, g]) => g && g.on && S.cities[cid] && S.cities[cid].owner === 'p').map(([, g]) => g);
   const rewardHtml = r => Object.entries(r || {}).map(([g, v]) => `${gIcon(g)} ${fmt(v)}`).join(' ');
 
   // -------------------------------------------------------------------
@@ -220,10 +244,41 @@
       ],
     },
     {
+      id: 'transfer', icon: '🚚', title: 'Moving troops between cities', after: 'troops', when: () => mine().length > 1, reward: { grain: 150, gold: 60 },
+      text: () => `<p>Soldiers belong to the city that trained them, but you can <b>move them</b> to any city of yours: a new city starts with an empty garrison, and a threatened one needs help before the enemy arrives.</p>
+        <p>The <b>🚚 Move troops</b> card on the 🛡️ Military tab picks a destination (with the travel time) and the troops to send; they join that garrison on arrival. Below it, <b>Garrisons of the realm</b> shows every city's troops and a <b>Send here</b> shortcut.</p>`,
+      goals: [
+        { key: 'move', text: 'Send troops from one of your cities to another', done: () => !!T().moved,
+          go: () => onTab('military', ['.mv-card [data-act="mvSend"]:not([disabled])', '.mv-card [data-act="mvFill"]', '.mv-card [data-act="mvDest"]', '.mv-card'], '<p>On the <b>🚚 Move troops</b> card pick a destination, choose troops (<b>Half</b> is a good start) and press <b>Send</b>.</p>') },
+      ],
+    },
+    {
+      id: 'roads', icon: '🛤️', title: 'Roads and river fords', after: 'troops', when: () => !!roadSpot(), reward: { timber: 100, stone: 100 },
+      text: () => `<p>The land remembers where people walk. Every caravan and army wears its path into a <b>Track</b>, then a <b>Road</b>, then a <b>Paved road</b> (Logistics and stone): marches and carts go faster along them, so busy supply lines speed themselves up. Unused roads fade; roads serve everyone, foes too.</p>
+        <p>Unbridged rivers are <b>fords</b>: wading one slows a march. Your builders bridge the fords your traffic keeps crossing, or you can order a bridge from the tile panel.</p>`,
+      goals: [
+        { key: 'look', text: 'Select a road or a river ford on the World map', done: () => !!T().sawRoad,
+          go: () => ({ target: UI.tab === 'world' ? '.mapwrap' : tabTarget('world'), show: 'road', text: '<p>Select a road or river tile on the World map: the panel shows its wear toward the next level, or the ford and how to bridge it.</p>' }) },
+      ],
+    },
+    {
       id: 'rival', prio: true, icon: '🕊️', title: 'Neighbours', after: 'welcome', when: () => rivalMet(), reward: { gold: 60 },
       text: () => `<p>You have found a rival realm. Rivals leave newcomers alone for a while, then their pressure grows. On <b>🕊️ Diplomacy</b> you can send gifts, make peace or an alliance, demand tribute from the weak, and accept <b>foreign merchants</b>' offers.</p>
         <p>Later: <b>🕵️ Espionage</b> (spies, sabotage, counter-intelligence) and <b>🏰 Free Cities</b> (neutral city-states you can court, trade with or conquer).</p>`,
       goals: [{ key: 'diplo', text: 'Open 🕊️ Diplomacy', done: () => visited('diplomacy'), go: () => onTab('diplomacy', null, '<p>Each realm shows its opinion of you and your options.</p>') }],
+    },
+    {
+      id: 'intercept', prio: true, icon: '🛡️', title: 'An army marches on you', after: 'welcome', when: () => threats().length > 0, reward: { gold: 80 },
+      text: () => { const m = threats()[0]; const tg = m && safe(() => G.tileAt(S, m.x, m.y)); const city = tg && tg.city && S.cities[tg.city];
+        return `<p>${m ? `${S.empires[m.owner] ? `The <b>${esc(S.empires[m.owner].name)}</b>` : 'An enemy'} ${m.type === 'raid' ? 'raid' : 'army'} is heading for <b>${esc(city ? city.name : 'your lands')}</b>, arriving in ${fmtTime(realSecs(m.arrive - S.time))}. ` : ''}The warning in the side column shows who is coming and when.</p>
+        <p>You need not wait behind the walls: <b>🛡️ Intercept</b> sends troops to meet the column on the road — a <b>field battle</b> with no walls, where the ground counts and the loser routs home. Columns are clickable on the map; the preview shows the odds. Or <b>move troops</b> into the threatened city, or let a strong garrison hold.</p>`; },
+      goals: [
+        { key: 'look', text: 'Look at the marching column (🗺️ or 🛡️ in the warning)', done: () => !!T().sawColumn,
+          go: () => ({ target: ['[data-act="icGo"]', '[data-act="icShow"]'], text: '<p>Press <b>🛡️ Intercept</b> (or 🗺️) in the warning: the map selects the column and shows its road.</p>' }) },
+        { key: 'meet', text: 'Intercept it, reinforce the city, or let the walls hold', done: () => !!T().met || !threats().length,
+          go: () => UI.tab === 'world' && UI.sel && UI.sel.move ? { target: ['[data-act="icSend"]:not([disabled])', '[data-act="icAll"]', '[data-act="icFill"]'], text: '<p>Pick a city and troops, check the odds, then press <b>🛡️ Intercept</b>. Only go out if you are clearly stronger.</p>' }
+            : { target: ['[data-act="icGo"]', ...tabTarget('military')], text: '<p>Meet them in the field with <b>🛡️ Intercept</b>, or send troops to the city from the 🚚 Move troops card.</p>' } },
+      ],
     },
     {
       id: 'monster', prio: true, icon: '🐺', title: 'Something roams the wilds', after: 'welcome', when: () => !!monsterSeen(),
@@ -242,10 +297,13 @@
     {
       id: 'council', icon: '🏛️', title: 'The Council and governors', after: 'troops', when: () => mine().length > 1 || S.time > MIN(60), reward: { gold: 80 },
       text: () => `<p>Five advisors watch your realm and say what needs doing — the <b>🏛️ Council</b> chip in the top bar counts the urgent items, and many have a one-click fix.</p>
-        <p>A <b>governor</b> can run a city for you with a focus (growth, production, military, faith, magic): it queues works, keeps a gold reserve and can hold a garrison. Handy for quiet cities.</p>`,
+        <p>A <b>governor</b> can run a city for you with a focus (growth, production, military, faith, magic): it queues works, keeps a gold reserve and can hold a garrison. Handy for quiet cities.</p>
+        <p>With <b>Think for the realm</b> (on by default) a governor reads the whole realm: it won't build for a deficit that 🔄 Auto-supply or a sister city's surplus already covers, puts works for goods the realm lacks where the land suits them, and lets caravans fill the market. Its notes say what it is counting on.</p>`,
       goals: [
         { key: 'council', text: 'Open the 🏛️ Council', done: () => !TABS.council || visited('council'), go: () => onTab('council', null, '<p>Advice by advisor, most urgent first.</p>') },
         { key: 'gov', text: 'Give a city a governor', done: () => !G.councilState || Object.values(safe(() => G.councilState(S).gov) || {}).some(g => g && g.on), go: () => onTab('council', null, '<p>Pick a focus for a city in the governors list (✋ Manual means off).</p>') },
+        { key: 'realm', text: 'Keep “Think for the realm” on for a governor', done: () => !G.councilState || govs().some(g => g.realm !== false),
+          go: () => onTab('council', null, '<p>In the governors list, leave <b>Think for the realm</b> ticked on a governed city (it matters once you have two cities).</p>') },
       ],
     },
     {
@@ -266,18 +324,58 @@
     {
       id: 'magic', icon: '🔮', title: 'Magic', after: 'research', when: () => builtAny('magetower') || (lvAny('townhall') >= 4 && builtAny('academy') && S.time > MIN(80)), reward: { gold: 100 },
       text: () => `<p>A <b>Mage Tower</b> (Town Hall 4, Academy 1) makes <b>mana</b>, more on <b>ley nodes</b>. You know your people's school of magic, and your faith's god adds another.</p>
-        <p>Spells need a tower of level 1, 5, 10 or 15. Each cast adds <b>strain</b>; above 60, wild magic can open demon rifts. The <b>Great Working</b> is an arcane victory.</p>`,
+        <p>Your first spells come with your school; more are learned in the <b>Grimoire</b>, in circles that need a tower of level 1, 5, 10 or 15. Each cast adds <b>strain</b>; above 60, wild magic can open demon rifts. The <b>Great Working</b> is an arcane victory.</p>`,
       goals: [
         { key: 'tower', text: 'Build a Mage Tower', done: () => builtAny('magetower'), go: c => buildGo(c, 'magetower', 1, '🔮 Mage Tower') },
         { key: 'cast', text: 'Cast a spell', done: () => (S.stats.spells || 0) > 0, go: () => onTab('magic', '[data-act="mgCast"]:not([disabled])', '<p>Pick a spell in the spellbook and cast it.</p>') },
       ],
     },
     {
+      id: 'grimoire', icon: '📜', title: 'The Grimoire', after: 'magic', when: () => builtAny('magetower'), reward: { mana: 60, gold: 80 },
+      text: () => `<p>Magic is learned. The <b>📜 Grimoire</b> on the 🔮 Magic tab is a tree: a Foundations trunk and one branch per school, in four <b>circles</b> (Apprentice, Adept, Master, Archmage) that need a Mage Tower of level 1, 5, 10 or 15 and the matching research era.</p>
+        <p>Topics teach <b>spells</b>, <b>lore</b> (realm bonuses), <b>metamagic</b> or <b>enchantments</b> (lasting city wards). One topic is studied at a time, paid in mana and gold; the queue is unlimited and <b>Plan path</b> queues the missing steps. ⑂ Forks forsake their twin. Casting a spell often earns <b>mastery</b> (stronger, cheaper, faster).</p>`,
+      goals: [
+        { key: 'open', text: 'Open the 📜 Grimoire on the 🔮 Magic tab', done: () => !!T().sawGrim,
+          go: () => onTab('magic', '[data-act="mgSect"][data-k="grimoire"]', '<p>Press <b>📜 Grimoire</b> at the top of the Magic tab.</p>') },
+        { key: 'study', text: 'Study or queue a Grimoire topic', done: () => { const A = grim(); if (!A) return true; const t = T(); if (t.grim0 === undefined) t.grim0 = A.known.length; return !!A.active || A.queue.length > 0 || A.known.length > t.grim0; },
+          go: () => onTab('magic', ['[data-act="mgStudy"]:not([disabled])', '[data-act="mgPlan"]:not([disabled])', '[data-act="mgQueue"]:not([disabled])', '.gm-node.avail', '.mg-lnode.avail', '[data-act="mgSect"][data-k="grimoire"]'], '<p>Select a glowing topic in the tree, then press <b>Study</b> (or <b>Queue</b> if you are short of mana).</p>') },
+      ],
+    },
+    {
+      id: 'magi', icon: '🧙', title: 'The Circle of Magi', after: 'grimoire', when: () => !!G.magiCap && G.magiCap(S, 'p') > 0, reward: { gold: 120 },
+      text: () => `<p>Your Mage Towers draw <b>magi</b>: named mages of one school, who rise from Apprentice to Archmage, age, and want honour and mana (each costs a little mana every minute). Room grows with your tower levels — one magus per ${G.MAGI ? G.MAGI.capPerTower : 4} levels.</p>
+        <p>Give each a post: <b>👑 Court</b> (more mana in that city, cheaper and stronger spells from it), <b>⚔️ War</b> (rides out with armies of 10+ soldiers, casts battle spells and duels enemy magi; defends the city while home) or <b>📚 Study</b> (speeds the Grimoire).</p>`,
+      goals: [
+        { key: 'recruit', text: 'Recruit a magus on the 🧙 Circle tab', done: () => G.magiOf(S, 'p').length > 0,
+          go: () => onTab('magi', ['[data-act="mgiRecruit"]:not([disabled])', '[data-act="mgiRecruit"]'], '<p>Pick a candidate and press <b>Recruit</b> (gold and mana).</p>') },
+        { key: 'post', text: 'Give a magus a post (court, war or study)', done: () => G.magiOf(S, 'p').some(g => g.station && g.station !== 'idle'),
+          go: () => onTab('magi', '[data-act="mgiStation"]', '<p>On the magus card choose <b>👑 Court</b>, <b>⚔️ War</b> or <b>📚 Study</b>.</p>') },
+      ],
+    },
+    {
+      id: 'slots', icon: '🎓', title: 'Parallel research', after: 'research', when: () => G.researchSlots(S, 'p').total >= 2, reward: { gold: 120, tools: 20 },
+      text: () => { const sl = G.researchSlots(S, 'p'); return `<p>Your realm now has <b>${sl.total} study slots</b>: several topics run at once, each in its own Academy and paid by that city. Every city with an <b>Academy ${G.RESEARCH_SLOT_ACADEMY || 3}+</b> counts for a slot (an Academy ${G.RESEARCH_DOUBLE_ACADEMY || 12}+ for two), up to ${G.RESEARCH_SLOT_MAX || 4}.</p>
+        <p>The queue feeds every free slot, so queue a few topics and none sits idle. Late on, <b>↻ mastery techs</b> can be studied again and again.</p>`; },
+      goals: [
+        { key: 'two', text: 'Run two studies at the same time', done: () => (T().maxStudies || 0) >= 2,
+          go: () => onTab('research', ['button[data-act="research"]:not([disabled])', '[data-act="ttQueue"]', 'button.link[data-act="ttSel"]', '[data-act="ttSel"]'], '<p>Start a second topic: the tab shows which Academy takes it.</p>') },
+        { key: 'queue', text: 'Keep three topics running or queued', done: () => { const R = G.research(S, 'p'); return R.studies.length + (R.queue || []).length >= 3; },
+          go: () => onTab('research', ['[data-act="ttQueue"]', 'button[data-act="research"]:not([disabled])', '.tt-chip[data-act="ttSel"]', 'button.link[data-act="ttSel"]', '[data-act="ttSel"]'], '<p>Pick a topic and press <b>Queue</b> (or <b>Plan path</b> to a far one) so every slot stays busy.</p>') },
+      ],
+    },
+    {
       id: 'wrap', icon: '🧭', title: 'You know the essentials', after: 'expansion',
-      text: () => `<p>That's the heart of the game. More stages appear as you meet them (faith, magic, generals, monsters, the crisis). The <b>🎯 Quests</b> in the side column always suggest a next goal, and <b>❔ How to play</b> explains every system — tap the <b>?</b> in any tab's header.</p><p>Good luck, ${esc(people().name)} ruler!</p>`,
+      text: () => `<p>That's the heart of the game. More stages appear as you meet them (faith, magic and the Grimoire, magi, generals, roads, armies marching on you, monsters, the crisis). The <b>🎯 Quests</b> in the side column always suggest a next goal, and <b>❔ How to play</b> explains every system — tap the <b>?</b> in any tab's header.</p><p>Good luck, ${esc(people().name)} ruler!</p>`,
     },
   ];
   const byId = id => STAGES.find(s => s.id === id);
+  // stages the player has met: every core stage, plus situation stages once they opened (or were done)
+  // (and any stage a met core stage waits on, so "after …" never names a hidden row)
+  const metStages = () => {
+    const t = T(), met = new Set(STAGES.filter(st => !st.when || t.done[st.id] || t.started[st.id] !== undefined).map(st => st.id));
+    for (const st of STAGES) if (met.has(st.id) && !st.when && st.after) met.add(st.after);
+    return STAGES.filter(st => met.has(st.id));
+  };
   const CORE = STAGES.filter(s => !s.when).length;
 
   // -------------------------------------------------------------------
@@ -353,6 +451,17 @@
     t.maxQ = Math.max(t.maxQ || 0, ...mine().map(c => c.buildQueue.length));
     const sel = selTile();
     if (UI.tab === 'world' && sel && !sel.city && !sel.camp && !sel.minor && S.explored[sel.y * S.map + sel.x] && !(G.isWater && G.isWater(sel))) t.surveyed = 1;
+    // the newer systems: each check runs only until it has been seen once
+    if (!t.sawRoad && UI.tab === 'world' && sel && G.roadInfo) { const ri = safe(() => G.roadInfo(S, sel.x, sel.y)); if (ri && (ri.lvl || ri.river || ri.wear >= 0.5)) t.sawRoad = 1; }
+    if (!t.sawGrim && UI.tab === 'magic' && builtAny('magetower')) { const gm = UI.gm || {}; if ((gm.sect || ((S.stats.spells || 0) === 0 ? 'spells' : 'grimoire')) === 'grimoire') t.sawGrim = 1; }
+    if (!t.sawColumn && UI.sel && UI.sel.move && S.moves.some(m => m.id === UI.sel.move && m.owner !== 'p')) t.sawColumn = 1;
+    const R = safe(() => G.research(S, 'p'));
+    if (R && R.studies) t.maxStudies = Math.max(t.maxStudies || 0, R.studies.length);
+    if ((!t.moved || !t.met) && S.moves.length) for (const m of S.moves) {
+      if (m.owner !== 'p') continue;
+      if (m.type === 'intercept') t.met = 1;
+      else if (m.type === 'reinforce') { const tg = G.tileAt(S, m.x, m.y), dc = tg && tg.city && S.cities[tg.city]; if (dc && dc.owner === 'p') { t.moved = 1; if (threats().some(x => x.x === m.x && x.y === m.y)) t.met = 1; } }
+    }
     for (const st of STAGES) if (!finished(st.id) && t.started[st.id] !== undefined && allDone(st, city)) finish(st, 'done');
   };
 
@@ -409,9 +518,11 @@
         : cur ? 'ready' : st.when ? 'appears when the time comes' : `after “${(byId(st.after) || {}).title || ''}”`;
       return `<li class="${d ? 'past' : cur ? 'cur' : ''}"><span class="tut-li-s" aria-hidden="true">${status}</span><span class="tut-li-t">${st.icon} ${st.title}<small class="muted">${hint}</small></span>${d || cur ? `<button class="small" data-act="tutPin" data-s="${st.id}">${d ? 'Replay' : 'Open'}</button>` : ''}</li>`;
     };
-    const n = STAGES.filter(s => t.done[s.id]).length;
-    return `<div class="tut-head"><span class="tut-step">🧭 Guide · ${n}/${STAGES.length} stages</span><span class="tut-sp"></span><button class="tut-x" data-act="tutMin" title="Minimise" aria-label="Minimise the guide">–</button></div>
-      <h4 class="tut-title">All stages</h4><ol class="tut-list">${STAGES.map(row).join('')}</ol>
+    const met = metStages(), later = STAGES.length - met.length;
+    const n = met.filter(s => t.done[s.id]).length;
+    return `<div class="tut-head"><span class="tut-step">🧭 Guide · ${n}/${met.length} stages</span><span class="tut-sp"></span><button class="tut-x" data-act="tutMin" title="Minimise" aria-label="Minimise the guide">–</button></div>
+      <h4 class="tut-title">All stages</h4><ol class="tut-list">${met.map(row).join('')}</ol>
+      ${later ? `<p class="tut-later muted">+ ${later} more stage${later > 1 ? 's' : ''} will appear when you meet ${later > 1 ? 'them' : 'it'}: new systems, a second city, threats.</p>` : ''}
       <div class="tut-actions"><button class="small" data-act="helpGo" data-s="">❔ How to play</button><span class="tut-sp"></span><button class="small primary" data-act="tutList">Back</button></div>
       <div class="tut-foot"><button class="link" data-act="tutOff">${t.off ? 'Guide is off' : 'Turn the guide off'}</button><button class="link" data-act="tutorialRestart">Start over</button></div>`;
   };
@@ -444,10 +555,11 @@
       const body = safe(() => st.text(city)) || '';
       const showBtn = v.show === 'ruin' ? '<button class="small" data-act="tutShow" data-w="ruin">Show me a ruin</button>'
         : v.show === 'camp' ? '<button class="small" data-act="tutShow" data-w="camp">Show me a camp</button>'
-        : v.show === 'site' ? '<button class="small" data-act="tutShow" data-w="site">Show me open land</button>' : '';
+        : v.show === 'site' ? '<button class="small" data-act="tutShow" data-w="site">Show me open land</button>'
+        : v.show === 'road' && roadSpot() ? '<button class="small" data-act="tutShow" data-w="road">Show me a road</button>' : '';
       const mainBtn = goals.length ? `<button class="small" data-act="tutSkipStage" title="Mark this stage done without its reward">Skip stage</button>` : `<button class="small primary" data-act="tutGotIt">Got it</button>`;
       const fl = flash && Date.now() - flash.at < 6000 ? `<div class="tut-flash">${flash.text}</div>` : '';
-      html = `<div class="tut-head"><span class="tut-step">🧭 Guide · ${STAGES.filter(x => T().done[x.id]).length}/${STAGES.length} stages done</span><span class="tut-sp"></span><button class="tut-x" data-act="tutList" title="All stages" aria-label="All stages">☰</button><button class="tut-x" data-act="tutMin" title="Minimise" aria-label="Minimise the guide">–</button></div>
+      html = `<div class="tut-head"><span class="tut-step">🧭 Guide · ${metStages().filter(x => T().done[x.id]).length}/${metStages().length} stages done</span><span class="tut-sp"></span><button class="tut-x" data-act="tutList" title="All stages" aria-label="All stages">☰</button><button class="tut-x" data-act="tutMin" title="Minimise" aria-label="Minimise the guide">–</button></div>
         ${fl}
         <h4 class="tut-title">${st.icon} ${st.title}</h4>
         <div class="tut-body">${body}</div>
@@ -502,6 +614,7 @@
     },
     tutShow: d => {
       if (d.w === 'site') { const t = nearestOpen(); if (!t) { toast('No open land in sight yet — explore further.'); return; } goTile(t, 'settle'); return; }
+      if (d.w === 'road') { const t = roadSpot(); if (!t) { toast('No road in sight yet.'); return; } goTile(t); return; }
       let t = d.w === 'camp' ? nearestCamp() : nearestRuin();
       if (!t && d.w === 'camp' && (t = nearestFog())) toast('No camps in sight yet — scouting the fog nearby is how you find them.');
       if (!t) { toast(d.w === 'camp' ? 'No camps discovered yet — scouts and armies reveal more of the map.' : 'No ruins discovered yet — explore with scouts.'); return; }
@@ -650,5 +763,5 @@
   };
 
   // for testing from the console
-  window.ECTut = { STAGES, current: () => S && ensure() ? current(curCity()) : null, refresh, schedule, clearTimers, timers, notify, diff, enabled, hiddenRate, get target() { return curTarget; } };
+  window.ECTut = { STAGES, metStages: () => (S && ensure() ? metStages() : []), current: () => S && ensure() ? current(curCity()) : null, refresh, schedule, clearTimers, timers, notify, diff, enabled, hiddenRate, get target() { return curTarget; } };
 })();

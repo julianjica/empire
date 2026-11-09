@@ -163,20 +163,40 @@
   const REALM_GOODS = ['grain', 'timber', 'stone', 'ore', 'iron', 'tools', 'weapons'];
   const B_GOOD = { farm: 'grain', lumber: 'timber', quarry: 'stone', mine: 'ore', smelter: 'iron', smithy: 'tools', armory: 'weapons' };
   const ADV_KEY = { iron: 'ore' };      // a smelter's advantage is the ore under it
-  const DEP_WORD = { ore: 'ore', stone: 'fine quarry stone', timber: 'an ancient grove', grain: 'black earth' };
+  const DEP_WORD = { ore: 'ore', stone: 'fine quarry stone', timber: 'an ancient grove', grain: 'black earth', water: 'rich shallows' };
+  // the peoples' own producers (bakery, runeforge, heartgrove, dreamspire, ossuary, aerie, pearl beds, and any added later),
+  // read from DATA.buildings: what each makes, and which land suits it (the raw input it eats most of; open water for pearls)
+  const RACE_GOOD = {};                 // good -> race
+  const RAW_ADV = ['grain', 'timber', 'stone', 'ore'];
+  for (const t of Object.keys(DATA.buildings)) {
+    const b = DATA.buildings[t];
+    if (!b || !b.race || b.wonder || b.realmUnique) continue;
+    const out = b.recipe ? Object.keys(b.recipe.out || {})[0] : b.prod ? Object.keys(b.prod)[0] : null;
+    if (!out || !DATA.goods[out] || B_GOOD[t]) continue;
+    B_GOOD[t] = out; RACE_GOOD[out] = b.race;
+    if (b.recipe) {
+      // weigh each input by its worth (iron counts as the ore it is smelted from)
+      const ins = Object.entries(b.recipe.in || {}).map(([g, v]) => [g === 'iron' ? 'ore' : g, v * ((DATA.goods[g] || {}).value || 1)]).filter(([g]) => RAW_ADV.includes(g)).sort((a, c) => c[1] - a[1]);
+      if (ins.length && !ADV_KEY[out]) ADV_KEY[out] = ins[0][0];
+    } else if (b.coastal && !ADV_KEY[out]) ADV_KEY[out] = 'water';
+  }
+  G.COUNCIL_B_GOOD = B_GOOD;            // read-only, for tests and tools
+  // the goods a realm reckons with: the common ones, plus its own people's
+  const realmGoods = (s, owner) => { const race = s.empires[owner] && s.empires[owner].race; return REALM_GOODS.concat(Object.keys(RACE_GOOD).filter(g => RACE_GOOD[g] === race)); };
   const gnm = g => DATA.goods[g] ? DATA.goods[g].name.toLowerCase() : g;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const buildRealm = (s, owner, econMap) => {
     const cities = G.citiesOf(s, owner);
     const lg = s.logistics && s.logistics[owner];          // read only: never create the policy from here
-    const R = { owner, t: s.time, n: cities.length, cities, lines: !!(lg && lg.on), econ: {}, inbound: {}, plan: null, adv: {}, excl: (lg && lg.excl) || {}, goods: {} };
+    const R = { owner, t: s.time, n: cities.length, cities, lines: !!(lg && lg.on), econ: {}, inbound: {}, plan: null, adv: {}, excl: (lg && lg.excl) || {}, goods: {}, list: realmGoods(s, owner) };
     for (const c of cities) R.econ[c.id] = (econMap && econMap[c.id]) || G.econ(s, c);
     if (cities.length < 2) return R;
     R.inbound = G.supplyInbound ? G.supplyInbound(s, owner) : {};
     R.plan = G.supplyLastPlan ? G.supplyLastPlan(s, owner) : null;
     // comparative advantage: the land, deposits, oases and people's yield for a good, against the realm's mean
-    const keys = ['grain', 'timber', 'stone', 'ore'], mods = {};
-    for (const c of cities) { mods[c.id] = {}; for (const k of keys) mods[c.id][k] = G.mod(s, owner, c, k); }
+    const keys = ['grain', 'timber', 'stone', 'ore', 'water'], mods = {};
+    // open water (pearl beds) counts only on a coast
+    for (const c of cities) { mods[c.id] = {}; for (const k of keys) mods[c.id][k] = k === 'water' ? (G.coastal && G.coastal(s, c.x, c.y) ? 0.5 + Math.min(4, G.site(s, c).water || 0) : 0.25) : G.mod(s, owner, c, k); }
     const mean = {};
     for (const k of keys) mean[k] = cities.reduce((a, c) => a + mods[c.id][k], 0) / cities.length || 1;
     for (const c of cities) {
@@ -185,8 +205,10 @@
       a.iron = a.ore;
       // tools and weapons are forged where the iron is
       a.tools = a.weapons = 1 + ((R.econ[c.id].net.iron || 0) > 0.2 ? 0.15 : 0);
+      // the people's own goods: where their main input grows best
+      for (const g of R.list) if (RACE_GOOD[g]) a[g] = a[ADV_KEY[g]] || 1;
     }
-    for (const g of REALM_GOODS) {
+    for (const g of R.list) {
       const pol = lg && lg.goods && lg.goods[g];
       const x = R.goods[g] = { stock: 0, net: 0, cap: 0, use: 0, line: !!(R.lines && pol && pol.on), short: 0, glut: false, deficitRate: 0, surplus: [], deficit: [] };
       for (const c of cities) {
@@ -204,7 +226,7 @@
       }
       if (x.net < -0.05) x.short = clamp(0.3 + -x.net / Math.max(1, x.use), 0.3, 1);
       else if (x.use > 0.05 && x.stock < x.use * 10) x.short = 0.25;
-      if ((g === 'iron' || g === 'tools' || g === 'weapons') && x.stock < 40 * cities.length && x.net < 0.5) x.short = Math.max(x.short, 0.3);
+      if ((g === 'iron' || g === 'tools' || g === 'weapons' || (RACE_GOOD[g] && g !== 'bread' && g !== 'pearls')) && x.stock < 40 * cities.length && x.net < 0.5) x.short = Math.max(x.short, 0.3);
       if (R.plan) for (const nd of R.plan.needs) if (nd.g === g && nd.unmet > 0) x.short = Math.max(x.short, nd.prio >= 60 ? 0.6 : 0.35);
       if (x.net < 0 && x.stock > -x.net * 120) x.short *= 0.5;      // two hours of stock in hand: no hurry
       x.glut = x.net > 0 && x.stock > x.cap * 0.6;
@@ -248,7 +270,7 @@
     const site = G.site(s, city);
     const R = REALM.get(s) && REALM.get(s)[city.owner];
     const a = R && R.adv[city.id] ? R.adv[city.id][g] : 1;
-    const land = (site.deposits || []).includes(k) ? ` and ${city.name} sits on ${DEP_WORD[k] || gnm(k)}`
+    const land = k === 'water' ? (a >= 1.12 ? ` and ${city.name} has ${DEP_WORD.water}` : '') : (site.deposits || []).includes(k) ? ` and ${city.name} sits on ${DEP_WORD[k] || gnm(k)}`
       : a >= 1.12 ? (k === 'tools' || k === 'weapons' ? ` and ${city.name} has iron to spare` : ` and ${city.name}'s land is rich in ${gnm(k)}`) : '';
     return `the realm is short of ${gnm(g)}${land}`;
   };
@@ -260,15 +282,15 @@
     if (R.excl[city.id]) return ['left out of the supply lines, so this city fends for itself'];
     const out = [], e = R.econ[city.id];
     if (!e) return out;
-    for (const g of REALM_GOODS) {
+    for (const g of R.list) {
       if (!((e.net[g] || 0) < -0.05)) continue;
       const cv = G.realmCover(s, R, city, g);
       if (cv && cv.frac >= 0.8) out.push(coverText(g, cv));
     }
     let best = null, bv = 0;
-    for (const g of REALM_GOODS) { const x = R.goods[g], a = R.adv[city.id][g]; if (x.short > 0 && a >= 1.12 && x.short * a > bv) { bv = x.short * a; best = g; } }
+    for (const g of R.list) { const x = R.goods[g], a = R.adv[city.id][g]; if (x.short > 0 && a >= 1.12 && x.short * a > bv) { bv = x.short * a; best = g; } }
     if (best) out.push(realmWhy(s, city, best));
-    for (const g of REALM_GOODS) { const x = R.goods[g]; if (x.line && (e.net[g] || 0) > 0 && x.surplus.some(sp => sp.c === city) && x.deficit.some(d => d.c !== city)) { out.push(`sends spare ${gnm(g)} to sister cities`); break; } }
+    for (const g of R.list) { const x = R.goods[g]; if (x.line && (e.net[g] || 0) > 0 && x.surplus.some(sp => sp.c === city) && x.deficit.some(d => d.c !== city)) { out.push(`sends spare ${gnm(g)} to sister cities`); break; } }
     return out.slice(0, 3);
   };
 
@@ -278,6 +300,8 @@
     // the realm view (two or more cities with supply lines on); null = the old, purely local reckoning
     const RR = realmOn(R) && !R.excl[city.id] ? R : null;
     const covers = {};
+    // reasons that come from the realm view (the Steward and the log mark them 🌐)
+    const RW = new Set(), rwhy = t => { RW.add(t); return t; };
     // this city's shortfall of g made good by caravans or a sister's surplus: { from } or null
     const covered = g => {
       if (!RR) return null;
@@ -307,7 +331,7 @@
       switch (t) {
         case 'farm': if (e.net.grain < 5 + city.pop * 0.05) {
             const cv = !hungry && covered('grain');
-            if (cv) { w += 20 - L; why = coverText('grain', cv); } else { w += 120; why = 'grain is short'; }
+            if (cv) { w += 20 - L; why = rwhy(coverText('grain', cv)); } else { w += 120; why = 'grain is short'; }
           } else w += (city.res.grain || 0) < e.cap * 0.25 ? 45 - L : 32 - L; break;
         case 'houses': if (city.pop >= e.civCap * 0.9) { w += 70; why = 'homes are full'; } else w += 5; break;
         case 'warehouse': if (nearCap) { w += 60; why = 'stores are nearly full'; } break;
@@ -337,29 +361,29 @@
       if (RR) {
         // specialise: build what the realm lacks where the land suits it, and leave a glut to better-placed cities
         const g = B_GOOD[t];
-        if (g) {
+        if (g && RR.goods[g]) {
           const x = RR.goods[g], a = RR.adv[city.id][g] || 1;
           if (x.short > 0) {
             const bonus = Math.round(C.realmSpec * x.short * clamp((a - 1) / 0.25, -0.5, 1.3));
             w += bonus;
-            if (bonus >= 8 && (!why || bonus >= 30)) why = realmWhy(s, city, g === 'ore' && RR.goods.iron.short * 0.8 >= x.short - 1e-9 ? 'iron' : g);
+            if (bonus >= 8 && (!why || bonus >= 30)) why = rwhy(realmWhy(s, city, g === 'ore' && RR.goods.iron.short * 0.8 >= x.short - 1e-9 ? 'iron' : g));
           } else if (x.glut && a < 0.95) w -= 12;
           else w += a >= 1.2 ? 8 : a <= 0.8 ? -8 : 0;
         }
         // a Market lets a city with spare goods send them by caravan to sister cities that lack them
         if (t === 'market' && L === 0) {
-          for (const gd of REALM_GOODS) {
+          for (const gd of RR.list) {
             const x = RR.goods[gd];
             if (!x.line || !((e.net[gd] || 0) > 0) || (city.res[gd] || 0) < e.cap * 0.4) continue;
             const d = x.deficit.find(z => z.c !== city);
             if (!d) continue;
-            w += 45; why = `a Market here would send spare ${gnm(gd)} to ${d.c.name} by caravan`;
+            w += 45; why = rwhy(`a Market here would send spare ${gnm(gd)} to ${d.c.name} by caravan`);
             break;
           }
         }
       }
       w += F[t] || 0;
-      out.push({ t, w, st, why });
+      out.push({ t, w, st, why, realm: !!why && RW.has(why) });
     }
     if (tooBig) { const wh = out.find(c => c.t === 'warehouse'); if (wh) { wh.w += 80; wh.why = 'costs outgrow our storage'; } }
     // builders' time is the scarcest good: favour quick works over slow, deep ones
@@ -371,7 +395,7 @@
   };
   // read-only, for tests and tools: the scored candidates [{ t, w, why }] (realm: a snapshot, true for a fresh one, or null)
   G.councilCandidates = (s, city, focus = 'balanced', realm = null) => govCandidates(s, city, focus, null, realm === true ? G.realmEcon(s, city.owner, { fresh: true }) : realm)
-    .map(c => ({ t: c.t, w: Math.round(c.w), why: c.why }));
+    .map(c => ({ t: c.t, w: Math.round(c.w), why: c.why, realm: c.realm }));
   // can the governor pay for this without breaking its rules?
   const govAffords = (s, city, cand, reserve, e) => {
     if (!cand.st.ok) return false;
@@ -390,7 +414,7 @@
     const reserve = opts.reserve || 0;
     const top = cands[0];
     const okList = cands.filter(c => govAffords(s, city, c, reserve, e));
-    if (okList.length && okList[0] === top) return { t: top.t, why: top.why, level: top.st.level };
+    if (okList.length && okList[0] === top) return { t: top.t, why: top.why, level: top.st.level, realm: top.realm };
     if (opts.patient) {
       // wait a little for the first choice if the goods are coming in
       const waited = opts.waitedSince != null ? s.time - opts.waitedSince : 0;
@@ -401,7 +425,7 @@
       }
     }
     const pick = okList.find(c => c.w >= top.w - 40) || (opts.patient ? okList[0] : okList[0]);
-    if (pick) return { t: pick.t, why: pick.why, level: pick.st.level };
+    if (pick) return { t: pick.t, why: pick.why, level: pick.st.level, realm: pick.realm };
     if (top.st.reason === 'Queue full') return { wait: 'builders busy' };
     const gold = (top.st.cost.gold || 0) > 0 && s.empires[city.owner].gold - top.st.cost.gold < reserve;
     return { wait: gold && reserve ? `keeping ${reserve} gold in reserve` : `gathering goods for ${bname(top.t)}`, saving: top.t };
@@ -578,6 +602,8 @@
     ['barracks', 1, 'A Barracks lets you train scouts and your first soldiers.'], ['academy', 1, 'The Academy (Town Hall 3) opens research.']];
   ADVISORS.steward = (s, X, add) => {
     const early = isEarly(s);
+    // one realm snapshot for the whole pass (cached ~30 game-seconds); it only counts with two cities and supply lines on
+    const R = X.cities.length >= 2 ? G.realmEcon(s, 'p', { econ: X.econ }) : null;
     const cap0 = G.capital(s, 'p');
     const se = G.season(s);
     for (const c of X.cities) {
@@ -616,11 +642,13 @@
           if (step && canBuild(s, c, step[0])) { sug = { t: step[0], level: G.nextLevel(c, step[0]) }; teach = ' ' + step[2]; }
           else if (step) add('steward', `goal:${step[0]}`, 22, `Next goal: ${bname(step[0])} ${step[1]}. ${step[2]}`, cityAct(c, 'Show me', step[0]));
         }
-        if (!sug) { const p = G.councilPick(s, c, 'balanced', { econ: e }); if (p.t) sug = { t: p.t, level: p.level, why: p.why }; }
+        // the Steward reads the realm as a realm-minded governor would: supply lines, sister cities, the land
+        if (!sug) { const p = G.councilPick(s, c, 'balanced', { econ: e, realm: R }); if (p.t) sug = { t: p.t, level: p.level, why: p.why, realm: p.realm }; }
         if (sug) {
           const empty = c.buildQueue.length === 0;
+          const why = sug.why ? (sug.realm ? ` (🌐 for the realm: ${sug.why})` : ' (' + sug.why + ')') : '';
           add('steward', `idle:${c.id}`, (empty ? 50 : 30) + (early ? 10 : 0),
-            `${empty ? 'The builders of ' + c.name + ' are idle' : 'A building slot is free in ' + c.name}. I suggest ${bname(sug.t)} ${sug.level}${sug.why ? ' (' + sug.why + ')' : ''}.${teach}${!early && X.cities.length > 1 ? ' A governor could manage this city for you.' : ''}`,
+            `${empty ? 'The builders of ' + c.name + ' are idle' : 'A building slot is free in ' + c.name}. I suggest ${bname(sug.t)} ${sug.level}${why}.${teach}${!early && X.cities.length > 1 ? ' A governor could manage this city for you.' : ''}`,
             buildAct(c, sug.t, sug.level));
         }
       }
@@ -866,7 +894,8 @@
     // mana going to waste
     for (const c of X.cities) {
       const e = X.econ[c.id];
-      if ((c.res.mana || 0) >= e.cap * 0.97 && (e.net.mana || 0) > 0.05 && G.lvl(c, 'magetower')) { add('archmage', `mana:${c.id}`, 30, `${c.name}'s mana stores are full; what the land gives now is lost. Spend it on a spell.`, tabAct('magic', 'Magic')); break; }
+      const mcap = G.manaCap ? G.manaCap(s, c) : e.cap;
+      if ((c.res.mana || 0) >= mcap * 0.97 && (e.net.mana || 0) > 0.05 && G.lvl(c, 'magetower')) { add('archmage', `mana:${c.id}`, 30, `${c.name}'s mana stores are full (${Math.round(mcap)}); what the land gives now is lost. Spend it on a spell, an enchantment or study — a higher Mage Tower or Warehouse holds more.`, tabAct('magic', 'Magic')); break; }
     }
     if (!X.cities.some(c => G.lvl(c, 'magetower')) && s.time > 3600 * paceT(s)) {
       const c = X.cities.find(x => canBuild(s, x, 'magetower'));

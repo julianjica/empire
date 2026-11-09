@@ -6,7 +6,7 @@ global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._
 const fakeEl = () => ({ value: '', style: {}, dataset: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, setAttribute() {}, appendChild() {}, addEventListener() {}, querySelector: () => null, querySelectorAll: () => [] });
 global.document = { getElementById: fakeEl, querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, body: fakeEl(), documentElement: fakeEl(), createElement: fakeEl };
 global.window = { scrollY: 0, scrollTo() {}, addEventListener() {}, matchMedia: () => ({ matches: false, addEventListener() {} }) };
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js','js/ui-core.js','js/ui-world.js','js/ui-generals.js','js/ui-magic.js','js/ui-magi.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js','js/ui-core.js','js/ui-world.js','js/ui-generals.js','js/ui-magic.js','js/ui-magi.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra!==undefined?' '+extra:'')); };
@@ -333,6 +333,40 @@ const assault=(s,c,tgt,units={militia:120,crossbow:60})=>{ s.reports=[]; c.units
   try { G.advance(q,120,12); G.magiPool(q,'p'); } catch(e){ threw=e.stack; }
   ok('a save missing parts of the Circle state is repaired', !threw && Array.isArray(q.magi.realms.p.fallen) && q.magi.seq>=0, threw);
   ok('G.magiStudyBonus is safe on any save', G.magiStudyBonus(o,'p')===1 && G.magiStudyBonus({},'p')===1);
+}
+
+// ---- previews include battle magic, without spending mana, granting experience or rolling the dice ----
+{ const { s, c, tgt }=battleWorld();
+  const tile=G.tileAt(s,tgt.x,tgt.y);
+  s.intel[G.tileIdx(s,tile)]={ t:s.time, name:tgt.name, owner:tgt.owner, units:{...tgt.units}, wall:G.lvl(tgt,'wall'), th:G.lvl(tgt,'townhall') };
+  const units={militia:120,crossbow:60};
+  const plain=G.previewField(s,c,tile,units,'raid');
+  const g=hire(s,'p',{rank:3,school:'hearthweather',traits:['devoted']}); G.stationMagus(s,'p',g.id,'war',c.id);
+  const before=G.serialize(s), xp0=g.xp, mana0=G.citiesOf(s,'p').reduce((a,x)=>a+x.res.mana,0);
+  let rolls=0; G.MAGI.rng=()=>{ rolls++; return 0.5; };
+  let pv, pv2; try { pv=G.previewField(s,c,tile,units,'raid'); pv2=G.previewField(s,c,tile,units,'raid'); } finally { G.MAGI.rng=null; }
+  ok('the preview names the expected battle magic', pv && /^Battle magic: your .*(Hailstorm|Mist).*[+][0-9]+%/.test(pv.magic||''), pv&&pv.magic);
+  ok('the attack strength of the preview includes the magic', pv && plain && pv.A>plain.A, (plain&&plain.A)+' → '+(pv&&pv.A));
+  ok('the preview breakdown carries a labelled magic modifier', pv && pv.tactics && pv.tactics.mods.some(x=>x.kind==='magic' && x.side==='att' && /Battle magic/.test(x.label)));
+  ok('previewing spends no mana, grants no experience, changes nothing', G.serialize(s)===before && g.xp===xp0 && G.citiesOf(s,'p').reduce((a,x)=>a+x.res.mana,0)===mana0 && !g.battles);
+  ok('previewing rolls none of the fate dice of the Circle', rolls===0, rolls);
+  ok('the preview is stable (no hidden luck)', pv && pv2 && pv.A===pv2.A && pv.magic===pv2.magic);
+  ok('the magus stays at home after a preview', g.status==='home' && !g.move);
+  // the defenders' magi are announced, not simulated
+  const d=hire(s,'a1',{rank:1,traits:['devoted']}); G.stationMagus(s,'a1',d.id,'war',tgt.id);
+  const pv3=G.previewField(s,c,tile,units,'raid');
+  ok('the preview warns that their magus may answer', /their magus may duel and counter/.test(pv3.magic||'') && !pv3.magic.includes(d.name), pv3.magic);
+  // the plain G.previewBattle (and so every module preview) includes it too
+  const pv4=G.previewBattle(s,c,tile,units,'raid');
+  ok('G.previewBattle includes the magic too', pv4 && /Battle magic: your/.test(pv4.magic||''), pv4&&pv4.magic);
+  // too few soldiers: the magi stay home, and the preview says why
+  const pv5=G.previewField(s,c,tile,{militia:5},'raid');
+  ok('a tiny march: the preview explains that war magi stay home', /ride only with 10[+] soldiers/.test(pv5.magic||''), pv5.magic);
+  // the send form shows it
+  S=s; UI.mode='raid'; UI.form={send_militia:'120',send_crossbow:'60'}; c.units={...units};
+  let html='', threw=''; try { html=sendForm(c,tile,['raid','attack']); } catch(e){ threw=e.stack; }
+  ok('the send form shows the battle magic line', !threw && /🧙 Battle magic: your/.test(html), threw);
+  UI.form={};
 }
 
 // ---- UI renders ----

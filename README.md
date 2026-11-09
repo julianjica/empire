@@ -47,6 +47,11 @@ node tests/arcana.js              # the spellbook: circles, study queue, foreign
 node tests/magi.js                # the circle of magi: recruiting, court and war magi, battle magic, duels
 node tests/intercept.js            # clickable columns, meeting points, field battles, recall, AI interception
 node tests/roads.js                # roads worn by traffic, paving, decay, faster paths, fords and bridges
+node tests/quarters.js             # city quarters: slots, tile types, yields, territory, burn raids, AI growth
+node tests/warplan.js              # AI wars only when declared, warnings, war aims, campaigns, peace
+node tests/automation.js           # delegation by domain, presets, reserves, decisions inbox
+node tests/cli.js                  # keyboard console: commands, fuzzy names, completion, confirmations
+node tests/guide.js                # headless playthrough of every guide stage
 node tests/heroes.js              # rival heroes, duels, arcana
 node tests/religion.js            # faiths, spread, priests, miracles, holy war, religious victory
 node tests/races.js               # the eight peoples: units, buildings, goods, flying/amphibious, raising the dead

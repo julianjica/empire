@@ -1,7 +1,7 @@
 // The Chronicle: history sampling, downsampling, timeline, feats, summary, save/load.  node tests/chronicle.js
 const fs = require('fs');
 global.localStorage = { _: {}, getItem(k) { return this._[k] ?? null; }, setItem(k, v) { this._[k] = String(v); }, removeItem(k) { delete this._[k]; } };
-const files = ['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js'].filter(f => fs.existsSync(f));
+const files = ['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f => fs.existsSync(f));
 eval(files.map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
 let fails = 0;
 const ok = (n, c, x) => { if (!c) fails++; console.log((c ? 'PASS ' : 'FAIL ') + n + (x !== undefined ? ' ' + x : '')); };
@@ -110,6 +110,9 @@ const clean = t => typeof t === 'string' && t.length > 8 && !/undefined|null|NaN
   c.res.mana = 1e5; c.buildings.magetower = 15; c.buildings.townhall = 15;
   ok('a spell cast is counted', G.castSpell(s, 'p', c.id, 'bountifulrain', c.id) === null && G.chronStat(s, 'spells') === 1);
   const land = s.tiles.find(t => ['plains', 'fertile', 'hills'].includes(t.terrain) && !t.city && !t.camp && !t.oasis && !t.ruin && Math.hypot(t.x - c.x, t.y - c.y) <= 3 && Math.hypot(t.x - c.x, t.y - c.y) > 0);
+  // Wildwood is taught in the Song & Root tree (Archmage circle): open the school and learn the node first
+  G.grimoire(s, 'p').opened = [...G.grimoire(s, 'p').opened, 'songroot'];
+  ok('Wildwood is learned through its Grimoire node', G.learnArcanum(s, 'p', G.spellNode('growforest'), { free: true, path: true }) === null && G.spellsOf(s, 'p').includes('growforest'));
   const r = land ? G.castSpell(s, 'p', c.id, 'growforest', { x: land.x, y: land.y }) : 'no land';
   ok('a world-shaping spell is entered', r === null && lastOf(s, 'spell') && lastOf(s, 'spell').n === 1 && G.chronStat(s, 'shaped') === 1, r);
   G.magicState(s).working.p = { stage: 1, end: null }; slow(s);

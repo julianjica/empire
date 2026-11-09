@@ -37,6 +37,7 @@
   .cn-cityrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:6px;font-size:12.5px}
   .cn-cityrow select{max-width:170px}
   .cn-cityrow input[type=number]{width:72px}
+  .cn-cityrow label,.cn-realmbox{display:inline-flex;gap:4px;align-items:center;white-space:nowrap}
   @media (max-width:640px){.cn-grid{grid-template-columns:1fr}.cn-btns{margin-left:17px}.cn-gov .cn-name{min-width:0;flex:1 1 100%}}
   `;
   document.head.appendChild(style);
@@ -78,6 +79,9 @@
     }
     return `<span class="muted">${DATA.govFocus[g.focus].desc}</span> ${wait ? `<span class="warn">${wait}</span>` : ''} ${last ? `<span class="muted">Last: ${esc(last.text)} (${ago(last.t)})</span>` : ''}${realm ? '<br>' + realm : ''}`;
   };
+  // "Think for the realm": in the Governors list and the city header alike (only with a governor and a second city)
+  const realmToggle = (c, g) => g && g.on && G.citiesOf(S, 'p').length > 1
+    ? `<label class="cn-realmbox" title="Think for the realm: lean on supply lines and sister cities instead of building for every local shortfall, raise works for what the realm lacks where the land suits them, and wait for caravans before buying. Off: this city fends for itself."><input type="checkbox" data-k="gov_realm_${c.id}" ${g.realm === false ? '' : 'checked'}> 🌐 think for the realm</label>` : '';
   const govSpec = c => ({ race: S.empires.p.race, kind: 'governor', seed: c.id, color: S.empires.p.color, era: G.techEra(S, 'p') });
   const govRow = c => {
     const g = G.councilState(S).gov[c.id];
@@ -88,7 +92,7 @@
       ${focusSelect(c, g)}
       ${on ? `<label title="The governor never spends gold below this">keep 🪙 <input type="number" min="0" step="100" data-k="gov_res_${c.id}" value="${g.reserve || 0}"></label>` : ''}
       ${on && g.focus === 'military' ? `<label title="Defenders to keep trained here (0 = build only)">garrison <input type="number" min="0" step="5" data-k="gov_troops_${c.id}" value="${g.troops || 0}"></label>` : ''}
-      ${on && G.citiesOf(S, 'p').length > 1 ? `<label title="Think for the realm: lean on supply lines and sister cities instead of building for every local shortfall, raise works for what the realm lacks where the land suits them, and wait for caravans before buying. Off: this city fends for itself."><input type="checkbox" data-k="gov_realm_${c.id}" ${g.realm === false ? '' : 'checked'}> 🌐 think for the realm</label>` : ''}
+      ${realmToggle(c, g)}
       ${on && G.lvl(c, 'market') ? `<label title="Sell goods that would spill over; buy what the next building lacks (above the reserve)"><input type="checkbox" data-k="gov_mkt_${c.id}" ${g.market === false ? '' : 'checked'}> market</label>` : ''}
       ${on && g.log && g.log.length ? `<button class="small" data-act="cnLog" data-c="${c.id}">${open ? 'Hide log' : 'Log'}</button>` : ''}
       <div class="cn-status">${govStatus(c, g)}</div>
@@ -150,6 +154,7 @@
     const last = on && g.log && g.log[0];
     return `<div class="cn-cityrow">${on ? ptHtml(govSpec(city), 30, 'pt-card', `Governor of ${city.name}`) : ''}<span title="A governor manages this city's construction">🏛️ Governor</span>${focusSelect(city, g)}
       ${on ? `<label title="The governor never spends gold below this">keep 🪙 <input type="number" min="0" step="100" data-k="gov_res_${city.id}" value="${g.reserve || 0}"></label>` : ''}
+      ${realmToggle(city, g)}
       ${on && last ? `<span class="muted">${esc(last.text)}</span>` : on && g.wait ? `<span class="muted">${esc(g.wait.text)}</span>` : ''}
       ${top ? `<button class="link ${top.priority >= URG() ? 'bad' : ''}" data-act="tab" data-t="council" title="${esc(top.text.replace('{eta}', '…'))}">${mine.length} council note${mine.length === 1 ? '' : 's'}</button>` : ''}</div>`;
   });

@@ -52,7 +52,7 @@
     side: { max: 1.18, min: 0.88 },      // bounds of the magi's combined multiplier on each side
     rng: null,
   };
-  const HOSTILE = { raid: 1, attack: 1, conquer: 1 };
+  const HOSTILE = { raid: 1, attack: 1, conquer: 1, intercept: 1 };   // marches war magi ride with (interceptions: js/intercept.js)
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const paceT = s => G.pace(s).time;
   const seasonLen = s => ((G.DYN && G.DYN.seasonSec) || 7200) * paceT(s);
@@ -436,20 +436,67 @@
   };
   const duelScore = (g, luck) => g.rank + (has(g, 'battlehardened') ? 1 : 0) - (has(g, 'frail') ? 1 : 0) + (has(g, 'reckless') ? 0.5 : 0) - (g.hp < 50 ? 0.5 : 0) + luck * 2;
   const info = (s, owner, g) => ({ owner, id: g.id, name: g.name, rank: g.rank, school: g.school, seed: g.seed, race: g.race, age: G.magusAge(s, g), station: g.station, did: [] });
+  // ---- previews: what the war magi who would ride are expected to do ----
+  // PV = { owner, units, riders: [magus], foe: number of the foe's magi who may answer, foeWar, hint }
+  let PV = null;
+  // the war magi of a city who would ride out with these units (the same rules as G.sendArmy / G.sendIntercept)
+  const ridersFor = (s, city, units) => {
+    if (!s.magi || !city) return [];
+    const R = s.magi.realms[city.owner];
+    if (!R || soldiers(units) < MG.rideMin) return [];
+    return R.list.filter(g => g.station === 'war' && g.status === 'home' && g.city === city.id && !g.guard && g.hp >= MG.minHp).slice(0, MG.maxRiders);
+  };
+  G.magiRidersFor = ridersFor;
+  const previewText = (pv, casts, mult, rec, foeMult = 1) => {
+    const parts = [];
+    const pct = Math.round((mult - 1) * 100);
+    const landed = casts.filter(c => !c.countered);
+    const hexPct = Math.round((1 - foeMult) * 100);
+    const fx = [pct ? `${pct > 0 ? '+' : '−'}${Math.abs(pct)}%` : '', hexPct > 0 ? `their strength −${hexPct}%` : ''].filter(Boolean).join(', ');
+    if (landed.length) parts.push(`your ${landed.map(c => `${c.b.icon} ${c.b.name}`).join(', ')}${fx ? ' ' + fx : ''}`);
+    const dry = rec ? rec.att.filter(x => x.did.some(d => /no mana/.test(d))).map(x => x.name) : [];
+    if (dry.length) parts.push(`${dry.join(', ')} ${dry.length > 1 ? 'have' : 'has'} no mana to cast`);
+    if (!landed.length && !dry.length && pv.riders.length) parts.push(`your ${pv.riders.length > 1 ? 'magi ride' : 'magus rides'} along`);
+    if (pv.hint && !pv.riders.length) parts.push(pv.hint);
+    if (pv.foe) parts.push(pv.foeWar ? `their ${pv.foe > 1 ? 'magi' : 'magus'} may duel and counter` : `their ${pv.foe > 1 ? 'magi' : 'magus'} may counter`);
+    return parts.length ? 'Battle magic: ' + parts.join('; ') : null;
+  };
+  // run a battle preview (fn) for units sent from city; foeMagi: the foe's magi who may answer (shown, not simulated)
+  G.magiPreviewWith = (s, city, units, foeMagi, fn) => {
+    if (!s.magi || !city || (PV && PV.units === units)) return fn();
+    const riders = ridersFor(s, city, units);
+    const foe = (foeMagi || []).filter(able);
+    const R = s.magi.realms[city.owner];
+    const waiting = R && R.list.some(g => g.station === 'war' && g.status === 'home' && g.city === city.id && !g.guard);
+    const hint = waiting && soldiers(units) < MG.rideMin ? `war magi ride only with ${MG.rideMin}+ soldiers` : null;
+    if (!riders.length && !foe.length && !hint) return fn();
+    const prev = PV;
+    PV = { owner: city.owner, units, riders, foe: foe.length, foeWar: foe.some(g => g.station === 'war'), hint };
+    try { return fn(); } finally { PV = prev; }
+  };
   {
     const baseBattle = G.battle;
     G.battle = (s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode) => {
       if (!s.magi) return baseBattle(s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode);
       let opts = mode && typeof mode === 'object' ? mode : null;
-      const ctx = MCTX && MCTX.units === att && MCTX.owner === attOwner && !(G._gctx && G._gctx.preview) ? MCTX : null;
-      const aMagi = ctx ? ctx.magi.map(id => G.magusById(s, attOwner, id)).filter(g => g && g.status === 'marching' && able(g)) : [];
+      // a preview (G.magiPreviewWith): the magi who would ride cast on paper; nothing is paid, learned or rolled
+      const pv = PV && PV.units === att && PV.owner === attOwner ? PV : null;
+      const ctx = !pv && MCTX && MCTX.units === att && MCTX.owner === attOwner && !(G._gctx && G._gctx.preview) ? MCTX : null;
+      const aMagi = pv ? pv.riders.filter(able) : ctx ? ctx.magi.map(id => G.magusById(s, attOwner, id)).filter(g => g && g.status === 'marching' && able(g)) : [];
       const amb = !opts && G._field && G._field.units === att && G._field.owner === attOwner;
       const pos = opts && opts.x !== undefined ? opts : amb ? G._field : null;
       // a garrison's magi only take part while a march is being resolved (the AI's estimates pass the live garrison too)
-      const dc = G._field && !(G._gctx && G._gctx.preview) ? defCityOf(s, defOwner, def, pos) : null;
-      const dAll = dc ? G.magiAt(s, defOwner, dc.id).filter(able) : [];
+      const dc = !pv && G._field && !(G._gctx && G._gctx.preview) ? defCityOf(s, defOwner, def, pos) : null;
+      // a column met in the field (js/intercept.js passes it as opts.defMove in real battles only): the war magi riding with it
+      const dm = !pv && !dc && opts && opts.defMove && defOwner && opts.defMove.owner === defOwner ? opts.defMove : null;
+      const dAll = dc ? G.magiAt(s, defOwner, dc.id).filter(able)
+        : dm && dm.magi ? dm.magi.map(id => G.magusById(s, defOwner, id)).filter(g => g && g.status === 'marching' && g.move === dm.id && able(g)) : [];
       const dWar = dAll.filter(g => g.station === 'war'), dCourt = dAll.filter(g => g.station === 'court');
-      if (!aMagi.length && !dAll.length) return baseBattle(s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode);
+      if (!aMagi.length && !dAll.length) {
+        const res = baseBattle(s, attOwner, att, attMult, defOwner, def, defMult, flatDef, mode);
+        if (pv) { const t = previewText(pv, [], 1); if (t && res) res.magic = t; }
+        return res;
+      }
       if (!opts) opts = amb ? { ...G._field, mode, ambient: true } : { mode: mode || 'attack' };
       const rec = { att: aMagi.map(g => info(s, attOwner, g)), def: dAll.map(g => info(s, defOwner, g)), duel: null, notes: [] };
       const recOf = (side, g) => rec[side].find(x => x.id === g.id);
@@ -526,10 +573,15 @@
       for (const side of ['att', 'def']) for (const key of Object.keys(B)) if (K[side][key] !== undefined) K[side][key] = clamp(K[side][key], B[key][0], B[key][1]);
       const mult = { att: clamp(own.att, 1, MG.side.max) * clamp(hex.att, MG.side.min, 1), def: clamp(own.def, 1, MG.side.max) * clamp(hex.def, MG.side.min, 1) };
       const names = side => [...new Set(casts[side].filter(c => !c.countered).map(c => c.g.name))].join(', ');
-      if (Math.abs(mult.att - 1) >= 0.005) { labels.push({ side: 'att', label: `Battle magic (${[names('att'), hex.att < 1 ? 'hexed' : ''].filter(Boolean).join('; ')})`, mult: mult.att, kind: 'magic' }); attMult *= mult.att; }
+      const spells = side => casts[side].filter(c => !c.countered).map(c => `${c.b.icon} ${c.b.name}`).join(', ');
+      if (Math.abs(mult.att - 1) >= 0.005) { labels.push({ side: 'att', label: pv ? `Battle magic: ${spells('att')} (expected)` : `Battle magic (${[names('att'), hex.att < 1 ? 'hexed' : ''].filter(Boolean).join('; ')})`, mult: mult.att, kind: 'magic' }); attMult *= mult.att; }
       if (Math.abs(mult.def - 1) >= 0.005) { labels.push({ side: 'def', label: `Battle magic (${[names('def'), hex.def < 1 ? 'hexed' : ''].filter(Boolean).join('; ')})`, mult: mult.def, kind: 'magic' }); defMult *= mult.def; }
       const k = (Object.keys(K.att).length || Object.keys(K.def).length) ? K : opts.k;
       const res = baseBattle(s, attOwner, att, attMult, defOwner, def, defMult, flatDef, { ...opts, labels, k });
+      if (pv) {   // a preview stops here: no mana, experience, wounds or deaths, and the fate dice stay untouched
+        if (res) { res.magic = previewText(pv, casts.att, mult.att, rec, mult.def); if (res.tactics) res.tactics.magi = { ...rec, preview: true }; }
+        return res;
+      }
       // 5. afterwards (real battles only: previews never reach here): mana, experience, the duel's toll, fates
       const pay = (owner, side, home) => { const tot = casts[side].reduce((a, c) => a + c.cost, 0); if (tot && owner) payMana(s, owner, home, tot); };
       pay(attOwner, 'att', ctx && s.cities[ctx.move.from]); pay(defOwner, 'def', dc);
@@ -597,17 +649,34 @@
       const before = s.moves.length;
       const err = baseSend(s, fromId, x, y, type, units, cargo);
       if (err || !HOSTILE[type] || !s.magi || s.moves.length <= before) return err;
-      const city = s.cities[fromId];
-      const m = s.moves[s.moves.length - 1];
-      if (!city || !m || m.owner !== city.owner || m.from !== fromId || soldiers(m.units) < MG.rideMin) return err;
-      const R = s.magi.realms[city.owner];
-      if (!R) return err;
-      const riders = R.list.filter(g => g.station === 'war' && g.status === 'home' && g.city === fromId && !g.guard && g.hp >= MG.minHp).slice(0, MG.maxRiders);
-      for (const g of riders) { g.status = 'marching'; g.move = m.id; }
-      if (riders.length) { m.magi = riders.map(g => g.id); bump(s); }
+      G.magiRide(s, s.moves[s.moves.length - 1]);
       return err;
     };
   }
+  // the war magi of the march's home city ride with it (hostile marches of 10+ soldiers; js/intercept.js calls this too).
+  // The AI keeps its war magi home when it sends a quick interception (balance: tests/parity.js); the player's ride.
+  G.magiRide = (s, m) => {
+    if (!s.magi || !m || !HOSTILE[m.type] || m.magi || (m.type === 'intercept' && m.owner !== 'p')) return [];
+    const city = s.cities[m.from];
+    if (!city || m.owner !== city.owner) return [];
+    const riders = ridersFor(s, city, m.units);
+    for (const g of riders) { g.status = 'marching'; g.move = m.id; }
+    if (riders.length) { m.magi = riders.map(g => g.id); bump(s); }
+    return riders;
+  };
+  // a march that became another (a column following a changed course): its magi follow it
+  G.magiRepoint = (s, owner, fromId, toId) => {
+    if (!s.magi) return;
+    const R = s.magi.realms[owner];
+    if (R) for (const g of R.list) if (g.status === 'marching' && g.move === fromId) g.move = toId;
+  };
+  // resolve fn as the march m (hunts resolved outside G.resolveMove's chain: js/monsters.js): its magi cast
+  G.magiMarch = (s, m, fn) => {
+    if (!m || !m.magi || !s.magi) return fn();
+    const prev = MCTX;
+    MCTX = { owner: m.owner, units: m.units, move: m, magi: m.magi.slice() };
+    try { return fn(); } finally { MCTX = prev; }
+  };
   {
     const baseHome = G.sendHome;
     G.sendHome = (s, m, units, loot) => {

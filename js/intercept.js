@@ -20,8 +20,21 @@
 //  A column that won its field battle carries m.delayed (seconds lost).
 //  Old saves have none of this and load as they are.
 //
+//  War magi (js/magi.js) ride with interceptions like any hostile march
+//  and fight in the field battle: duels, casts and counters against the
+//  magi riding with the column. Battle previews show the magic expected.
+//
+//  Roaming monsters (js/monsters.js) on the move can be intercepted too:
+//  the troops wait where the creature's trail crosses theirs, and the
+//  meeting is resolved as a hunt (m.monster: the hunt's tracking — follow
+//  fresh tracks once, or a cold trail). A resting creature has no road to
+//  cut across: the hunt (Attack/Raid on its tile) is the way.
+//
+//  A caravan of yours taken by a rival gets a report of its own.
+//
 //  API: G.canIntercept, G.interceptPlan, G.sendIntercept, G.previewIntercept,
-//       G.recallMove, G.columnIntel, G.columnSide, G.fieldName, G.aiIntercept
+//       G.recallMove, G.columnIntel, G.columnSide, G.fieldName, G.aiIntercept,
+//       G.interceptTarget (a column or a roaming monster by id)
 //  Ships intercept ships at sea (and fliers can reach them); land armies
 //  meet columns on land only.
 // =====================================================================
@@ -39,18 +52,30 @@
     aiCities: 3,          // AI tries its few nearest cities only
   };
   G.IC = IC;
-  const HOSTILE = { raid: 1, attack: 1, conquer: 1 };
+  const HOSTILE = { raid: 1, attack: 1, conquer: 1, burn: 1 };
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const sum = o => Object.values(o || {}).reduce((a, b) => a + (b > 0 ? b : 0), 0);
   const clean = u => Object.fromEntries(Object.entries(u || {}).map(([k, n]) => [k, Math.floor(n)]).filter(([k, n]) => n > 0 && DATA.units[k]));
   const findMove = (s, id) => (s.moves || []).find(m => m.id === id) || null;
+  // roaming monsters have the shape of a march (fx, fy, x, y, path, depart, arrive)
+  const monsterOf = (s, T) => T && T.kind && s.monsters && s.monsters[T.id] === T ? T : null;
+  const monKind = mon => (DATA.monsterKinds && DATA.monsterKinds[mon.kind]) || { name: 'creatures', move: 'land' };
+  const lcName = mon => monKind(mon).name.replace(/^The /, 'the ').toLowerCase();
+  const atSeaOf = (s, T) => !!T.naval || (!!monsterOf(s, T) && monKind(T).move === 'sea');
+  G.interceptTarget = (s, id) => findMove(s, id) || (s.monsters && s.monsters[id]) || null;
   const isShip = u => DATA.units[u] && DATA.units[u].type === 'ship';
   const PT = s => G.pace(s).time;
 
   // ---- who may intercept whom ----
   // returns an error text, or null when allowed
   G.canIntercept = (s, owner, T) => {
+    if (monsterOf(s, T)) {
+      if (!s.empires[owner] || s.empires[owner].dead) return 'No realm';
+      if (!G.unitsCount(T.units)) return 'The creatures are gone';
+      if (T.arrive <= s.time + 1) return `The ${lcName(T)} is not on the move: there is no road to cut across. Hunt it where it stands (Attack or Raid)`;
+      return null;
+    }
     if (!T || !s.moves.includes(T)) return 'That column is no longer on the road';
     if (T.owner === owner) return 'That is your own column';
     if (!s.empires[owner] || s.empires[owner].dead) return 'No realm';
@@ -123,6 +148,7 @@
     return `${word} at (${Math.round(x)}, ${Math.round(y)})`;
   };
   const destName = (s, m) => {
+    if (monsterOf(s, m)) return `(${m.x}, ${m.y})`;
     const t = G.tileAt(s, m.x, m.y);
     if (t && t.city && s.cities[t.city]) return s.cities[t.city].name;
     if (t && t.minor && s.minors && s.minors[t.minor]) return s.minors[t.minor].name;
@@ -140,7 +166,7 @@
     if (T.arrive <= s.time + 1) return { ok: false, reason: `They are already at ${destName(s, T)}` };
     const present = Object.keys(units);
     const ships = present.some(isShip), fly = present.every(u => DATA.units[u].flying);
-    const atSea = !!T.naval;
+    const atSea = atSeaOf(s, T);
     if (atSea && !ships && !fly) return { ok: false, reason: 'They sail by sea: only ships (or fliers) can meet them' };
     if (!atSea && ships) return { ok: false, reason: 'Ships cannot fight a column on land: send land troops' };
     const fct = orders && G.marchFactor ? G.marchFactor(s, owner, orders) : 1;
@@ -152,7 +178,7 @@
       if (v.last || v.t <= s.time + 2 || v.t >= T.arrive - 1) continue;
       if (stride > 1 && k % stride && !tl[k + 1].last) continue;
       const tx = Math.round(v.x), ty = Math.round(v.y), tile = G.tileAt(s, tx, ty);
-      if (!tile || tile.city || tile.minor) continue;
+      if (!tile || tile.city || tile.minor || (G.cityAtTile && G.cityAtTile(s, tx, ty))) continue;   // city cores and their quarters
       const water = G.isWater(tile);
       if (water && !ships && !fly) continue;
       if (!water && ships) continue;
@@ -197,20 +223,23 @@
     }
     return { mult, labels, k };
   };
-  const fieldBattle = (s, owner, home, units, T, defUnits, x, y, path, naval) => {
+  // real: a battle that is being fought (not an estimate): the magi riding with the column defend it
+  const fieldBattle = (s, owner, home, units, T, defUnits, x, y, path, naval, real) => {
     const f = G.battlefield(s, x, y, path, naval);
     const edge = G.armyEdge(s, owner, home, units);
+    if (monsterOf(s, T))   // a creature on its trail: no stance, general or walls, fought to the end as a hunt is
+      return G.battle(s, owner, units, edge.mult, null, defUnits, 1, 0, { mode: 'attack', x, y, path, naval, field: f, hold: false, labels: edge.labels });
     const ce = columnEdge(s, T, defUnits, f);
     return G.battle(s, owner, units, edge.mult, s.empires[T.owner] ? T.owner : null, defUnits, ce.mult, 0,
-      { mode: 'raid', x, y, path, naval, field: f, hold: false, labels: [...edge.labels, ...ce.labels], k: { att: {}, def: ce.k } });
+      { mode: 'raid', x, y, path, naval, field: f, hold: false, labels: [...edge.labels, ...ce.labels], k: { att: {}, def: ce.k }, defMove: real ? T : undefined });
   };
 
   // ---- what a viewer knows of a column (size bands, mission, destination, general) ----
   const hash = str => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
   const sig2 = v => { if (v < 20) return Math.max(1, Math.round(v)); const p = Math.pow(10, Math.floor(Math.log10(v)) - 1); return Math.round(v / p) * p; };
   const sizeWord = n => n < 15 ? 'a small band' : n < 50 ? 'a warband' : n < 150 ? 'a large host' : n < 400 ? 'a great army' : 'a vast horde';
-  const MISSION = { raid: 'raid', attack: 'assault', conquer: 'conquest', settle: 'settlers', reinforce: 'reinforcements', trade: 'caravan', return: 'returning home', scout: 'scouts', adventure: 'hero\'s adventure', intercept: 'interception', preach: 'preachers' };
-  const COARSE = { raid: 'war host', attack: 'war host', conquer: 'war host', intercept: 'war host', reinforce: 'war host', adventure: 'war host', settle: 'settlers', trade: 'caravan', return: 'returning column', scout: 'scouts', preach: 'preachers' };
+  const MISSION = { raid: 'raid', attack: 'assault', conquer: 'conquest', settle: 'settlers', reinforce: 'reinforcements', trade: 'caravan', return: 'returning home', scout: 'scouts', adventure: 'hero\'s adventure', intercept: 'interception', preach: 'preachers', burn: 'raid on a quarter' };
+  const COARSE = { raid: 'war host', attack: 'war host', conquer: 'war host', intercept: 'war host', reinforce: 'war host', adventure: 'war host', settle: 'settlers', trade: 'caravan', return: 'returning column', scout: 'scouts', preach: 'preachers', burn: 'war host' };
   G.missionName = type => MISSION[type] || type;
   const freshIntel = (s, viewer, m) => {
     const home = s.cities[m.from];
@@ -249,8 +278,9 @@
   G.sendIntercept = (s, fromId, targetId, units, orders) => {
     const city = s.cities[fromId];
     if (!city) return 'No such city';
-    const owner = city.owner, T = findMove(s, targetId);
+    const owner = city.owner, T = G.interceptTarget(s, targetId);
     if (!T) return 'That column is no longer on the road';
+    const mon = monsterOf(s, T);
     const sent = {};
     for (const [u, n] of Object.entries(units || {})) {
       const k = Math.floor(n);
@@ -272,10 +302,13 @@
     const m = { id: G.newId(s, 'm'), owner, type: 'intercept', from: city.id, fx: city.x, fy: city.y, x: plan.x, y: plan.y, path: plan.path, naval: plan.naval,
       units: sent, cargo: {}, depart: s.time, arrive: plan.at, target: T.id, march: plan.dur };
     if (orders.stance && orders.stance !== 'balanced') m.stance = orders.stance;
+    if (mon) { m.monster = mon.id; m.mkind = mon.kind; }   // resolved as a hunt (js/monsters.js): the same tracking
     const g = orders.general ? G.generalById(s, owner, orders.general) : null;
     if (g) { m.general = g.id; g.status = 'marching'; g.move = m.id; g.city = null; }
     s.moves.push(m);
-    if (owner === 'p') G.log(s, 'p', `🛡️ Troops ride from ${city.name} to meet the ${s.empires[T.owner] ? s.empires[T.owner].name + '\'s ' : ''}${G.missionName(T.type)} at ${plan.name}.`, 'info');
+    if (G.magiRide) G.magiRide(s, m);
+    if (owner === 'p') G.log(s, 'p', mon ? `🛡️ Hunters ride from ${city.name} to lie in wait for the ${lcName(mon)} at ${plan.name}.`
+      : `🛡️ Troops ride from ${city.name} to meet the ${s.empires[T.owner] ? s.empires[T.owner].name + '\'s ' : ''}${G.missionName(T.type)} at ${plan.name}.`, 'info');
     return null;
   };
 
@@ -285,16 +318,40 @@
     if (!T || !G.unitsCount(units)) return null;
     plan = plan || G.interceptPlan(s, city.owner, city, T, units, orders);
     if (!plan.ok) return null;
-    const intel = G.columnIntel(s, city.owner, T);
-    let def = { ...T.units };
-    if (!intel.exact && intel.count > 0) {
-      const k = intel.approx / intel.count;
-      def = Object.fromEntries(Object.entries(def).map(([u, n]) => [u, u === 'hero' ? n : Math.max(1, Math.round(n * k))]));
+    const mon = monsterOf(s, T);
+    let def = { ...T.units }, exact = true, foeMagi = [];
+    if (mon) {
+      const n = G.unitsCount(def), est = G.monsterEstimate ? G.monsterEstimate(mon) : n;
+      if (n && est !== n) def = Object.fromEntries(Object.entries(def).map(([u, c]) => [u, Math.max(1, Math.round(c * est / n))]));
+      exact = false;
+    } else {
+      const intel = G.columnIntel(s, city.owner, T);
+      if (!intel.exact && intel.count > 0) {
+        const k = intel.approx / intel.count;
+        def = Object.fromEntries(Object.entries(def).map(([u, n]) => [u, u === 'hero' ? n : Math.max(1, Math.round(n * k))]));
+      }
+      exact = intel.exact;
+      // magi riding with the column, as far as we can see them (close watch only)
+      if (T.magi && G.magusById && (intel.level === 'close' || intel.level === 'own')) foeMagi = T.magi.map(id => G.magusById(s, T.owner, id)).filter(g => g && g.move === T.id);
     }
     const run = () => fieldBattle(s, city.owner, city, units, T, def, plan.x, plan.y, plan.path, plan.naval && G.isWater(G.tileAt(s, plan.x, plan.y)));
-    const r = G.withOrders && orders ? G.withOrders(s, city.owner, units, orders, run) : run();
-    return { ...r, estimated: !intel.exact, plan };
+    const withMagi = () => G.magiPreviewWith ? G.magiPreviewWith(s, city, units, foeMagi, run) : run();
+    const r = G.withOrders && orders ? G.withOrders(s, city.owner, units, orders, withMagi) : withMagi();
+    return { ...r, estimated: !exact, plan, monster: !!mon };
   };
+
+  // every battle preview (the send form's, free cities', creatures') shows the battle magic expected:
+  // the war magi who would ride, and whether the defenders' magi may answer. Installed here, after
+  // js/minors.js and js/monsters.js have wrapped G.previewBattle, so their previews include it too.
+  {
+    const basePreview = G.previewBattle;
+    G.previewBattle = (s, city, tile, units, mode) => {
+      if (!G.magiPreviewWith || !city || !units) return basePreview(s, city, tile, units, mode);
+      const tc = tile && tile.city && s.cities[tile.city];
+      const foe = tc && tc.owner !== city.owner && G.magiAt ? G.magiAt(s, tc.owner, tc.id) : [];
+      return G.magiPreviewWith(s, city, units, foe, () => basePreview(s, city, tile, units, mode));
+    };
+  }
 
   // ---- the way home (interceptors walk back the road they came) ----
   const goHome = (s, m, units, loot) => {
@@ -352,7 +409,10 @@
       if (next && !m.retargeted && !G.canIntercept(s, m.owner, next)) {
         const plan = G.interceptPlan(s, m.owner, { x: m.x, y: m.y }, next, m.units, { stance: m.stance, general: m.general });
         if (plan.ok) {
-          s.moves.push({ ...m, id: G.newId(s, 'm'), fx: m.x, fy: m.y, x: plan.x, y: plan.y, path: plan.path, naval: plan.naval, depart: s.time, arrive: plan.at,
+          const nid = G.newId(s, 'm');
+          if (G.magiRepoint) G.magiRepoint(s, m.owner, m.id, nid);
+          if (m.general && G.generalById) { const g = G.generalById(s, m.owner, m.general); if (g && g.move === m.id) g.move = nid; }
+          s.moves.push({ ...m, id: nid, fx: m.x, fy: m.y, x: plan.x, y: plan.y, path: plan.path, naval: plan.naval, depart: s.time, arrive: plan.at,
             target: next.id, retargeted: 1, homePath: [...(m.homePath || m.path || [[m.fx, m.fy], [m.x, m.y]])].concat(plan.path.slice(1)), march: (m.march || 0) + plan.dur });
           if (m.owner === 'p') G.log(s, 'p', `🛡️ The ${nameOf(s, next.owner)} column changed course; our riders follow to ${plan.name}.`, 'info');
           return;
@@ -375,7 +435,7 @@
     G._gctx = { owner: m.owner, units: m.units, move: m, general: m.general || null, stance: m.stance || 'balanced', info: null };
     let r;
     try {
-      r = fieldBattle(s, m.owner, home && home.owner === m.owner ? home : null, m.units, T, { ...T.units }, tile.x, tile.y, m.path, naval);
+      r = fieldBattle(s, m.owner, home && home.owner === m.owner ? home : null, m.units, T, { ...T.units }, tile.x, tile.y, m.path, naval, true);
       const win = r.win;
       if (win && G.unitsCount(defHad) > 0) me.wins = (me.wins || 0) + 1;
       else if (!win && them) them.wins = (them.wins || 0) + 1;
@@ -407,11 +467,24 @@
       }
       const theirs = defOwner ? nameOf(s, defOwner) : 'Brigands';
       const pv = m.owner === 'p' ? win : defOwner === 'p' ? !win : win;
-      G.report(s, [m.owner, defOwner].filter(Boolean), `⚔️ Battle at ${fname}: ${win ? me.name + ' won' : theirs + ' held'}`, pv ? 'win' : 'loss',
-        { att: me.name, def: theirs, A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot, extra, tactics: r.tactics,
-          field: { name: fname, x: tile.x, y: tile.y, mission: T.type, dest } });
+      const body = { att: me.name, def: theirs, A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot, extra, tactics: r.tactics,
+        field: { name: fname, x: tile.x, y: tile.y, mission: T.type, dest } };
+      // our own caravan taken by a rival: a report in our words, saying where it was bound, who took it, where, and what was lost
+      const ourCaravan = caravan && defOwner === 'p' && m.owner !== 'p';
+      if (ourCaravan) {
+        const place = nearestPlace(s, tile.x, tile.y);
+        const where = place ? `near ${place}` : `at (${tile.x}, ${tile.y})`;
+        const goods = o => Object.entries(o || {}).filter(([, v]) => v >= 1).map(([g, v]) => `${Math.floor(v)} ${DATA.goods[g] ? DATA.goods[g].name.toLowerCase() : g}`).join(', ');
+        const cargo = goods(T.cargo);
+        const title = win ? `🐪 Your caravan to ${dest} was intercepted by the ${me.name} ${where} — cargo lost`
+          : `🐪 Your caravan to ${dest} beat off the ${me.name} ${where}`;
+        const what = win ? `The ${me.name} fell on our caravan to ${dest} at ${fname} and took it. Cargo lost: ${cargo || 'none'}${sum(loot) ? ` (they carried off ${goods(loot)})` : ''}.${G.unitsCount(r.defLeft) ? ' The surviving escort flees home.' : ''}`
+          : `The ${me.name} tried to take our caravan to ${dest} at ${fname}; its escort drove them off and it travels on, a little delayed.`;
+        G.report(s, ['p'], title, win ? 'loss' : 'win', { ...body, extra: what, caravan: { dest, by: me.name, where, lost: win ? { ...(T.cargo || {}) } : {} } });
+        G.log(s, 'p', `${title}.`, win ? 'bad' : 'good');
+      } else G.report(s, [m.owner, defOwner].filter(Boolean), `⚔️ Battle at ${fname}: ${win ? me.name + ' won' : theirs + ' held'}`, pv ? 'win' : 'loss', body);
       if (m.owner === 'p') G.log(s, 'p', `⚔️ Battle at ${fname}: ${win ? 'we broke the ' + theirs + ' column' : 'the ' + theirs + ' column beat us off'}.`, win ? 'good' : 'bad');
-      else if (defOwner === 'p') G.log(s, 'p', `⚔️ The ${me.name} fell on our ${G.missionName(T.type)} at ${fname}: ${win ? 'it was broken' : 'we drove them off'}.`, win ? 'bad' : 'good');
+      else if (defOwner === 'p' && !ourCaravan) G.log(s, 'p', `⚔️ The ${me.name} fell on our ${G.missionName(T.type)} at ${fname}: ${win ? 'it was broken' : 'we drove them off'}.`, win ? 'bad' : 'good');
       goHome(s, m, r.attLeft, loot);
     } finally { G._gctx = prev; }
   };

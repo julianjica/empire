@@ -1,6 +1,6 @@
 // =====================================================================
-//  Roads & bridges UI: the tile panel shows the road, its wear toward the
-//  next level and any river crossing; the player may order a bridge.
+//  Roads & bridges UI: the tile panel shows the ground's march cost, the road,
+//  its wear toward the next level and any river crossing; the player may order a bridge.
 //  The engine side lives in js/roads.js; the map draws the network (worldmap.js paintRoads).
 // =====================================================================
 'use strict';
@@ -9,11 +9,26 @@ if (typeof TILE_EXTRAS !== 'undefined' && G.roadInfo) {
   const costTxt = cost => Object.entries(cost).map(([g, v]) => `${Math.round(v)} ${g === 'gold' ? '🪙 gold' : (DATA.goods[g] ? DATA.goods[g].icon + ' ' + DATA.goods[g].name.toLowerCase() : g)}`).join(', ');
   const pctW = (a, b) => Math.max(0, Math.min(100, Math.round(a / b * 100)));
 
+  const xf = f => '×' + (Math.round(f * 100) / 100);
+  // how hard the ground is to march over: the terrain's factor off-road, and what a road here makes of it
+  const terrainLine = (t, info) => {
+    const tf = G.terrainFactor ? G.terrainFactor(S, t.x, t.y) : 1;
+    if (tf === null) return '';
+    const name = t.city ? 'City streets' : (DATA.terrain[t.terrain] ? DATA.terrain[t.terrain].name : t.terrain);
+    const adj = G.raceTerrain && G.raceTerrain(S, 'p'), mine = !t.city && adj && adj[t.terrain] !== undefined && adj[t.terrain] < tf ? adj[t.terrain] : null;
+    const people = mine !== null ? ` · your ${esc(DATA.races[S.empires.p.race].name)} ${xf(mine)}` : '';
+    const rough = tf >= 2 ? ', hard going' : tf >= 1.4 ? ', slow going' : '';
+    const body = info.lvl
+      ? `marching ${xf(info.factor)} on this ${RD.names[info.lvl].toLowerCase()} <span class="muted">(off-road ${xf(tf)}${rough}${people})</span>`
+      : `marching ${xf(tf)}${rough}${people} <span class="muted">(road: ${xf(RD.F[2])})</span>`;
+    return `<div title="March cost per tile, relative to open ground (×1). A road overrides the terrain, so roads pay off most in rough country.">⛰️ <b>${esc(name)}</b> — ${body}</div>`;
+  };
   TILE_EXTRAS.push((city, t) => {
     if (!S || !t || G.isWater(t)) return '';
     const info = G.roadInfo(S, t.x, t.y);
-    if (!info.lvl && !info.wear && !info.river) return '';
     const parts = [];
+    const tl = terrainLine(t, info);
+    if (tl) parts.push(tl);
     // the road
     if (info.lvl || info.wear >= 0.5) {
       const speed = Math.round((1 / info.factor - 1) * 100);
@@ -62,11 +77,12 @@ if (typeof TILE_EXTRAS !== 'undefined' && G.roadInfo) {
 
   if (typeof HELP_SECTIONS !== 'undefined' && !HELP_SECTIONS.some(h => h.id === 'roads')) {
     const i = HELP_SECTIONS.findIndex(h => h.id === 'trade');
-    HELP_SECTIONS.splice(i >= 0 ? i + 1 : HELP_SECTIONS.length, 0, { id: 'roads', icon: '🛤️', title: 'Roads & bridges', tabs: [], words: 'road roads track paved paving bridge bridges river ford wade caravan traffic travel movement speed logistics arches',
-      html: `<p>Roads are not built by hand: <b>traffic wears them into the land</b>. Every finished journey along a path (caravans, supply carts and trade routes most; armies a little) adds wear to each tile it crossed.</p><ul><li><b>🥾 Track</b> (${RD.T[1]} trips): marches ${Math.round((1 / RD.F[1] - 1) * 100)}% faster. <b>🛤️ Road</b> (${RD.T[2]}): ${Math.round((1 / RD.F[2] - 1) * 100)}% faster. <b>🧱 Paved road</b> (${RD.T[3]}): ${Math.round((1 / RD.F[3] - 1) * 100)}% faster — paving needs <b>Logistics</b> and ${RD.pave.stone} stone per tile from the realm whose land it is (neutral land stays unpaved).</li><li>A road unused for ${RD.idle} game-minutes fades one level.</li><li>Every realm's armies, caravans and settlers use every road — <b>including your enemies</b>.</li></ul><p><b>Rivers</b>: wading an unbridged river costs about ${RD.ford} extra tiles of march. Where your traffic keeps fording on your own or neutral land, the nearest city bridges it on its own (${RD.bridge.wood.cost.timber} timber, ${RD.bridge.wood.min} game-minutes; with <b>Arches &amp; Vaults</b> a stone bridge). You can also order one on a river tile in or next to your land from the map. A bridge also spares attackers the river-crossing penalty in battle. Floods sweep wooden bridges away, and an enemy that wins a battle on a bridge burns it.</p>` });
+    HELP_SECTIONS.splice(i >= 0 ? i + 1 : HELP_SECTIONS.length, 0, { id: 'roads', icon: '🛤️', title: 'Roads & bridges', tabs: [], words: 'road roads track paved paving bridge bridges river ford wade caravan traffic travel movement speed logistics arches terrain hills mountain forest march cost',
+      html: `<p>Roads are not built by hand: <b>traffic wears them into the land</b>. Every finished journey along a path (caravans, supply carts and trade routes most; armies a little) adds wear to each tile it crossed.</p><ul><li><b>🥾 Track</b> (${RD.T[1]} trips): marches ${Math.round((1 / RD.F[1] - 1) * 100)}% faster. <b>🛤️ Road</b> (${RD.T[2]}): ${Math.round((1 / RD.F[2] - 1) * 100)}% faster. <b>🧱 Paved road</b> (${RD.T[3]}): ${Math.round((1 / RD.F[3] - 1) * 100)}% faster — paving needs <b>Logistics</b> and ${RD.pave.stone} stone per tile from the realm whose land it is (neutral land stays unpaved).</li><li>A road unused for ${RD.idle} game-minutes fades one level.</li><li>Every realm's armies, caravans and settlers use every road — <b>including your enemies</b>.</li></ul><p><b>Terrain</b> slows marches off-road: open plains and vales ×1, forest ×${RD.terrain.forest}, hills ×${RD.terrain.hills}, mountains ×${RD.terrain.mountain} (per tile, relative to open ground). A road <b>replaces</b> the terrain's cost with its own, so a road through the hills or over a pass saves far more than one across the plains. The Sylvani march through forest as on open ground, Deepdelvers take hills and mountains in their stride and the tireless Gravebound feel them less (the tile panel shows your own people's cost). Trade routes, supply carts and armies all feel it: a city walled in by hills trades slowly until its roads are worn in.</p><p><b>Rivers</b>: wading an unbridged river costs about ${RD.ford} extra tiles of march. Where your traffic keeps fording on your own or neutral land, the nearest city bridges it on its own (${RD.bridge.wood.cost.timber} timber, ${RD.bridge.wood.min} game-minutes; with <b>Arches &amp; Vaults</b> a stone bridge). You can also order one on a river tile in or next to your land from the map. A bridge also spares attackers the river-crossing penalty in battle. Floods sweep wooden bridges away, and an enemy that wins a battle on a bridge burns it.</p>` });
   }
   if (typeof HELP_GLOSSARY !== 'undefined') {
     HELP_GLOSSARY.push(['Road', 'A path worn by traffic: Track, Road, then Paved road (with Logistics). Faster marches for everyone.', 'roads']);
     HELP_GLOSSARY.push(['Ford', 'An unbridged river tile: wading it slows a march. Bridges remove it.', 'roads']);
+    HELP_GLOSSARY.push(['March cost', 'How slow a tile is to cross: open ground ×1, forest, hills and mountains more. A road replaces it with its own.', 'roads']);
   }
 }

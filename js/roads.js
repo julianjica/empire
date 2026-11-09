@@ -20,6 +20,12 @@
     wOther: 0.25,
     pave: { tech: 'logistics', stone: 8 },
     ford: 1.5,                         // extra march cost of wading an unbridged river tile
+    // march factor of each terrain off-road (the land has no marsh, desert or snow; lakes are impassable)
+    terrain: { plains: 1, fertile: 1, forest: 1.35, hills: 1.5, mountain: 2.2 },
+    cityF: 1,                          // a city's own tile: streets, whatever the ground
+    // peoples at home in rough country (off-road factors that replace the terrain's for their marches)
+    raceTerrain: { sylvan: { forest: 1 }, delver: { hills: 1.1, mountain: 1.5 }, grave: { hills: 1.2, mountain: 1.7 } },
+    alt: { K: 5, minRegion: 40, stale: 12, maxPatch: 400 },   // A* landmarks per land region (see altUpdate: patch or rebuild)
     idle: 90,                          // game-minutes (× pace) without traffic before a level fades
     bridge: {
       wood: { cost: { timber: 120 }, min: 6, name: 'Wooden bridge' },
@@ -30,6 +36,11 @@
       reach: 10,                       // the funding city must lie within this many tiles
     },
   };
+  // the peoples' terrain perks, listed with their other perks (race picker, realm panel)
+  const perkTxt = (r, txt) => { const d = DATA.races[r]; if (d && Array.isArray(d.perks) && !d.perks.includes(txt)) d.perks.push(txt); };
+  perkTxt('sylvan', `Forest paths: march through forest as on open ground (others ×${RD.terrain.forest})`);
+  perkTxt('grave', `Tireless dead: hills ×${RD.raceTerrain.grave.hills}, mountains ×${RD.raceTerrain.grave.mountain} (others ×${RD.terrain.hills} / ×${RD.terrain.mountain})`);
+  perkTxt('delver', `Mountain roads: hills ×${RD.raceTerrain.delver.hills}, mountains ×${RD.raceTerrain.delver.mountain} (others ×${RD.terrain.hills} / ×${RD.terrain.mountain})`);
   const paceT = s => G.pace(s).time;
   const R = G.roadsState = s => {
     let r = s.roads;
@@ -68,23 +79,32 @@
   };
 
   // ---- path costs (engine.js G.path) -----------------------------------
-  // per-tile factors and ford penalties, rebuilt only when the network changes (epoch) or a city is founded/razed
+  // Every land tile has a march factor: its terrain's (RD.terrain), or its road level's when a road runs there
+  // (a road overrides the terrain, so roads matter most through rough country). City tiles count as open ground.
+  // Unbridged river tiles add a ford penalty. Rebuilt only when the network changes (epoch), a city is founded or
+  // razed, the rivers change, or a spell reshapes the land (s.terrainRev / G.clearPaths).
   const COSTS = new WeakMap();
+  const terrainF = t => { const f = RD.terrain[t.terrain]; return f !== undefined ? f : 1; };
+  G.terrainFactor = (s, x, y) => { const t = G.tileAt(s, x, y); return !t || G.isWater(t) ? null : t.city ? RD.cityF : terrainF(t); };
   G.roadCosts = s => {
-    const r = s.roads;
-    const rivers = s.rivers || [];
-    if ((!r || !r.lvl) && !rivers.length) return null;
+    const r = s.roads, rivers = s.rivers || [], tr = s.terrainRev || 0;
     const ep = r ? r.epoch || 0 : 0;
     let nc = 0; for (const k in s.cities) nc++;
     let c = COSTS.get(s.tiles);
-    if (c && c.ep === ep && c.nc === nc && c.rv === rivers) return c.v;
-    const NN = s.map * s.map;
-    let fac = null, hm = 1;
-    if (r && r.lvl) for (const k in r.lvl) {
-      const L = r.lvl[k]; if (!L) continue;
-      if (!fac) fac = new Float32Array(NN).fill(1);
-      fac[k] = RD.F[L]; if (RD.F[L] < hm) hm = RD.F[L];
+    if (c && c.ep === ep && c.nc === nc && c.rv === rivers && c.tr === tr) return c.v;
+    // stale costs mean stale memoised paths too (a city founded on hills, rivers changed): drop them
+    // (after an epoch change roadsFlush already did; safe mid-search, G.path holds its own references)
+    if (c) baseClear(s);
+    const NN = s.map * s.map, lvl = r && r.lvl, fac = new Float32Array(NN);
+    let hm = Infinity;
+    for (let i = 0; i < NN; i++) {
+      const t = s.tiles[i];
+      if (!t || G.isWater(t)) { fac[i] = 1; continue; }
+      const L = lvl ? lvl[i] || 0 : 0;
+      const f = fac[i] = L ? RD.F[L] : t.city ? RD.cityF : terrainF(t);
+      if (f < hm) hm = f;
     }
+    if (hm === Infinity) hm = 1;
     let ford = null;
     if (rivers.length) {
       ford = new Float32Array(NN);
@@ -94,17 +114,175 @@
         ford[i] = RD.ford;
       }
     }
-    const v = (fac || ford) ? { fac, ford, hm } : null;
-    COSTS.set(s.tiles, { ep, nc, rv: rivers, v });
+    const v = { fac, ford, hm, heur: null };
+    v.heur = goal => altHeur(s, v, goal);
+    altUpdate(s, v);
+    COSTS.set(s.tiles, { ep, nc, rv: rivers, tr, v });
     return v;
   };
-  // the network changed: new costs for every path (the memo in engine.js is dropped with the other path caches)
+
+  // ---- the A* heuristic: landmarks (ALT) per land region ---------------------
+  // A plain octile heuristic must be scaled by the cheapest factor anywhere (one paved tile made every search
+  // ~4x slower), and it knows nothing of hills. Instead a few landmarks per land region carry exact distances
+  // over a lower-bound cost field `base` (≤ today's factors everywhere); |d_L(n) - d_L(goal)| is then an
+  // admissible, consistent estimate, and A* stays exactly optimal (checked against Dijkstra in tests/roads.js).
+  //   When tiles get cheaper (a fresh track, a paved road, a finished city on a mountain) `base` drops to match
+  //   and the built tables are patched in place: a decrease-only Dijkstra seeded at those tiles (distances can
+  //   only shrink, and only behind the changed tiles). Tiles that get dearer (roads fading) keep their old base:
+  //   the estimate just loosens, and once that passes RD.alt.stale (or too many tiles changed at once) the
+  //   tables are dropped and rebuilt lazily, region by region, on the next search there (5 Dijkstras over the
+  //   region, ~2-3 ms on an 80x80 map).
+  const LMS = new WeakMap();
+  const altFresh = (s, v, old) => ({ base: new Float32Array(v.fac), tables: new Map(), builds: old ? old.builds : 0, patches: old ? old.patches : 0, ms: old ? old.ms : 0, NN: v.fac.length });
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const altUpdate = (s, v) => {
+    let A = LMS.get(s.tiles);
+    if (!A || A.NN !== v.fac.length) { A = altFresh(s, v, A); LMS.set(s.tiles, A); }
+    const b = A.base, f = v.fac, cheaper = [];
+    let loose = 0;
+    for (let i = 0; i < f.length; i++) { const d = b[i] - f[i]; if (d > 0) cheaper.push(i); else if (d < 0) loose -= d; }
+    if (loose > RD.alt.stale || cheaper.length > RD.alt.maxPatch) { A = altFresh(s, v, A); LMS.set(s.tiles, A); }
+    else if (cheaper.length) {
+      for (const i of cheaper) b[i] = f[i];
+      if (A.tables.size) {
+        const t0 = now(), water = G.waterMask(s);
+        for (const T of A.tables.values()) if (T) for (const D of T) altPatch(s, b, water, D, cheaper);
+        A.patches++; A.ms += now() - t0;
+      }
+    }
+    v.alt = A;
+  };
+  // Dijkstra over the lower-bound field (land only, no squeezing between two water tiles) from a seeded heap
+  const altRun = (s, b, water, D, hI, hF) => {
+    const N = s.map;
+    while (hI.length) {
+      const u = hI[0], du = hF[0], li = hI.pop(), lf = hF.pop(), n = hI.length;
+      if (n) { let k = 0; for (;;) { let c = 2 * k + 1; if (c >= n) break; if (c + 1 < n && hF[c + 1] < hF[c]) c++; if (hF[c] >= lf) break; hI[k] = hI[c]; hF[k] = hF[c]; k = c; } hI[k] = li; hF[k] = lf; }
+      if (du > D[u]) continue;
+      const ux = u % N, uy = (u - ux) / N, bu = b[u];
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const vx = ux + dx, vy = uy + dy;
+        if (vx < 0 || vy < 0 || vx >= N || vy >= N) continue;
+        const v = vy * N + vx;
+        if (water[v]) continue;
+        if (dx && dy && water[uy * N + vx] && water[vy * N + ux]) continue;
+        const nd = du + (dx && dy ? 1.4142 : 1) * (bu + b[v]) * 0.5;
+        if (nd < D[v]) {
+          D[v] = nd;
+          let k = hI.length; hI.push(v); hF.push(nd);
+          while (k > 0) { const p = (k - 1) >> 1; if (hF[p] <= nd) break; hI[k] = hI[p]; hF[k] = hF[p]; k = p; }
+          hI[k] = v; hF[k] = nd;
+        }
+      }
+    }
+  };
+  const heapPush = (hI, hF, i, f) => { let k = hI.length; hI.push(i); hF.push(f); while (k > 0) { const p = (k - 1) >> 1; if (hF[p] <= f) break; hI[k] = hI[p]; hF[k] = hF[p]; k = p; } hI[k] = i; hF[k] = f; };
+  const altDijkstra = (s, b, water, src, D) => { D.fill(Infinity); D[src] = 0; altRun(s, b, water, D, [src], [0]); };
+  // the field got cheaper at `tiles`: pull each one down from its neighbours, then let the gains spread
+  const altPatch = (s, b, water, D, tiles) => {
+    const N = s.map, hI = [], hF = [];
+    for (const i of tiles) {
+      if (water[i]) continue;
+      const ux = i % N, uy = (i - ux) / N;
+      let best = D[i];
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const vx = ux + dx, vy = uy + dy;
+        if (vx < 0 || vy < 0 || vx >= N || vy >= N) continue;
+        const v = vy * N + vx;
+        if (water[v] || D[v] === Infinity) continue;
+        if (dx && dy && water[uy * N + vx] && water[vy * N + ux]) continue;
+        const nd = D[v] + (dx && dy ? 1.4142 : 1) * (b[i] + b[v]) * 0.5;
+        if (nd < best) best = nd;
+      }
+      if (best === Infinity) continue;
+      D[i] = best;
+      heapPush(hI, hF, i, best);
+    }
+    altRun(s, b, water, D, hI, hF);
+  };
+  // the landmark tables of one land region (null for small regions: the octile estimate is enough there)
+  const altTables = (s, A, g) => {
+    if (A.tables.has(g)) return A.tables.get(g);
+    const t0 = now();
+    const lr = G.landRegions(s), N = s.map, water = G.waterMask(s);
+    const cells = [];
+    for (let i = 0; i < lr.length; i++) if (lr[i] === g) cells.push(i);
+    if (cells.length < RD.alt.minRegion) { A.tables.set(g, null); return null; }
+    // farthest-point landmarks: the first is the cell farthest from the region's centroid, each next one the cell
+    // farthest (in march cost) from all landmarks chosen so far
+    let cx = 0, cy = 0; for (const i of cells) { cx += i % N; cy += (i / N) | 0; } cx /= cells.length; cy /= cells.length;
+    let L = cells[0], bd = -1;
+    for (const i of cells) { const d = Math.hypot(i % N - cx, ((i / N) | 0) - cy); if (d > bd) { bd = d; L = i; } }
+    const K = Math.min(RD.alt.K, cells.length), out = [], minD = new Float64Array(lr.length).fill(Infinity);
+    for (let k = 0; k < K; k++) {
+      const D = new Float64Array(lr.length);
+      altDijkstra(s, A.base, water, L, D);
+      out.push(D);
+      let far = -1, fd = -1;
+      for (const i of cells) { if (D[i] < minD[i]) minD[i] = D[i]; if (minD[i] > fd && minD[i] < Infinity) { fd = minD[i]; far = i; } }
+      if (far < 0 || fd <= 0) break;
+      L = far;
+    }
+    A.tables.set(g, out); A.builds++;
+    A.ms += now() - t0;
+    return out;
+  };
+  // an A* estimate toward `goal` for land paths, or null (then G.path falls back to octile × the cheapest factor)
+  const altHeur = (s, v, goal) => {
+    const A = v.alt, lr = G.landRegions(s), g = lr[goal];
+    if (!A || g === undefined || g < 0) return null;
+    const T = altTables(s, A, g);
+    if (!T) return null;
+    const N = s.map, gx = goal % N, gy = (goal - gx) / N, hm = v.hm, K = T.length;
+    const dg = new Float64Array(K); for (let k = 0; k < K; k++) dg[k] = T[k][goal];
+    const T0 = T[0];
+    return i => {
+      const x = i % N, y = (i - x) / N, ax = x > gx ? x - gx : gx - x, ay = y > gy ? y - gy : gy - y;
+      let h = (ax > ay ? ax + 0.4142 * ay : ay + 0.4142 * ax) * hm;
+      if (T0[i] === Infinity) return h;        // outside the goal's region (a water start tile)
+      for (let k = 0; k < K; k++) { let d = T[k][i] - dg[k]; if (d < 0) d = -d; if (d > h) h = d; }
+      return h;
+    };
+  };
+  G.altStats = s => { const A = LMS.get(s.tiles); return A ? { builds: A.builds, patches: A.patches, ms: +A.ms.toFixed(1), regions: A.tables.size } : null; };
+  // spells and world generation reshape the land: drop the cost field and the landmarks with the other path caches
+  const baseClear = G.clearPaths;
+  G.clearPaths = s => { baseClear(s); COSTS.delete(s.tiles); LMS.delete(s.tiles); };
+
+  // ---- each people's own feet: a path's march length for an owner ----------------
+  // G.path searches one shared cost field (its memo serves every realm); peoples at home in some country
+  // (RD.raceTerrain) re-cost the path they get, so their marches there are faster, though the route is the same.
+  G.raceTerrain = (s, owner) => { const e = s.empires[owner]; return (e && RD.raceTerrain[e.race]) || null; };
+  G.marchLen = (s, owner, p) => {
+    if (!p || !p.path || p.path.length < 2) return p ? p.len : 0;
+    const adj = G.raceTerrain(s, owner);
+    if (!adj) return p.len;
+    const rc = G.roadCosts(s), fac = rc.fac, N = s.map, lvl = s.roads && s.roads.lvl;
+    const f = i => {
+      const t = s.tiles[i];
+      if (!t || G.isWater(t) || t.city || (lvl && lvl[i])) return fac[i];
+      const a = adj[t.terrain];
+      return a !== undefined && a < fac[i] ? a : fac[i];
+    };
+    let d = 0, pu = p.path[0][1] * N + p.path[0][0], fu = f(pu);
+    for (let k = 1; k < p.path.length; k++) {
+      const [x, y] = p.path[k], v = y * N + x, fv = f(v);
+      const diag = x !== p.path[k - 1][0] && y !== p.path[k - 1][1];
+      d += (diag ? 1.4142 : 1) * ((fu + fv) - (fac[pu] + fac[v])) * 0.5;
+      pu = v; fu = fv;
+    }
+    return Math.max(0.1, p.len + d);
+  };
+  // the network changed: new costs for every path (the memo in engine.js is dropped with the other path caches;
+  // the landmarks survive and are patched, see altUpdate)
   const dirty = G.roadsDirty = s => { const r = R(s); r.dirtyAt = r.dirtyAt || s.time || 1; };
   G.roadsFlush = s => {
     const r = R(s);
     if (!r.dirtyAt) return false;
     r.dirtyAt = 0; r.epoch++; r.rev++;
-    G.clearPaths(s);
+    baseClear(s);
     return true;
   };
 

@@ -620,6 +620,7 @@
   const pressClaim = (s, by, on) => {
     const city = nearestCity(s, by, on);
     if (!city || claimActive(s, by, on)) return null;
+    if (by !== 'p' && G.crisisWarBlocked && G.crisisWarBlocked(s, by, on)) return null;   // no claims pressed on crisis fighters
     const c = { by, on, city: city.id, cityName: city.name, until: s.time + DY.claimMin * MIN(s), t: s.time };
     claimsOf(s).push(c);
     const B = s.empires[by], O = s.empires[on];

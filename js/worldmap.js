@@ -124,6 +124,7 @@
     paintRoads(g, X);
     paintLey(g, X);
     paintGlyphs(g, N, X, pal);
+    paintBridges(g, X, X, P, false);   // above the hill and forest glyphs a river may run through
     paintTerritory(g, L, X);
     paintFog(g, N, L, X, np);
     paintBorder(g, N, X);
@@ -264,22 +265,26 @@
         g.restore();
       }
     }
-    paintBridges(g, X);
   }
-  // bridges as small arched glyphs across the river (wood brown with planks, stone grey); scaffolding while building
-  function paintBridges(g, X) {
+  // bridges as small arched glyphs across the river (wood brown with planks, stone grey); scaffolding while building.
+  // Finished bridges are baked (after the glyphs, so a hill or forest glyph on a river tile never covers one);
+  // bridges under construction or being rebuilt in stone are drawn every frame (draw → drawBuildingBridges), so the
+  // growing deck needs no rebake. `X`/`Y` map tile coordinates to pixels, `P` is pixels per tile; `live` picks the set.
+  const bridgeBusy = b => !b.d || !!b.up;
+  function paintBridges(g, X, Y, P, live, inView) {
     const br = S.roads && S.roads.br, N = S.map;
     if (!br) return;
     g.save(); g.lineCap = 'round'; g.lineJoin = 'round';
     for (const k in br) {
       const i = +k, b = br[k];
-      if (!S.explored[i]) continue;
+      if (!S.explored[i] || bridgeBusy(b) !== live) continue;
+      if (inView && !inView(i % N, (i - i % N) / N)) continue;
       // sit on the river's drawn curve (paintRivers: jittered tile centres as control points, curves through the midpoints)
       const rp = j => { const t = S.tiles[j], r = rng(j * 313 + 11), jx = t.terrain === 'lake' ? 0 : (r() - 0.5) * 0.34, jy = t.terrain === 'lake' ? 0 : (r() - 0.5) * 0.34; return [t.x + 0.5 + jx, t.y + 0.5 + jy]; };
       const nb = (G.riverNeighbours && G.riverNeighbours(S, i)) || [i, i], c = rp(i), a = rp(nb[0]), z = rp(nb[1]);
       const px = 0.75 * c[0] + 0.125 * (a[0] + z[0]), py = 0.75 * c[1] + 0.125 * (a[1] + z[1]);
       const dx = z[0] - a[0], dy = z[1] - a[1];
-      g.save(); g.translate(X(px), X(py)); g.rotate((dx || dy ? Math.atan2(dy, dx) : 0) + Math.PI / 2);
+      g.save(); g.translate(X(px), Y(py)); g.rotate((dx || dy ? Math.atan2(dy, dx) : 0) + Math.PI / 2);
       const L = P * 0.36, W = P * 0.085, f = P * 0.07, bow = P * 0.025, stone = b.k === 'stone' && !b.up, built = !!b.d;
       // deck seen from above: gently arched parapets with flared wing walls at the banks; `len` is how far it reaches yet
       const deck = len => {
@@ -506,7 +511,8 @@
     for (const [owner, cs] of Object.entries(citiesByOwner())) {
       const col = colorOf(owner);
       t.setTransform(1, 0, 0, 1, 0, 0); t.globalCompositeOperation = 'source-over'; t.globalAlpha = 1; t.clearRect(0, 0, TL, TL);
-      const mkPath = inner => { const p = new Path2D(); for (const c of cs) { const R = rOf(c); blob(p, XQ(c.x + 0.5), XQ(c.y + 0.5), R * Q, null, 40, rng(hash(c.id)), 0.07, inner ? (R - 0.24) / R : 1); } return p; };
+      // a city's quarters (js/quarters.js) push its land out round each claimed tile
+      const mkPath = inner => { const p = new Path2D(); for (const c of cs) { const R = rOf(c); blob(p, XQ(c.x + 0.5), XQ(c.y + 0.5), R * Q, null, 40, rng(hash(c.id)), 0.07, inner ? (R - 0.24) / R : 1); for (const q of c.quarters || []) blob(p, XQ(q.x + 0.5), XQ(q.y + 0.5), 1.15 * Q, null, 24, rng(hash(c.id + q.x + ',' + q.y)), 0.07, inner ? (1.15 - 0.24) / 1.15 : 1); } return p; };
       const full = mkPath(false), inner = mkPath(true);
       t.lineJoin = 'round'; t.lineCap = 'round'; t.strokeStyle = col;
       t.globalAlpha = 0.26; t.lineWidth = Q * 0.4; t.stroke(full);
@@ -1317,9 +1323,10 @@
     const memo = S.cityMemo || (S.cityMemo = {}), N = S.map, next = new Map(), siegeT = 300;
     const hostileAt = new Map();
     for (const m of S.moves) {
-      if (!['raid', 'attack', 'conquer'].includes(m.type)) continue;
-      const t = S.tiles[m.y * N + m.x]; if (!t || !t.city) continue;
-      const p = G.movePos(S, m); if (Math.hypot(p.x - m.x, p.y - m.y) < 1.6) hostileAt.set(t.city, m.owner);
+      if (!['raid', 'attack', 'conquer', 'burn'].includes(m.type)) continue;
+      // a raid on one of a city's quarters (js/quarters.js 'burn') puts the city under siege too
+      const t = S.tiles[m.y * N + m.x], cid = t && (t.city || (m.type === 'burn' && t.quarter && S.cities[t.quarter] ? t.quarter : null)); if (!cid) continue;
+      const p = G.movePos(S, m); if (Math.hypot(p.x - m.x, p.y - m.y) < 1.6) hostileAt.set(cid, m.owner);
     }
     for (const city of Object.values(S.cities)) {
       const i = city.y * N + city.x;
@@ -1343,6 +1350,140 @@
     }
     for (const id of Object.keys(memo)) if (!S.cities[id] || S.cities[id].owner === 'p') delete memo[id];
     devMap = next;
+  }
+
+  // ---- city quarters (js/quarters.js): a grown city sprawls over the tiles it has claimed — fields, timber
+  // yards, pit heads, docks, a mill, an arcane tower, homes, a small fort — in its people's materials.
+  // Drawn per frame under the city glyphs; each look is cached offscreen per zoom bucket like the glyphs.
+  const qCache = new Map();
+  let qCachePx = 0, qCacheDPR = 0;
+  const Q_HW = 36, Q_TOP = 46, Q_BOT = 30;
+  function qMats(race, era, winter, col) {
+    const P = ARTPAL[race] || ARTPAL.hearth;
+    const pitched = race === 'hearth' || race === 'delver' || race === 'grave' || race === 'wind' || race === 'ash';
+    return { race, tier: 1, era, winter, det: true, lw: 1.3, L: [], tint: LIGHT_TINT[race] || '', wall: P.wall[era], roof: winter && pitched ? '#e8ecef' : P.roof[era],
+      beam: P.beam, stone: P.stone[era], black: P.black || P.wall[era], trim: col, win: race === 'grave' ? '#16241a' : INK, stoneAsh: false, wallStone: P.stone[Math.max(1, era)] };
+  }
+  function qPine(c, x, y, s, lw, winter) {
+    c.fillStyle = '#6b4b30'; c.fillRect(x - 1.2 * s, y - 4 * s, 2.4 * s, 4 * s);
+    polyP(c, [[x - 7 * s, y - 3 * s], [x, y - 20 * s], [x + 7 * s, y - 3 * s]], winter ? '#dfe6e2' : '#4f7f44', lw * 0.8);
+  }
+  function paintQuarter(c, d) {
+    const m = qMats(d.race, d.era, d.winter, d.col), A = ART[d.race] || ART.hearth, lw = m.lw;
+    const small = (x, y, s) => A.s(c, x, y, s, m);
+    c.fillStyle = 'rgba(60,40,20,.10)'; c.beginPath(); c.ellipse(0, 7, 28, 15, 0, 0, TAU); c.fill();
+    if (d.state === 'b') c.globalAlpha = 0.55;
+    switch (d.type) {
+      case 'farm': {
+        const cols = d.winter ? ['#e8e4d8', '#ddd7c8', '#e2ddd0'] : ['#d9b955', '#a9bf5a', '#c8a648', '#b9c46a'];
+        const plots = [[-27, 2], [-1, -1], [-23, 14], [3, 12]];
+        plots.forEach(([x0, y0], i) => {
+          polyP(c, [[x0, y0], [x0 + 23, y0 - 3], [x0 + 25, y0 + 9], [x0 + 2, y0 + 12]], cols[i % cols.length], lw * 0.7);
+          strokeL(c, 'rgba(90,60,25,.4)', lw * 0.5, [0.25, 0.5, 0.75].map(f => [x0 + 1 + f * 2, y0 + f * 12 - f * 0.5, x0 + 23 + f * 2, y0 - 3 + f * 12]));
+        });
+        small(-12, -2, 0.6);
+        c.fillStyle = d.winter ? '#efe9dc' : '#d8b860'; c.beginPath(); c.moveTo(11, -3); c.quadraticCurveTo(16, -16, 21, -3); c.closePath(); c.fill(); c.lineWidth = lw * 0.8; c.strokeStyle = INK; c.stroke();
+        break;
+      }
+      case 'lumber': {
+        for (const [x, y, s] of [[-22, -4, 1], [-10, -10, 0.9], [20, -8, 1.05], [26, 4, 0.8]]) qPine(c, x, y, s, lw, d.winter);
+        small(4, 0, 0.6);
+        for (let row = 0; row < 3; row++) for (let k = 0; k < 3 - row; k++) { c.beginPath(); c.arc(-16 + k * 6 + row * 3, 16 - row * 5, 3, 0, TAU); c.fillStyle = '#b07f4a'; c.fill(); c.lineWidth = lw * 0.6; c.strokeStyle = INK; c.stroke(); c.fillStyle = '#e1c08a'; c.beginPath(); c.arc(-16 + k * 6 + row * 3, 16 - row * 5, 1.2, 0, TAU); c.fill(); }
+        strokeL(c, '#6b4b30', lw, [[8, 16, 14, 8], [20, 16, 14, 8], [6, 12, 22, 12]]);
+        c.fillStyle = '#7a5532'; c.beginPath(); c.ellipse(-26, 16, 3, 1.6, 0, 0, TAU); c.fill();
+        break;
+      }
+      case 'mine': {
+        polyP(c, [[-28, 14], [-20, 0], [-12, -4], [-4, 2], [0, 14]], d.winter ? '#e4e4e0' : '#9b948a', lw * 0.8);
+        strokeL(c, 'rgba(59,42,26,.4)', lw * 0.5, [[-20, 6, -14, 2], [-12, 10, -7, 6]]);
+        c.fillStyle = '#2a211a'; c.beginPath(); c.moveTo(6, 12); c.lineTo(6, 4); c.arc(12, 4, 6, Math.PI, 0); c.lineTo(18, 12); c.closePath(); c.fill();
+        strokeL(c, '#6b4b30', lw * 1.3, [[4, 12, 12, -16], [20, 12, 12, -16], [6, 0, 18, 0]]);
+        c.beginPath(); c.arc(12, -17, 4, 0, TAU); c.lineWidth = lw; c.strokeStyle = INK; c.stroke();
+        rectP(c, 22, 8, 8, 5, '#7a5532', lw * 0.7); c.fillStyle = INK; c.beginPath(); c.arc(24, 14, 1.4, 0, TAU); c.arc(28, 14, 1.4, 0, TAU); c.fill();
+        break;
+      }
+      case 'docks': {
+        const dir = d.side === 'L' ? [-1, 0] : d.side === 'B' ? [0, -1] : d.side === 'F' ? [0, 1] : [1, 0];
+        const x0 = dir[0] * 6, y0 = dir[1] * 4 + 6, x1 = dir[0] * 34, y1 = dir[1] * 22 + 6;
+        if (dir[0]) { rectP(c, Math.min(x0, x1), y0 - 2.5, Math.abs(x1 - x0), 5, '#9c6b3c', lw * 0.8); strokeL(c, INK, lw * 0.8, [0.3, 0.6, 0.9].map(f => [x0 + (x1 - x0) * f, y0 + 2.5, x0 + (x1 - x0) * f, y0 + 7])); }
+        else { rectP(c, x0 - 2.5, Math.min(y0, y1), 5, Math.abs(y1 - y0), '#9c6b3c', lw * 0.8); }
+        shipG(c, m, x1 - dir[0] * 6 + (dir[1] ? 10 : 0), y1 - 4 - dir[1] * 4, dir[0] || 1);
+        small(-dir[0] * 12 - (dir[0] ? 0 : 12), -4, 0.65);
+        for (let k = 0; k < 2; k++) { c.fillStyle = '#8a5a32'; c.beginPath(); c.ellipse(-dir[0] * 4 + 8 + k * 5, 10, 2.2, 3, 0, 0, TAU); c.fill(); c.lineWidth = lw * 0.5; c.strokeStyle = INK; c.stroke(); }
+        break;
+      }
+      case 'mill': {
+        const p = A.m(c, -6, 6, 0.6, m);
+        c.lineWidth = lw; c.strokeStyle = INK; c.fillStyle = '#9c6b3c';
+        c.beginPath(); c.arc(12, 0, 9, 0, TAU); c.fill(); c.stroke();
+        strokeL(c, INK, lw * 0.7, [0, 1, 2, 3].map(k => { const a = k * Math.PI / 4; return [12 - Math.cos(a) * 9, -Math.sin(a) * 9, 12 + Math.cos(a) * 9, Math.sin(a) * 9]; }));
+        c.strokeStyle = 'rgba(70,130,180,.7)'; c.lineWidth = lw * 1.5; c.beginPath(); c.moveTo(4, 12); c.quadraticCurveTo(14, 16, 28, 12); c.stroke();
+        void p;
+        break;
+      }
+      case 'arcane': {
+        c.strokeStyle = 'rgba(140,90,220,.75)'; c.lineWidth = lw; c.setLineDash([3, 3]); c.beginPath(); c.ellipse(0, 10, 22, 9, 0, 0, TAU); c.stroke(); c.setLineDash([]);
+        tower(c, 0, 10, 0.7, lw, [], true, m.roof);
+        c.fillStyle = 'rgba(190,150,255,.95)'; c.beginPath(); c.moveTo(0, -42); c.lineTo(3, -36); c.lineTo(0, -30); c.lineTo(-3, -36); c.closePath(); c.fill(); c.lineWidth = lw * 0.6; c.strokeStyle = INK; c.stroke();
+        small(-18, 12, 0.5); small(18, 14, 0.5);
+        break;
+      }
+      case 'homes': {
+        small(-14, 2, 0.72); small(10, -2, 0.76); small(-4, 15, 0.7); small(17, 14, 0.66);
+        break;
+      }
+      case 'fort': {
+        c.beginPath(); c.ellipse(0, 8, 24, 13, 0, Math.PI, TAU); c.strokeStyle = '#5a3e22'; c.lineWidth = lw * 1.2; c.stroke();
+        rectP(c, -9, -16, 18, 22, m.wallStone, lw);
+        c.fillStyle = m.wallStone; for (let k = 0; k < 3; k++) { c.beginPath(); c.rect(-10 + k * 7.3, -20, 4.6, 4); c.fill(); c.lineWidth = lw * 0.8; c.strokeStyle = INK; c.stroke(); }
+        c.fillStyle = INK; c.fillRect(-1.5, -10, 3, 5); c.beginPath(); c.moveTo(-3, 6); c.lineTo(-3, 0); c.arc(0, 0, 3, Math.PI, 0); c.lineTo(3, 6); c.fill();
+        strokeL(c, INK, lw, [[6, -20, 6, -34]]); polyP(c, [[6, -34], [17, -31], [6, -27]], d.col, lw * 0.7);
+        c.strokeStyle = '#5a3e22'; c.lineWidth = lw * 1.4; c.beginPath();
+        for (let a = 0.15; a < Math.PI - 0.1; a += 0.22) { const ex = Math.cos(a) * 24, ey = 8 + Math.sin(a) * 13; c.moveTo(ex, ey); c.lineTo(ex, ey - 6); }
+        c.stroke();
+        break;
+      }
+    }
+    c.globalAlpha = 1;
+    if (d.state === 'b') {   // scaffolding while the builders work
+      strokeL(c, '#8a6440', lw * 0.8, [[-14, 10, -14, -18], [14, 10, 14, -18], [-14, -18, 14, -18], [-14, -4, 14, -4], [-14, 10, 14, -18]]);
+    } else if (d.state === 'x') {   // burnt: soot and charred beams
+      c.fillStyle = 'rgba(30,22,16,.55)'; c.beginPath(); c.ellipse(0, 4, 26, 15, 0, 0, TAU); c.fill();
+      strokeL(c, '#1e1610', lw * 1.4, [[-12, 8, -6, -6], [4, 10, 10, -4], [-2, 12, 2, 0]]);
+    }
+  }
+  function quarterLook(t, h) {
+    const host = h.city || h.minor, owner = h.city ? h.city.owner : null;
+    const race = h.city ? ((S.empires[owner] || {}).race || 'hearth') : (h.minor.race || 'hearth');
+    const col = h.city ? colorOf(owner) : ((DATA.minorKinds && DATA.minorKinds[h.minor.kind] && DATA.minorKinds[h.minor.kind].color) || '#6b6b6b');
+    const era = h.city ? ((ownInfo.get(owner) || {}).era || 0) : 1;
+    const q = h.q, state = !q.built ? 'b' : q.burnt > S.time ? 'x' : '';
+    return { type: q.type, race: ARTPAL[race] ? race : 'hearth', era: clamp(era | 0, 0, 3), winter: G.season(S).index === 3, col, state, side: q.type === 'docks' ? (waterSide(t.x, t.y) || 'R') : '', seed: hash(host.id + q.x + ',' + q.y) };
+  }
+  function quarterSprite(d, k) {
+    if (qCacheDPR !== DPR || qCachePx > 6e6) { qCache.clear(); qCachePx = 0; qCacheDPR = DPR; }
+    const kb = Math.pow(2, Math.round(Math.log2(Math.max(0.05, k * DPR)) * 2) / 2);
+    const key = [d.type, d.race, d.era, d.winter ? 1 : 0, d.col, d.state, d.side, kb].join('|');
+    let e = qCache.get(key);
+    if (e) return e;
+    const cv = mk(Math.max(1, Math.ceil(Q_HW * 2 * kb)), Math.max(1, Math.ceil((Q_TOP + Q_BOT) * kb)));
+    const c = cv.getContext('2d');
+    c.scale(kb, kb); c.translate(Q_HW, Q_TOP); c.lineCap = 'round'; c.lineJoin = 'round';
+    try { paintQuarter(c, d); } catch (err) { /* never break the map */ }
+    e = { cv, w: Q_HW * 2, h: Q_TOP + Q_BOT };
+    qCache.set(key, e); qCachePx += cv.width * cv.height;
+    return e;
+  }
+  // draw one quarter at the current tile origin (unit space), nudged away from its core so a big city's walls don't hide it
+  function drawQuarter(c, t, k) {
+    if (!G.qtrAt) return;
+    const h = G.qtrAt(S, t.x, t.y);
+    if (!h) return;
+    const host = h.city || h.minor, dx = t.x - host.x, dy = t.y - host.y, far = Math.max(Math.abs(dx), Math.abs(dy)) > 1;
+    const len = Math.hypot(dx, dy) || 1, push = far ? 6 : 18;
+    const e = quarterSprite(quarterLook(t, h), k);
+    const up = dy < 0 && !far ? 12 : 0;   // rows behind the core: lift them clear of the towers
+    c.drawImage(e.cv, -Q_HW + dx / len * push, -Q_TOP + dy / len * push * 0.7 - up, e.w, e.h);
   }
 
   // ---- glyph sprite cache ----
@@ -2156,6 +2297,8 @@
   }
   function baseName(t, pos) {
     if (t.city && S.cities[t.city]) return cityTip(S.cities[t.city]) + pos;
+    const qh = t.quarter && G.qtrAt ? G.qtrAt(S, t.x, t.y) : null;
+    if (qh) { const qd = G.QTR.types[qh.q.type], host = qh.city || qh.minor, st = !qh.q.built ? ' (being built)' : qh.q.burnt > S.time ? ' (burnt)' : ''; return `${qd ? qd.icon + ' ' + qd.name : 'Quarter'} of ${host.name}${qh.city && qh.city.owner !== 'p' && S.empires[qh.city.owner] ? ' (' + S.empires[qh.city.owner].name + ')' : ''}${st} · ${DATA.terrain[t.terrain] ? DATA.terrain[t.terrain].name : t.terrain}` + pos; }
     if (t.camp) { const cp = S.camps[t.camp]; if (cp && cp.kind === 'crisis') { const cd = DATA.crises && DATA.crises[cp.ck]; return `${cd ? cd.icon + ' ' + cd.srcName + ' · ' + cd.name : 'Crisis source'}` + pos; } if (cp && cp.kind) return ({ wyrm: "The Wyrm's lair", undead: 'Horde of the restless dead', star: 'Crater of a fallen star', rift: 'Demon rift' }[cp.kind] || 'Strange camp') + pos; return `Brigand camp${cp ? ', tier ' + cp.tier : ''}` + pos; }
     if (t.oasis) { const o = t.oasis, oc = o.owner && S.cities[o.owner]; return `Oasis (+25% ${DATA.goods[o.bonus] ? DATA.goods[o.bonus].name : o.bonus})${oc ? ' · held by ' + oc.name : ''}` + pos; }
     if (t.ruin) return `Ruins, tier ${t.ruin.tier}${t.ruin.readyAt > S.time ? ' (plundered)' : ''}` + pos;
@@ -2166,6 +2309,14 @@
   }
 
   // ley lines and enclaves: pulsing arcane lines over explored land, rune circles at the nodes
+  // bridges under construction: the deck grows with the work, drawn live over the baked map
+  function drawBuildingBridges(c, tp, SX, SY, x0, x1, y0, y1) {
+    const br = S.roads && S.roads.br;
+    if (!br) return;
+    let any = false; for (const k in br) if (bridgeBusy(br[k])) { any = true; break; }
+    if (!any) return;
+    paintBridges(c, SX, SY, tp, true, (x, y) => x >= x0 - 1 && x <= x1 + 1 && y >= y0 - 1 && y <= y1 + 1);
+  }
   function drawLey(c, t, tp, SX, SY, x0, x1, y0, y1, lights) {
     const ley = S.ley;
     if (!ley || !ley.nodes || !ley.nodes.length) return;
@@ -2304,10 +2455,11 @@
     const lights = [], labels = [], smokes = [];
     glyphBudget = 6;   // new glyph sprites rendered per frame; others use the nearest cached zoom until then
     drawLey(c, t, tp, SX, SY, x0, x1, y0, y1, lights);
+    drawBuildingBridges(c, tp, SX, SY, x0, x1, y0, y1);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = y * N + x, tile = S.tiles[i];
       const fcity = tile.minor && G.minorAt ? G.minorAt(S, tile) : null;
-      if (!S.explored[i] || !(tile.city || tile.camp || tile.oasis || tile.ruin || fcity)) continue;
+      if (!S.explored[i] || !(tile.city || tile.camp || tile.oasis || tile.ruin || fcity || tile.quarter)) continue;
       const cx = SX(x + 0.5), cy = SY(y + 0.5), lp = [];
       c.save(); c.translate(cx, cy); c.scale(k, k); c.lineCap = 'round'; c.lineJoin = 'round';
       if (tile.city && S.cities[tile.city]) {
@@ -2329,6 +2481,7 @@
         if (cam.z >= 0.8 || tp >= 22) { const k = DATA.minorKinds[fcity.kind], lord = fcity.subject || fcity.patron; labels.push({ x: cx, y: cy + tp * 0.5, text: fcity.name, mine: false, cur: false, sub: `${k ? k.icon + ' ' + k.name : 'Free city'}${lord ? ' · ' + (lord === 'p' ? 'yours' : (S.empires[lord] || {}).name) : ''}` }); }
         if (vis[i]) smokes.push([cx, cy, hash(fcity.id) % 100 / 100]);
       }
+      else if (tile.quarter) drawQuarter(c, tile, k);   // a city's quarter (js/quarters.js), in the same back-to-front order as the cities
       if ((tile.oasis || tile.ruin) && !tile.city && !tile.camp) drawHoly(c, tile, lw, t, lp);
       c.restore();
       for (const l of lp) lights.push([cx + l[0] * k, cy + l[1] * k, l[2] || 1, l[3]]);
@@ -2534,7 +2687,7 @@
       clampCam();
     }
   }
-  const citySig = () => Object.values(S.cities).map(c => c.id + c.owner + c.x + ',' + c.y + ':' + (G.cityReach ? Math.round(G.cityReach(S, c) * 4) : 0)).join(';');
+  const citySig = () => Object.values(S.cities).map(c => c.id + c.owner + c.x + ',' + c.y + ':' + (G.cityReach ? Math.round(G.cityReach(S, c) * 4) : 0) + (c.quarters && c.quarters.length ? 'q' + c.quarters.map(q => q.x + '.' + q.y).join('.') : '')).join(';');
   function refresh(now, force) {
     if (!force && now - lastCheck < 250) return;
     lastCheck = now;
@@ -2840,5 +2993,8 @@
     dev: id => devMap.get(id) || null,
     glyph: (id, kb = 2) => { const c = S && S.cities[id]; if (!c) return null; const d = devMap.get(id) || devFrom(c, liveMemo(c), false); return renderGlyph(d, kb).cv; },
     glyphCache: () => ({ entries: glyphCache.size, px: glyphPx }),
+    // a city quarter's sprite on a tile (js/quarters.js), as the map draws it: { cv, w, h, ox, oy } in unit space
+    quarter: (x, y, kb = 2) => { const t = S && G.tileAt(S, x, y), h = t && t.quarter && G.qtrAt ? G.qtrAt(S, x, y) : null; if (!h) return null; const e = quarterSprite(quarterLook(t, h), kb / DPR); return { cv: e.cv, w: e.w, h: e.h, ox: Q_HW, oy: Q_TOP }; },
+    quarterCache: () => ({ entries: qCache.size, px: qCachePx }),
   };
 })();

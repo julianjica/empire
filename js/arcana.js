@@ -48,7 +48,7 @@ const STARS = { hearthweather: 'the Harvest Moon', runecraft: 'the Anvil Star', 
   tidestorm: 'the Tidal Moon', glamour: 'the Dreaming Moon', necromancy: 'the Pale Moon', skywind: 'the Storm Star' };
 for (const [k, v] of Object.entries(STARS)) if (DATA.schools[k]) DATA.schools[k].star = v;
 G.ARC = {
-  cost: { mana: [60, 200, 550, 1300], gold: [70, 220, 600, 1400], tier: 0.2, foreign: 1.6, trad: 0.8, techOff: 0.85 },
+  cost: { mana: [60, 200, 550, 1300], gold: [70, 220, 600, 1400], tier: 0.2, foreign: 1.6, trad: 0.8, techOff: 0.85, enchMana: 1.3, enchGold: 0.5 },
   time: [150, 360, 800, 1600], timeTier: 0.15, towerSpeed: 0.02,
   mastery: [3, 8, 16], masteryPower: 0.08, masteryCost: 0.07, masteryCool: 0.1,
   openBase: 2, openFee: k => ({ mana: 200 + 200 * k, gold: 300 + 250 * k }),
@@ -362,7 +362,8 @@ N('f_unravel',  null, 2, 1, 'spell', 'Unravel', '🧶', { spell: 'unravel', pre:
 N('f_quicken',  null, 2, 1, 'meta',  'Quicken', '⚡', { meta: 'quicken', pre: ['f_extend'], trad: 'rationalmagic' });
 N('f_battle',   null, 2, 2, 'lore',  'Battle Magic', '⚔️', { fx: { hexPower: 1.15 }, excl: 'f_bulwark', pre: ['f_unravel|f_wild|f_measured'], lore: 'Spells are weapons. Sharpen them.' });
 N('f_bulwark',  null, 2, 2, 'lore',  'Counter-Warding', '🔰', { fx: { hexResist: 0.7 }, pre: ['f_unravel|f_ward'], lore: 'Every hostile spell finds a door already shut.' });
-N('f_rites',    null, 3, 0, 'spell', 'Rites of the Land', '⛰️', { spells: ['raiseland', 'sinkland', 'growforest', 'raisepeaks', 'quicken'], innate: true, lore: 'Old rites every tower keeps; only the mightiest can work them.' });
+// world-shaping (Archmage circle): land and sea in the trunk; forest, soil and peaks in the schools that know them
+N('f_rites',    null, 3, 0, 'spell', 'Rites of the Land', '⛰️', { spells: ['raiseland', 'sinkland'], pre: ['f_golems'], lore: 'Old rites that lift the seabed and drown the plain; only the mightiest towers can work them.' });
 N('f_twin',     null, 3, 1, 'meta',  'Twin', '♊', { meta: 'twin', pre: ['f_quicken'], tech: 'archmagery' });
 N('f_nexus',    null, 3, 2, 'ench',  'Arcane Nexus', '💠', { ench: ['arcaneeye'], add: { enchSlots: 1 }, fx: { mana: 1.1, spellPower: 1.05 }, pre: ['f_slots'], tech: 'leymastery', trad: 'weavekeepers' });
 
@@ -387,15 +388,15 @@ const school = (k, t) => {
   N(p('cap'), k, 3, 1, 'lore', t.cap[0], t.cap[1], { fx: t.cap[2], schoolPower: 1.15, schoolCost: 0.9, pre: [p('x') + '|' + p('y')], trad: 'archmagi', lore: t.cap[3] });
   if (H) S('h', 3, 2, H, [p('f')]);
 };
-school('hearthweather', { spells: ['bountifulrain', 'kindle', 'hearthward', 'harvestmoon', 'summersun', 'hailstorm', 'eternalsummer'], ench: 'hearthblessing',
+school('hearthweather', { spells: ['bountifulrain', 'kindle', 'hearthward', 'harvestmoon', 'summersun', 'hailstorm', 'eternalsummer', 'quicken'], ench: 'hearthblessing',
   lore: ['Weather Lore', '🌦️', { grain: 1.04, popGrowth: 1.03 }, 'croprotation', 'Red sky at night.'],
   forkX: ['Keeper of Seasons', '🍂', { grain: 1.08, popGrowth: 1.04 }, 'Every season its due.'], forkY: ['Hearthfire Pact', '🔥', { def: 1.06, wall: 1.06 }, 'No raider crosses a blessed threshold.'],
   cap: ['Crown of the Year', '👑', { grain: 1.05, tax: 1.04 }, 'The weather keeps the realm\'s calendar.'] });
-school('runecraft', { spells: ['runehaste', 'mending', 'runeward', 'shatter', 'forgerunes', 'ironwarden', 'anvil'], ench: 'wardstones',
+school('runecraft', { spells: ['runehaste', 'mending', 'runeward', 'shatter', 'forgerunes', 'ironwarden', 'anvil', 'raisepeaks'], ench: 'wardstones',
   lore: ['Rune Carving', '🔣', { buildTime: 0.97, wall: 1.04 }, 'runes', 'Cut deep; the stone remembers.'],
   forkX: ['Deep Runes', '⛏️', { ore: 1.08, stone: 1.06 }, 'Runes that call the vein.'], forkY: ['Binding Runes', '⛓️', { enchUpkeep: 0.75 }, 'A rune holds a spell like a nail holds a door.'],
   cap: ['Runes of Making', '🔨', { refine: 1.05, buildTime: 0.96 }, 'The first runes, that shaped the mountains.'] });
-school('songroot', { spells: ['verdant', 'thornwall', 'healingsong', 'entangle', 'wildcall', 'swarm', 'awaken'], ench: 'evergrove',
+school('songroot', { spells: ['verdant', 'thornwall', 'healingsong', 'entangle', 'wildcall', 'swarm', 'awaken', 'growforest'], ench: 'evergrove',
   lore: ['Root Songs', '🎶', { timber: 1.05, popGrowth: 1.03 }, 'herblore', 'Sing to the seed and it listens.'],
   forkX: ['Wild Heart', '🐺', { summon: 1.5, atk: 1.03 }, 'The beasts come in greater numbers, and stay angrier.'], forkY: ['Lifebloom', '🌸', { popGrowth: 1.06, heal: 1.5 }, 'Healing songs reach further.'],
   cap: ['Heart of the Wood', '💚', { timber: 1.05, housing: 1.04 }, 'The oldest tree knows your name.'] });
@@ -420,6 +421,8 @@ school('skywind', { spells: ['windwalk', 'tailwind', 'lightning', 'chain', 'stor
   forkX: ['Stormcrown', '🌩️', { hexPower: 1.2 }, 'Lightning learns your enemies\' names.'], forkY: ['Windriders', '🦅', { travel: 1.08, caravan: 1.1 }, 'Roads in the sky.'],
   cap: ['Eye of Heaven', '👁️', { vision: 1.1, def: 1.04 }, 'Nothing under the sky is hidden.'] });
 
+// the world-shaping spells that moved into school trees now belong to those schools (mastery, conjunctions, costs)
+for (const [sp, k] of Object.entries({ quicken: 'hearthweather', raisepeaks: 'runecraft', growforest: 'songroot' })) if (DATA.spells[sp]) DATA.spells[sp].school = k;
 DATA.arcana = NODES;
 for (const n of Object.values(NODES)) {
   n.pre = n.pre.map(g => String(g).split('|'));
@@ -491,6 +494,26 @@ const grim = (s, owner) => {
   if (!A.known) A.known = []; if (!A.queue) A.queue = []; if (!A.opened) A.opened = []; if (!A.mastery) A.mastery = {};
   return A;
 };
+// s.arcanaV 2: the Rites of the Land are studied, not innate, and Wildwood, Quicken the Soil and Raise the Peaks moved
+// into the Song & Root, Hearth & Weather and Runecraft trees. A realm that could already cast them (it knew the old innate
+// rites and holds an Archmage-circle tower) keeps them all; one that could not forgets the unearned rites and studies them.
+const RITES_MOVED = ['growforest', 'quicken', 'raisepeaks'];
+G.migrateRites = s => {
+  if ((s.arcanaV || 0) >= 2) return;
+  for (const id of Object.keys(s.empires)) {
+    const e = s.empires[id], A = e && e.arcana;
+    if (!A || !A.known || !A.known.includes('f_rites')) continue;
+    if (bestTower(s, id) >= DATA.circles[3].tower) A.legacy = [...new Set([...(A.legacy || []), ...RITES_MOVED])];
+    else A.known = A.known.filter(x => x !== 'f_rites');
+  }
+  s.arcanaV = 2;
+};
+// loading a save runs the migration before the first frame (the slow tick runs it too, for saves already in memory)
+if (typeof G.migrate === 'function' && !G.migrate._rites) {
+  const baseMigrate = G.migrate;
+  G.migrate = st => { const r = baseMigrate(st) || st; if (r && r.empires && r.arcanaV) G.migrateRites(r); return r; };
+  G.migrate._rites = true;
+}
 G.grimoire = grim;
 G.knowsArcanum = (s, owner, id) => { const A = grim(s, owner); return !!A && A.known.includes(id); };
 // learn a node at once (tests, events, debug); free: no cost and no checks beyond the node existing
@@ -607,11 +630,13 @@ const usable = (s, owner, k) => !k || G.schoolsOf(s, owner).includes(k);
 const SPELLS = new WeakMap();
 G.spellsOf = (s, owner) => {
   const A = grim(s, owner); if (!A) return [];
-  const schools = G.schoolsOf(s, owner), sig = A.known.length + '|' + schools.join(',');
+  const schools = G.schoolsOf(s, owner), sig = A.known.length + '|' + schools.join(',') + '|' + (A.legacy ? A.legacy.length : 0);
   const hit = SPELLS.get(A);
   if (hit && hit.sig === sig && hit.known === A.known) return hit.list;
   const list = [];
   for (const id of A.known) { const n = NODES[id]; if (n && (!n.school || schools.includes(n.school))) for (const sp of n.spells) if (DATA.spells[sp] && !list.includes(sp)) list.push(sp); }
+  // spells an older save's realm could already cast, kept whatever its schools (see migrateRites)
+  for (const sp of A.legacy || []) if (DATA.spells[sp] && !list.includes(sp)) list.push(sp);
   SPELLS.set(A, { sig, known: A.known, list });
   return list;
 };
@@ -632,7 +657,9 @@ G.arcanaCost = (s, owner, id) => {
   if (n.school && !G.schoolAttuned(s, owner, n.school)) m *= C.foreign;
   if (n.trad && hasTrad(s, owner, n.trad)) m *= C.trad;
   if (n.techOff && G.hasTech && G.hasTech(s, owner, n.techOff)) m *= C.techOff;
-  const out = { mana: Math.round(C.mana[n.circle] * m / 5) * 5, gold: Math.round(C.gold[n.circle] * m / 5) * 5 };
+  // enchantments are a craft of mana: their nodes cost more of it and less gold
+  const km = n.kind === 'ench' ? C.enchMana : 1, kg = n.kind === 'ench' ? C.enchGold : 1;
+  const out = { mana: Math.round(C.mana[n.circle] * m * km / 5) * 5, gold: Math.round(C.gold[n.circle] * m * kg / 5) * 5 };
   if (n.circle >= 2) out.tools = Math.round((n.circle === 2 ? 20 : 40) * (1 + 0.5 * n.tier));
   if (n.circle >= 3) out.iron = Math.round(150 * (1 + 0.3 * n.tier));
   return out;
@@ -889,6 +916,7 @@ G.enchantmentsOf = (s, city) => (city && city.ench || []).map(e => {
 // ---------------------------------------------------------------------
 G.slowHooks.push((s, dtMin) => {
   if (!s.arcanaV) { for (const id of Object.keys(s.empires)) grim(s, id); s.arcanaV = 1; }
+  if (s.arcanaV < 2) G.migrateRites(s);
   ensureSpyHook();
   for (const c of Object.values(s.cities)) {
     if (!c.towerSchool && G.lvl(c, 'magetower') > 0 && s.empires[c.owner]) c.towerSchool = native(s.empires[c.owner].race)[0] || null;
@@ -986,14 +1014,33 @@ G.aiStudyPick = (s, emp) => {
   // cheap filters first: circle reachable, school usable, prerequisites known, fork free
   const tower = bestTower(s, emp.id), era = G.techEra ? G.techEra(s, emp.id) : 0, schools = G.schoolsOf(s, emp.id);
   const known = new Set(A.known);
+  // the first enchantment is worth saving for: once the Adept circle opens, it is the AI's first goal
+  const noEnch = !G.enchantmentsKnown(s, emp.id).length;
+  const flush = G.manaFill ? G.manaFill(s, emp.id) > 0.6 : false;
+  // ...so the road to it counts too: every node on the path to the nearest reachable enchantment shares the priority
+  const onPath = new Set();
+  if (noEnch && tower >= 3) {
+    let best = null;
+    for (const id of DATA.arcanaOrder) {
+      const n = NODES[id], C = DATA.circles[n.circle];
+      if (n.kind !== 'ench' || known.has(id) || C.tower > Math.max(tower, 5) || C.era > era || (n.school && !schools.includes(n.school))) continue;
+      const path = G.arcanaPath(s, emp.id, id);
+      if (path && path.length && (!best || path.length < best.length)) best = path;
+    }
+    if (best) for (const k of best) onPath.add(k);
+  }
   for (const id of DATA.arcanaOrder) {
     const n = NODES[id], C = DATA.circles[n.circle];
     if (known.has(id) || C.tower > tower || C.era > era || (n.school && !schools.includes(n.school)) || (n.excl && known.has(n.excl))) continue;
     if (!n.pre.every(g => g.some(x => known.has(x)))) continue;
     const st = G.arcanaStatus(s, emp.id, id);
     if (!st.ok) continue;
-    if (G.manaOf(s, emp.id) < st.cost.mana * 1.4 || emp.gold < st.cost.gold * 1.3) continue;
+    const prio = (n.kind === 'ench' && noEnch) || onPath.has(id);
+    // the road to a first enchantment is worth selling mana for, when gold is what is short
+    if (prio && emp.gold < st.cost.gold * 1.05 && G.aiSellMana && G.manaOf(s, emp.id) > st.cost.mana * 2) G.aiSellMana(s, emp.id, st.cost.gold * 1.05 - emp.gold, st.cost.mana * 1.3);
+    if (G.manaOf(s, emp.id) < st.cost.mana * (flush ? 1.05 : 1.4) || emp.gold < st.cost.gold * (prio || flush ? 1.05 : 1.3)) continue;
     let w = (KIND_W[n.kind] || 1) / (1 + 0.25 * n.col);
+    if (prio) w *= 5;
     if (n.school && G.schoolAttuned(s, emp.id, n.school)) w *= 1.5;
     if (n.kind === 'spell' && n.spells.some(k => DATA.spells[k].ai === 'strike')) w *= 0.6 + (emp.aggr ?? 0.5);
     opts.push({ id, w });
@@ -1005,30 +1052,41 @@ G.aiStudyPick = (s, emp) => {
 };
 const ENCH_PREF = { hearthblessing: 1.2, evergrove: 1.1, tidecaller: 1, wardstones: 1, emberforge: 0.9, veiledcity: 0.8, gravewatch: 1, stormspire: 1, aegis: 0.7, arcaneeye: 0.8 };
 G.aiHooks.push((s, emp) => {
-  if (Math.random() > 0.2) return;
   const towers = G.citiesOf(s, emp.id).filter(c => G.lvl(c, 'magetower') > 0);
   if (!towers.length) return;
+  const tower = bestTower(s, emp.id), fill = G.manaFill ? G.manaFill(s, emp.id) : 0;
+  // an Adept tower or brimming stores: the magi meet more often
+  if (Math.random() > (tower >= 5 || fill > 0.6 ? 0.4 : 0.2)) return;
   const A = grim(s, emp.id);
-  // study
-  if (!A.active && !emp.saving) { const id = G.aiStudyPick(s, emp); if (id) G.startStudy(s, emp.id, id); }
-  // open a foreign school now and then, when rich in mana
-  if (Math.random() < 0.08 && G.foreignOpen(s, emp.id).length < G.schoolCap(s, emp.id)) {
+  // study (a realm saving for settlers still studies when its mana would otherwise spill)
+  if (!A.active && (!emp.saving || fill > 0.8)) { const id = G.aiStudyPick(s, emp); if (id) G.startStudy(s, emp.id, id); }
+  // open a foreign school: an Adept tower and a way in (a ley enclave, a pact, a captured tower) are reason enough
+  const nOpen = G.foreignOpen(s, emp.id).length;
+  if (nOpen < G.schoolCap(s, emp.id) && Math.random() < (!nOpen ? (tower >= 5 ? 0.35 : tower >= 3 ? 0.12 : 0.03) : tower >= 5 ? 0.1 : 0.03)) {
     const cand = DATA.schoolOrder.filter(k => !G.schoolsOf(s, emp.id).includes(k));
-    const k = cand.find(k => { const st = G.openSchoolStatus(s, emp.id, k); return st.ok && G.manaOf(s, emp.id) > st.fee.mana * 2.5 && emp.gold > st.fee.gold * 2.5; });
-    if (k) G.openSchool(s, emp.id, k);
+    const mk = fill > 0.6 ? 1.1 : 1.6;
+    const k = cand.find(k => { const st = G.openSchoolStatus(s, emp.id, k); return (st.ok || st.poor) && st.routes && st.routes.length && G.manaOf(s, emp.id) > st.fee.mana * mk; });
+    if (k) {
+      const fee = G.openSchoolStatus(s, emp.id, k).fee;
+      // short of gold but rich in mana: sell the difference at market, keeping the mana fee and a little more
+      if (emp.gold < fee.gold * 1.1 && G.aiSellMana) G.aiSellMana(s, emp.id, fee.gold * 1.1 - emp.gold, fee.mana * 1.1);
+      if (emp.gold >= fee.gold) G.openSchool(s, emp.id, k);
+    }
   }
   // keep an enchantment where the tower can feed it
   const known = G.enchantmentsKnown(s, emp.id);
-  if (known.length && Math.random() < 0.5) {
+  if (known.length && Math.random() < 0.7) {
     for (const c of towers) {
       if ((c.ench || []).length >= G.enchantSlots(s, c)) continue;
       const net = G.econ(s, c).net.mana || 0;
-      const pick = known.filter(k => !G.hasEnchantment(c, k) && net > enchUp(k) * 2.5 && G.enchantStatus(s, emp.id, c.id, k).ok && G.manaOf(s, emp.id) > G.enchantCost(s, emp.id, k).mana * 2)
+      // the tower can feed it: its own net, or (a smaller net) a store that would carry it for an hour
+      const feeds = k => net > enchUp(k) * 2 || (net > enchUp(k) * 1.1 && (c.res.mana || 0) > enchUp(k) * 60);
+      const pick = known.filter(k => !G.hasEnchantment(c, k) && feeds(k) && G.enchantStatus(s, emp.id, c.id, k).ok && G.manaOf(s, emp.id) > G.enchantCost(s, emp.id, k).mana * 1.5)
         .sort((a, b) => (ENCH_PREF[b] || 1) - (ENCH_PREF[a] || 1))[0];
       if (pick) { G.enchantCity(s, emp.id, c.id, pick); break; }
     }
   }
 });
 
-G.newGameHooks.push(s => { s.arcanaV = 1; for (const id of Object.keys(s.empires)) grim(s, id); ensureSpyHook(); });
+G.newGameHooks.push(s => { s.arcanaV = 2; for (const id of Object.keys(s.empires)) grim(s, id); ensureSpyHook(); });
 })();

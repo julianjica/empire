@@ -2548,23 +2548,46 @@
     if (RACE === 'wind' && Math.round(a) % 2 === 1) { const [px, py] = along ? P(a + 0.5, fp[1] + t / 2, H + 12) : P(fp[0] + t / 2, a + 0.5, H + 12); line([px, py + 10], [px, py], '#4a3a2a', 1); poly([[px, py], [px + 9, py + 2], [px, py + 4]], STY.flag, null); }
     if (RACE === 'ash' && (Math.round(a * 3) % 4 === 0)) { const [sx, sy] = along ? P(a + 0.2, fp[1] + t, H + 2) : P(fp[0] + t, a + 0.2, H + 2); line([sx, sy], [sx, sy - 8], '#3a2a20', 1); skull(sx, sy - 9, 0.7); }
   }
+  // the quay wall's material per people and band, matching each people's own wall art (CITYART walls): the stone,
+  // its coping, the bollards and lamp posts, and an optional accent (shells, weed line). A people's art file may
+  // override it with a CITYART `quaymat` hook: (api, band) => { stone, cap, bollard, accent?, weed? }.
+  const QUAYMAT = {
+    hearth: b => ({ stone: '#c4b8a2', cap: '#a89c86', bollard: '#3a3632' }),                    // dressed limestone
+    delver: b => ({ stone: '#8a847a', cap: '#a8a299', bollard: '#2a2826', accent: '#c8a050' }),  // coursed blocks, iron bollards, brass
+    ash: b => ({ stone: b >= 3 ? '#3e383e' : '#5e5652', cap: '#77706a', bollard: '#2a1e18' }),  // basalt
+    sylvan: b => ({ stone: '#e6e2d4', cap: '#c3bfa6', bollard: '#6e5136', weed: '#4f7d3c' }),    // moon-white stone, rooted
+    tide: b => ({ stone: b <= 1 ? '#cfc2ac' : b === 2 ? '#e2d4c4' : '#f2ece6', cap: b >= 3 ? '#e0806e' : '#e6c4b2', bollard: '#3e5a6a', accent: '#f4e6dc', weed: '#4f7a46' }),   // coral rubble → coral ashlar → pearl-white, shell-pink / coral coping
+    veil: b => ({ stone: '#e2deec', cap: '#c9c2d8', bollard: '#4a3a6a', accent: '#7ad8e8' }),    // moonstone
+    grave: b => ({ stone: b >= 3 ? '#4a4854' : '#686870', cap: '#50505a', bollard: '#1c1c22', weed: '#3a4a3c' }),
+    wind: b => ({ stone: '#b8ae98', cap: '#c9bfab', bollard: '#4a3020' }),
+  };
+  function quayMat(band) {
+    const reg = ARTREG[RACE], fn = reg && reg.quaymat;
+    if (typeof fn === 'function') { try { const m = fn(API, band); if (m && m.stone) return m; } catch (e) { console.error('quaymat', e); } }
+    return (QUAYMAT[RACE] || QUAYMAT.hearth)(band);
+  }
   // the low quay wall that stands in for the town wall in front of a back-shore harbour: a stone parapet with a
-  // coping, bollards and a lamp (a post-and-rail fence while the wall is a palisade); no CITYART hook — it keeps the works in view
+  // coping, bollards and a lamp in the people's own quay material (a post-and-rail fence while the wall is a
+  // palisade); no CITYART wall hook — it stays low and keeps the works in view
   function seaWall(side, a, b, band) {
     const along = side === 'N' || side === 'S', fixed = side === 'N' || side === 'W' ? WALL_A : WALL_B;
     const at = (u, v, z = 0) => along ? P(u, fixed + v, z) : P(fixed + v, u, z);
-    if (band <= 0 || RACE === 'sylvan' || (RACE === 'ash' && band < 2)) {   // timber walls get a timber quay rail
+    if (band <= 0 || (RACE === 'sylvan' && band < 2) || (RACE === 'ash' && band < 2)) {   // timber walls get a timber quay rail
       const wood = pierWood(), n = Math.max(1, Math.round((b - a) / 0.35));
       for (let k = 0; k <= n; k++) { const u = a + k * (b - a) / n; line(at(u, 0), at(u, 0, 9), shade(wood, -0.3), 1.4); }
       for (const z of [4, 8]) line(at(a, 0, z), at(b, 0, z), wood, 1);
       return;
     }
-    const t = 0.3, H = 6 + band * 1.5, col = wallCol();
+    const m = quayMat(band), t = 0.3, H = 6 + band * 1.5, col = m.stone;
     const fp = along ? [a, fixed - t / 2, b - a, t] : [fixed - t / 2, a, t, b - a];
     const bw = box(fp[0], fp[1], fp[2], fp[3], 0, H, col); courses(bw, 3.5, shade(col, -0.16));
-    box(fp[0] - (along ? 0 : 0.03), fp[1] - (along ? 0.03 : 0), fp[2] + (along ? 0 : 0.06), fp[3] + (along ? 0.06 : 0), H, 1.6, shade(col, 0.1));
-    for (let u = Math.ceil(a * 1.25) / 1.25 + 0.2; u < b - 0.1; u += 0.8) { const [x, y] = at(u, 0, H + 1.6); poly([[x - 1.2, y], [x + 1.2, y], [x + 1, y - 2.6], [x - 1, y - 2.6]], '#3a3632', null); }
-    if (Math.abs((a + b) / 2 - 12) > 1.2 && Math.round(a) % 2 === 0) { const [x, y] = at((a + b) / 2, 0, H + 1.6); line([x, y], [x, y - 9], '#3a3632', 1); lantern(x, y - 7, 1.3); }
+    if (m.weed) line(at(a, t / 2, 1.2), at(b, t / 2, 1.2), m.weed, 1.5);   // weed line at the foot
+    box(fp[0] - (along ? 0 : 0.03), fp[1] - (along ? 0.03 : 0), fp[2] + (along ? 0 : 0.06), fp[3] + (along ? 0.06 : 0), H, 1.6, m.cap || shade(col, 0.1));
+    for (let u = Math.ceil(a * 1.25) / 1.25 + 0.2; u < b - 0.1; u += 0.8) {
+      const [x, y] = at(u, 0, H + 1.6); poly([[x - 1.2, y], [x + 1.2, y], [x + 1, y - 2.6], [x - 1, y - 2.6]], m.bollard, null);
+      if (m.accent) circ(x, y - 2.8, 0.9, m.accent);
+    }
+    if (Math.abs((a + b) / 2 - 12) > 1.2 && Math.round(a) % 2 === 0) { const [x, y] = at((a + b) / 2, 0, H + 1.6); line([x, y], [x, y - 9], m.bollard, 1); lantern(x, y - 7, 1.3); }
   }
   function wallTower(gx, gy, band, side = null) {
     const corner = !side;
@@ -3531,6 +3554,46 @@
         : () => bush(gx, gy, s * 0.8);
       push(gx + gy, fn);
     }
+    // city quarters (js/quarters.js): a small vignette at the edge of the plot, toward the side each quarter lies on —
+    // fields on the farmland side, a timber yard toward the forest, pit heads toward the hills, a boat and crates for
+    // the docks, a mill wheel, a crystal and stones for an arcane quarter, a row of homes, a little fort
+    if (city.quarters && city.quarters.length) {
+      const occ = Object.keys(city.buildings).filter(t => city.buildings[t] > 0).map(slotOf).filter(Boolean).concat(planted);
+      if (LAY.cem) occ.push(LAY.cem);
+      const taken = [];
+      for (const q of city.quarters) {
+        const th = Math.atan2(q.y - city.y, q.x - city.x), diag = Math.abs(Math.sin(2 * th)) > 0.5;
+        let spot = null;
+        for (const [off, dr] of [[0, 0], [0.2, 0], [-0.2, 0], [0, -1.6], [0.4, 0], [-0.4, 0], [0.2, -1.6], [-0.2, -1.6], [0, -3.2], [0.3, -3.2], [-0.3, -3.2]]) {
+          if (spot) break;
+          if (!diag && dr < -2) continue;   // the town wall runs 8 tiles out: stay beyond it
+          const a = th + off, r = (diag ? 12.6 : 10.9) + (diag ? dr : dr * 0.75);
+          const gx = clampv(12 + r * Math.sin(a), 1.2, 22.8), gy = clampv(12 - r * Math.cos(a), 1.2, 22.8), rect = [gx - 0.9, gy - 0.9, 1.8, 1.8];
+          if (rectWet(REG, rect, 0.05) || occ.some(o => overlapR(o, rect, 0)) || taken.some(o => overlapR(o, rect, 0.1))) continue;
+          spot = [gx, gy]; taken.push(rect);
+        }
+        if (!spot) continue;
+        const [gx, gy] = spot, burnt = q.burnt > S.time, building = !q.built;
+        if (q.type === 'farm' && !burnt) { field([gx - 0.9, gy - 0.9, 0.85, 1.7], true, 1, false); field([gx + 0.05, gy - 0.9, 0.85, 1.7], true, 2, false); }
+        if (q.type === 'mine') { const [x, y] = P(gx - 0.3, gy + 0.2); c.beginPath(); c.ellipse(x, y, 20, 8, 0, 0, TAU); c.fillStyle = F(SNOW ? '#e6eaec' : '#8f877c'); c.fill(); }
+        if (burnt) { const [x, y] = P(gx, gy); c.beginPath(); c.ellipse(x, y, 26, 11, 0, 0, TAU); c.fillStyle = F('rgba(40,28,20,0.5)'); c.fill(); }
+        const body = () => {
+          if (building) { scaffold(gx - 0.4, gy - 0.4, 0.8, 0.8, 18, true); return; }
+          if (burnt) { firePit(gx, gy, 0.8); log(gx - 0.5, gx + 0.3, gy + 0.3, 1, 1.6); return; }
+          switch (q.type) {
+            case 'farm': haystack(gx + 0.55, gy + 0.6, 0.8); fence([[gx - 0.9, gy + 0.85], [gx + 0.9, gy + 0.85]], 4); break;
+            case 'lumber': treePine(gx - 0.6, gy - 0.5, 0.9); treePine(gx + 0.5, gy - 0.7, 0.8); stump(gx - 0.1, gy + 0.2); logPile(gx - 0.3, gy + 0.5, 0.8, 2); break;
+            case 'mine': { rock(gx - 0.6, gy, 1.1, '#9a948c'); line(P(gx + 0.1, gy + 0.4), P(gx + 0.4, gy + 0.1, 22), '#6b4b30', 1.6); line(P(gx + 0.7, gy + 0.4), P(gx + 0.4, gy + 0.1, 22), '#6b4b30', 1.6); const [wx, wy] = P(gx + 0.4, gy + 0.1, 24); circ(wx, wy, 3.2, null, '#3b2a1a'); crate(gx + 0.6, gy + 0.6, 0.3); break; }
+            case 'docks': { crate(gx - 0.4, gy - 0.2); barrel(gx - 0.1, gy + 0.2); netRack(gx + 0.2, gy - 0.4, true); boatAshore(gx + 0.5, gy + 0.55); break; }
+            case 'mill': { const b = box(gx - 0.5, gy - 0.4, 0.8, 0.8, 0, 14, STY.wall); gable(b, 9, STY.roof, 'x'); const [x, y] = P(gx + 0.45, gy + 0.1, 9); circ(x, y, 7, '#9c6b3c', OUT); for (let k = 0; k < 4; k++) { const a = k * Math.PI / 4; line([x - Math.cos(a) * 7, y - Math.sin(a) * 7], [x + Math.cos(a) * 7, y + Math.sin(a) * 7], '#5a3e22', 0.8); } break; }
+            case 'arcane': stoneRing(gx, gy, 0.6, 6, 1); crystal(gx, gy, 0, 24, 0.14); stoneRing(gx, gy, 0.6, 6, 2); break;
+            case 'homes': for (const [ox, oy] of [[-0.6, -0.5], [0.2, -0.6], [-0.3, 0.3]]) { const b = box(gx + ox, gy + oy, 0.55, 0.5, 0, 10, STY.wall); gable(b, 7, STY.roof, 'y'); } break;
+            case 'fort': { const b = box(gx - 0.35, gy - 0.35, 0.7, 0.7, 0, 22, mix(STY.wall, '#a8a094', 0.5)); parapet(b, 3); flagpole(gx, gy, 25, 12, STY.trim, 8); fence([[gx - 0.9, gy + 0.8], [gx + 0.9, gy + 0.8], [gx + 0.9, gy - 0.8]], 5, '#6a4a2a'); break; }
+          }
+        };
+        push(gx + gy, () => drawB(body, 'quarter'));
+      }
+    }
     // a few trees inside the walls
     const inTrees = LAY.deco.trees;
     for (const [gx, gy] of inTrees) push(gx + gy, () => treeDecid(gx, gy, 0.85, RACE === 'sylvan'));
@@ -3612,7 +3675,7 @@
     const se = G.season(S).index;
     REG = computeRegion(city);
     applyLayout(computeLayout(city, REG));
-    return [city.id, emp.race, se, city.terrain, REG.sig, LAY.sig, techOf(city).sig, actSig(activityOf(city)), Object.keys(typeof CITYART !== 'undefined' ? CITYART[emp.race] || {} : {}).length, Object.keys(DATA.buildings).length, 'ley' + leyOf(city), JSON.stringify(city.buildings), (city.buildQueue || []).map(q => q.type + q.level + (q.start <= S.time ? 'a' : 'w')).join(','), city.starving ? 1 : 0, cssW, cssH, dpr].join('|');
+    return [city.id, emp.race, se, city.terrain, REG.sig, LAY.sig, techOf(city).sig, actSig(activityOf(city)), Object.keys(typeof CITYART !== 'undefined' ? CITYART[emp.race] || {} : {}).length, Object.keys(DATA.buildings).length, 'ley' + leyOf(city), JSON.stringify(city.buildings), (city.quarters || []).map(q => q.type + (q.x - city.x) + (q.y - city.y) + (q.built ? '' : 'b') + (q.burnt > S.time ? 'x' : '')).join(','), (city.buildQueue || []).map(q => q.type + q.level + (q.start <= S.time ? 'a' : 'w')).join(','), city.starving ? 1 : 0, cssW, cssH, dpr].join('|');
   }
   function sizeCanvas(host) {
     const w = Math.max(280, Math.floor(host.clientWidth || 600));

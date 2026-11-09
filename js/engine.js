@@ -505,7 +505,7 @@ G.buildingActivity = (s, city, e) => {
   }
   if (G.lvl(city, 'magetower')) {
     const rate = ((e.rawParts.mana || []).find(p => p.type === 'magetower') || {}).amount || 0;
-    out.magetower = full('mana') ? { state: 'blocked', reason: 'Mana stores full', rate } : { state: 'working', reason: '', rate };
+    out.magetower = (G.manaCap ? (city.res.mana || 0) >= G.manaCap(s, city) * 0.999 : full('mana')) ? { state: 'blocked', reason: 'Mana stores full', rate } : { state: 'working', reason: '', rate };
   }
   // military buildings work while they train
   for (const [at, q] of Object.entries(city.train || {})) if (q && q.length && G.lvl(city, at) && !out[at]) out[at] = { state: 'working', reason: 'Training ' + DATA.units[q[0].unit].name, rate: 0 };
@@ -562,13 +562,19 @@ G.path = (s, from, to, naval) => {
   // a land path to another land region (or a sea path to another sea) cannot exist: answer without searching
   if (!naval && start !== goal) { const c = G.landRegions(s); if (c[start] >= 0 && c[goal] >= 0 && c[start] !== c[goal]) { cache.set(key, null); return null; } }
   const water = WATER.get(s.tiles) || G.waterMask(s);
-  // roads.js: per-tile road factors (edge cost × mean of both ends), ford penalties, heuristic scale (min factor in use)
-  const rc = !naval && G.roadCosts ? G.roadCosts(s) : null, hm = rc ? rc.hm : 1, fac = rc && rc.fac, ford = rc && rc.ford;
+  // roads.js: per-tile march factors (terrain, or the road over it; edge cost × mean of both ends), ford penalties,
+  // the cheapest factor in use, and a landmark (ALT) heuristic for land paths. Ships ignore all of it;
+  // amphibious ('any') marches pay the land's factors on land.
+  const rc = naval !== true && G.roadCosts ? G.roadCosts(s) : null, hm = rc ? rc.hm : 1, fac = rc && rc.fac, ford = rc && rc.ford;
   const ok = i => { if (i === start || i === goal || naval === 'any') return true; return naval ? water[i] === 1 : water[i] === 0; };
   // A* with an octile-distance heuristic over a binary heap (same costs as before: 1 straight, 1.4142 diagonal)
-  const D = new Float64Array(NN).fill(Infinity), prev = new Int32Array(NN).fill(-1), done = new Uint8Array(NN);
+  // scratch arrays reused across searches; a tile's D/prev are valid only where seen[] carries this search's stamp
+  if (!PATH_SCRATCH || PATH_SCRATCH.NN !== NN) PATH_SCRATCH = { NN, D: new Float64Array(NN), prev: new Int32Array(NN), seen: new Uint32Array(NN), shut: new Uint32Array(NN), gen: 0 };
+  const PS = PATH_SCRATCH, D = PS.D, prev = PS.prev, seen = PS.seen, shut = PS.shut;
+  if (++PS.gen >= 0xfffffff0) { seen.fill(0); shut.fill(0); PS.gen = 1; }
+  const gen = PS.gen;
   const gx = to.x, gy = to.y;
-  const h = i => { const x = i % N, y = (i - x) / N, ax = Math.abs(x - gx), ay = Math.abs(y - gy); return (ax > ay ? ax + 0.4142 * ay : ay + 0.4142 * ax) * hm; };
+  const h = (!naval && rc && rc.heur && rc.heur(goal)) || (i => { const x = i % N, y = (i - x) / N, ax = Math.abs(x - gx), ay = Math.abs(y - gy); return (ax > ay ? ax + 0.4142 * ay : ay + 0.4142 * ax) * hm; });
   const heapI = [], heapF = [];
   const push = (i, f) => { let k = heapI.length; heapI.push(i); heapF.push(f); while (k > 0) { const p = (k - 1) >> 1; if (heapF[p] <= f) break; heapI[k] = heapI[p]; heapF[k] = heapF[p]; k = p; } heapI[k] = i; heapF[k] = f; };
   const pop = () => {
@@ -576,11 +582,11 @@ G.path = (s, from, to, naval) => {
     if (n) { let k = 0; for (;;) { let c = 2 * k + 1; if (c >= n) break; if (c + 1 < n && heapF[c + 1] < heapF[c]) c++; if (heapF[c] >= lf) break; heapI[k] = heapI[c]; heapF[k] = heapF[c]; k = c; } heapI[k] = li; heapF[k] = lf; }
     return top;
   };
-  D[start] = 0; push(start, h(start));
+  D[start] = 0; prev[start] = -1; seen[start] = gen; push(start, h(start));
   const strict = !naval && naval !== 'any';
   while (heapI.length) {
     const u = pop();
-    if (done[u]) continue; done[u] = 1;
+    if (shut[u] === gen) continue; shut[u] = gen;
     if (u === goal) break;
     const ux = u % N, uy = (u - ux) / N;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -588,20 +594,21 @@ G.path = (s, from, to, naval) => {
       const vx = ux + dx, vy = uy + dy;
       if (vx < 0 || vy < 0 || vx >= N || vy >= N) continue;
       const v = vy * N + vx;
-      if (done[v] || !ok(v)) continue;
+      if (!ok(v)) continue;   // closed nodes may reopen: a guard (float noise, any future merely-admissible estimate); the landmark estimate is consistent
       if (dx && dy && strict && water[uy * N + vx] && water[vy * N + ux]) continue;  // no squeezing between two water tiles
       const nd = D[u] + (dx && dy ? 1.4142 : 1) * (fac ? (fac[u] + fac[v]) * 0.5 : 1) + (ford && v !== goal ? ford[v] : 0);
-      if (nd < D[v] - 1e-9) { D[v] = nd; prev[v] = u; push(v, nd + h(v)); }
+      if (seen[v] !== gen || nd < D[v] - 1e-9) { D[v] = nd; prev[v] = u; seen[v] = gen; shut[v] = 0; push(v, nd + h(v)); }
     }
   }
   let res = null;
-  if (D[goal] < Infinity) {
+  if (seen[goal] === gen) {
     const pts = []; for (let i = goal; i !== -1; i = prev[i]) pts.push([i % N, Math.floor(i / N)]);
     res = { len: D[goal], path: pts.reverse() };
   }
   cache.set(key, res);
   return res;
 };
+let PATH_SCRATCH = null;
 // water mask (1 = water), cached with the paths
 const WATER = new WeakMap();
 G.waterMask = s => {
@@ -672,6 +679,8 @@ G.seasOf = (s, x, y) => {
 G.landReachable = (s, from, to) => { const c = G.landRegions(s); return c[from.y * s.map + from.x] === c[to.y * s.map + to.x]; };
 G.isIsland = (s, t) => { const c = G.landRegions(s); const cap = G.capital(s, 'p'); return !!cap && c[t.y * s.map + t.x] !== c[cap.y * s.map + cap.x]; };
 const marchTime = (s, owner, len, spd) => Math.max(15, Math.round(len / (spd * G.mod(s, owner, null, 'travel')) * 120 * G.pace(s).travel));
+// a land path's march length for this owner (roads.js: peoples at home in forest or hills re-cost the terrain)
+const landLen = (s, owner, p) => (G.marchLen ? G.marchLen(s, owner, p) : p.len);
 // plan a march: land route for armies and caravans, sea route when ships carry the army
 G.planMarch = (s, owner, from, to, units) => {
   units = units || {};
@@ -685,13 +694,13 @@ G.planMarch = (s, owner, from, to, units) => {
   if (present.length && !ships.length && present.every(d => d.flying || d.amphibious)) {
     const land = G.path(s, from, to, false), any = G.path(s, from, to, 'any');
     const p = land && (!any || land.len <= any.len * 1.15) ? land : any;
-    if (p) return { ok: true, dur: marchTime(s, owner, p.len, G.slowest(s, owner, units)), path: p.path, naval: false };
+    if (p) return { ok: true, dur: marchTime(s, owner, landLen(s, owner, p), G.slowest(s, owner, units)), path: p.path, naval: false };
   }
   if (!ships.length) {
     const p = G.path(s, from, to, false);
     if (!p) return { ok: false, reason: 'No land route — only ships can reach this place (build a Harbor and transports).' };
     const spd = G.unitsCount(units) ? G.slowest(s, owner, units) : 8;
-    return { ok: true, dur: marchTime(s, owner, p.len, spd), path: p.path, naval: false };
+    return { ok: true, dur: marchTime(s, owner, landLen(s, owner, p), spd), path: p.path, naval: false };
   }
   if (!G.coastal(s, from.x, from.y)) return { ok: false, reason: 'Ships can only sail from a coastal city' };
   if (!G.coastal(s, to.x, to.y)) return { ok: false, reason: 'Ships can only reach places on the shore' };
@@ -706,7 +715,7 @@ G.planMarch = (s, owner, from, to, units) => {
 // travel time over land (falls back to a long straight-line estimate when water cuts the way, e.g. for abstract caravans)
 G.travelTime = (s, owner, from, to, spd) => {
   const p = G.path(s, from, to, false);
-  return marchTime(s, owner, p ? p.len : dist(from, to) * 1.6, spd);
+  return marchTime(s, owner, p ? landLen(s, owner, p) : dist(from, to) * 1.6, spd);
 };
 
 G.trainTime = (s, city, unit) => {
@@ -1218,7 +1227,7 @@ G.sendArmy = (s, fromId, x, y, type, units, cargo) => {
     if (!G.unitsCount(sent)) return 'Select some troops';
     if (type === 'settle') {
       if (!sent.settlers) return 'Send settlers to found a city';
-      if (tile.city || tile.camp || tile.oasis || tile.ruin) return 'The tile is occupied';
+      if (tile.city || tile.camp || tile.oasis || tile.ruin || tile.quarter) return 'The tile is occupied';   // tile.quarter: a city's quarter (quarters.js)
       if (!G.canFoundCity(s, city.owner)) return `Need ${G.nextCityRenown(s, city.owner)} renown for another city`;
     }
     if (type === 'scout' && (!sent.scout || Object.keys(sent).some(u => u !== 'scout'))) return 'Send only scouts on a scouting mission';
@@ -1642,7 +1651,7 @@ G.resolveMove = (s, m) => {
     return;
   }
   if (m.type === 'settle') {
-    if (!tile.city && !tile.camp && !tile.oasis && !tile.ruin && G.renown(s, m.owner) >= G.citySlotRenown(s, G.citiesOf(s, m.owner).length)) {
+    if (!tile.city && !tile.camp && !tile.oasis && !tile.ruin && !tile.quarter && G.renown(s, m.owner) >= G.citySlotRenown(s, G.citiesOf(s, m.owner).length)) {
       const nc = G.foundCity(s, m.owner, m.x, m.y, m.owner === 'p' ? `New ${pick(['Haven', 'Hope', 'Reach', 'Ford', 'Hold', 'Watch', 'Dawn', 'Mere'])}` : null);
       const rest = { ...m.units }; rest.settlers -= 1;
       G.addUnits(nc.units, rest);
@@ -1960,7 +1969,7 @@ const stepCity = (s, city, dt, away) => {
 G.freeTile = (s, pred, tries = 3000) => {
   for (let i = 0; i < tries; i++) {
     const t = s.tiles[rint(0, s.tiles.length - 1)];
-    if (t.city || t.camp || t.oasis || t.ruin || DATA.terrain[t.terrain].impassable) continue;
+    if (t.city || t.camp || t.oasis || t.ruin || t.quarter || DATA.terrain[t.terrain].impassable) continue;
     if (pred(t)) return t;
   }
   return null;
@@ -2199,7 +2208,7 @@ const aiExpand = (s, empId) => {
       const lack = G.realmLack(s, empId), R = AI_SETTLE_RANGE, all = Object.values(s.cities);
       for (let y = Math.max(0, c.y - R); y <= Math.min(s.map - 1, c.y + R); y++) for (let x = Math.max(0, c.x - R); x <= Math.min(s.map - 1, c.x + R); x++) {
         const t = s.tiles[y * s.map + x];
-        if (t.city || t.camp || t.oasis || t.ruin || DATA.terrain[t.terrain].impassable) continue;
+        if (t.city || t.camp || t.oasis || t.ruin || t.quarter || DATA.terrain[t.terrain].impassable) continue;
         const d = dist(t, c);
         if (d < 3 || d > R) continue;
         if (all.some(o => dist(o, t) < 2.8)) continue;
@@ -2213,7 +2222,7 @@ const aiExpand = (s, empId) => {
       if ((c.units.transport || 0) > 0 && ov && ov.settle.length) {
         for (const i of ov.settle) {
           const t = s.tiles[i];
-          if (t.city || t.camp || t.oasis || t.ruin || Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
+          if (t.city || t.camp || t.oasis || t.ruin || t.quarter || Object.values(s.cities).some(o => dist(o, t) < 2.8)) continue;
           const score = dist(t, c) * 0.4 + rnd(0, 1) - G.aiSiteValue(s, emp, G.siteYield(s, t.x, t.y), lack) - (best ? 0 : 2);
           if (score < bd && G.planMarch(s, empId, c, t, { settlers: 1, transport: 1 }).ok) { bd = score; best = t; sea = true; }
         }
@@ -2360,6 +2369,7 @@ const aiWar = (s, empId) => {
   const emp = s.empires[empId];
   const pressure = G.aiPressure(s);
   for (const c of G.citiesOf(s, empId)) {
+    if (G.aiCampaignCity && G.aiCampaignCity(s, c)) continue;   // a staging city's troops wait for their campaign (js/warplan.js)
     const off = {};
     for (const [u, n] of Object.entries(c.units)) {
       const d = DATA.units[u];
@@ -2389,6 +2399,7 @@ const aiWar = (s, empId) => {
     }
     for (const o of Object.values(s.cities)) {
       if (o.owner === empId) continue;
+      if (G.aiMayStrike && !G.aiMayStrike(s, c, o.owner)) continue;   // realms are fought only in war, and by campaigns (js/warplan.js)
       const hate = G.hostility(s, empId, o.owner);
       if (hate <= 0) continue;
       if (o.owner === 'p' && (pressure <= 0 || s.time - (o.lastRaided || -1e9) < 1200 * G.pace(s).time / Math.max(0.3, pressure)
@@ -2421,7 +2432,7 @@ const aiWar = (s, empId) => {
     return;
   }
 };
-G.aiWar = aiWar; G.aiNaval = aiNaval; G.aiExpand = aiExpand;
+G.aiWar = aiWar; G.aiNaval = aiNaval; G.aiExpand = aiExpand; G.aiStrike = aiStrike;
 
 const aiThink = (s, dtMin) => {
   for (const emp of Object.values(s.empires)) {

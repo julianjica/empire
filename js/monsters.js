@@ -11,12 +11,17 @@
 //  Hunting: an attack or raid sent at a monster's tile is tagged with the
 //  monster's id. On arrival the army fights it if it is within CATCH
 //  tiles, follows its tracks once if it moved up to TRACK tiles away, and
-//  otherwise finds only a cold trail and goes home.
+//  otherwise finds only a cold trail and goes home. A creature on the move
+//  can also be intercepted (js/intercept.js: an 'intercept' move tagged
+//  with m.monster lies in wait on its trail); it arrives here as a hunt.
+//  War magi riding with an interception of a creature cast (G.magiMarch).
 //
 //  The crisis (s.crisis): late in Endless games (or very late in Conquest)
 //  one world-threatening event, chosen by the state of the world, rises
 //  in four stages. Its sources are camps (s.camps, kind 'crisis'); it
-//  sends roaming warbands, makes the realms set their quarrels aside, and
+//  sends roaming warbands, makes the realms set their quarrels aside (a
+//  grand truce, signed as 'crisis' treaties in js/diplomacy.js; no AI starts
+//  a war on a realm fighting the crisis: G.crisisFighter), and
 //  ends when every source is destroyed or a great ritual is completed —
 //  or ravages every realm when time runs out.
 //
@@ -536,13 +541,17 @@
   };
   G.monsterSlain = slain;
 
-  const huntArrive = (s, m) => {
+  // the way home: an interception waited on the trail, so it walks back only as long as it marched
+  const homeward = m => m.march ? { ...m, path: m.homePath || m.path, depart: 0, arrive: m.march } : m;
+  // the war magi of an interception cast in its fight (plain hunts keep their magi out of it, as before)
+  const huntArrive = (s, m) => m.type === 'intercept' && G.magiMarch ? G.magiMarch(s, m, () => huntArrive0(s, m)) : huntArrive0(s, m);
+  const huntArrive0 = (s, m) => {
     const mon = mons(s)[m.monster], home = s.cities[m.from], me = s.empires[m.owner];
     const kname = (KIND[m.mkind] || { name: 'the creatures' }).name;
     if (m.owner === 'p') G.reveal(s, m.x, m.y, 2);
     if (!mon) {
       G.report(s, [m.owner], `The hunt for the ${lc(kname)} came to nothing`, 'info', { extra: 'Someone else got there first, or the creatures are gone. The army turns home.' });
-      G.sendHome(s, m, m.units, m.cargo);
+      G.sendHome(s, homeward(m), m.units, m.cargo);
       return;
     }
     const p = G.movePos(s, mon), d = Math.hypot(p.x - m.x, p.y - m.y);
@@ -550,12 +559,16 @@
       const t = { x: Math.round(p.x), y: Math.round(p.y) };
       const pl = !m.tracked && d <= TRACK && (G.tileAt(s, t.x, t.y)) ? G.planMarch(s, m.owner, { x: m.x, y: m.y }, t, m.units) : null;
       if (pl && pl.ok && (!G.isWater(G.tileAt(s, t.x, t.y)) || pl.naval)) {
-        s.moves.push({ ...m, id: G.newId(s, 'm'), fx: m.x, fy: m.y, x: t.x, y: t.y, path: pl.path, naval: pl.naval, depart: s.time, arrive: s.time + Math.max(20, pl.dur), tracked: 1 });
+        const nid = G.newId(s, 'm');
+        if (G.magiRepoint) G.magiRepoint(s, m.owner, m.id, nid);
+        if (m.general && G.generalById) { const g = G.generalById(s, m.owner, m.general); if (g && g.move === m.id) g.move = nid; }
+        const back = m.march ? { march: m.march + Math.max(20, pl.dur), homePath: [...(m.homePath || m.path || [[m.fx, m.fy], [m.x, m.y]])].concat((pl.path || []).slice(1)) } : {};
+        s.moves.push({ ...m, ...back, id: nid, fx: m.x, fy: m.y, x: t.x, y: t.y, path: pl.path, naval: pl.naval, depart: s.time, arrive: s.time + Math.max(20, pl.dur), tracked: 1 });
         G.log(s, m.owner, `🐾 The ${lc(kname)} had moved on; our hunters follow fresh tracks to (${t.x}, ${t.y}).`, 'info');
         return;
       }
       G.report(s, [m.owner], `The trail of the ${lc(kname)} went cold`, 'info', { extra: `When the army reached (${m.x}, ${m.y}) the ${lc(kname)} ${d > TRACK ? 'had moved too far away' : 'could not be followed'} — last seen near (${t.x}, ${t.y}). The army turns home.` });
-      G.sendHome(s, m, m.units, m.cargo);
+      G.sendHome(s, homeward(m), m.units, m.cargo);
       return;
     }
     // the fight, on the creature's own ground
@@ -585,11 +598,11 @@
     }
     G.report(s, [m.owner], `${r.win ? 'Victory' : 'Defeat'} against the ${lc(k.name)} (${tx}, ${ty})`, r.win ? 'win' : 'loss',
       { att: me.name, def: k.name, A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot, extra, tactics: r.tactics });
-    G.sendHome(s, m, r.attLeft, loot);
+    G.sendHome(s, homeward(m), r.attLeft, loot);
   };
   const baseResolve = G.resolveMove;
   G.resolveMove = (s, m) => {
-    if (m.monster && (m.type === 'attack' || m.type === 'raid')) return huntArrive(s, m);
+    if (m.monster && (m.type === 'attack' || m.type === 'raid' || m.type === 'intercept')) return huntArrive(s, m);
     // a crisis source does not scatter after a raid: only an all-out attack can cast it down
     if (m.type === 'raid') { const t = G.tileAt(s, m.x, m.y), k = t && t.camp && s.camps[t.camp]; if (k && k.kind === 'crisis') m.type = 'attack'; }
     return baseResolve(s, m);
@@ -756,12 +769,21 @@
     s.crisis.srcPos = spots.map(t => [t.x, t.y]);
     s.crisis.nSources = s.crisis.sources.length;
     // the realms set their quarrels aside: wars among the AI realms pause, everyone warms to the player
+    // wars among the AI realms end in a grand truce (a 'crisis' treaty: js/diplomacy.js) that lasts as long as the crisis
     s.crisis.truce = [];
-    for (const [k, r] of Object.entries(s.airel || {})) if (r.status === 'war') { r.status = 'peace'; r.since = s.time; s.crisis.truce.push(k); }
+    for (const [k, r] of Object.entries(s.airel || {})) if (r.status === 'war') {
+      const [a, b] = k.split('|');
+      if (G.signTreaty && DATA.treatyKinds && DATA.treatyKinds.crisis) G.signTreaty(s, 'crisis', a, b, { by: a, quiet: true });
+      if (r.status === 'war') { r.status = 'peace'; r.since = s.time; }
+      s.crisis.truce.push(k);
+    }
     for (const e of Object.values(s.empires)) if (e.id !== 'p' && !e.dead && G.rel) { const r = G.rel(s, e.id); r.opinion = G.clamp(r.opinion + 15, -100, 100); }
     G.log(s, 'p', `${def.icon} ${def.name}! ${def.text} Destroy its ${spots.length} ${def.srcName.toLowerCase()}s or complete the ritual "${def.ritual.name}" before it ravages every realm.`, 'bad');
-    if (G.addPending && Object.values(s.empires).some(e => e.id !== 'p' && !e.dead && G.rel(s, e.id).status === 'war')) {
-      G.addPending(s, { kind: 'crisis', title: `${def.icon} ${def.name}: a grand truce`, text: `Envoys from every court propose a grand truce while ${def.name.replace(/^The /, 'the ')} lasts: every war with you ends in peace. Refuse, and they will still be slow to strike you while the world burns.`,
+    // the rivals offer the player the grand truce: every war (and every cold standoff) ends in a pact while the crisis lasts
+    const rivals = Object.values(s.empires).filter(e => e.id !== 'p' && !e.dead && G.rel && ['war', 'neutral'].includes(G.rel(s, e.id).status));
+    if (G.addPending && rivals.length) {
+      const atWar = rivals.filter(e => G.rel(s, e.id).status === 'war').length;
+      G.addPending(s, { kind: 'crisis', title: `${def.icon} ${def.name}: a grand truce`, text: `Envoys from ${rivals.length > 1 ? rivals.length + ' courts' : 'the ' + rivals[0].name} propose a grand truce while ${def.name.replace(/^The /, 'the ')} lasts: ${atWar ? 'every war with you ends in peace, and ' : ''}no side may attack the other until it passes. No realm will start a war on one that fights the crisis, and every court warms to those who help destroy it. Refuse, and they will still be slow to strike you while the world burns.`,
         options: [{ key: 'truce', label: 'Swear the grand truce' }, { key: 'no', label: 'Our wars go on' }], expires: s.time + MIN(s, 10), def: 'no', data: { ev: 'truce' } });
     }
     if (G.chronEvent) G.chronEvent(s, 'crisis', { x: def.name, c: 'start', n: 1 });
@@ -769,9 +791,12 @@
   };
   G.pendingHandlers.crisis = (s, p, key) => {
     if (p.data.ev === 'truce' && key === 'truce') {
+      if (!G.crisisActive(s)) return 'The crisis has passed';
       for (const e of Object.values(s.empires)) {
         if (e.id === 'p' || e.dead) continue;
         const r = G.rel(s, e.id);
+        if (r.status !== 'war' && r.status !== 'neutral') continue;
+        if (G.signTreaty && DATA.treatyKinds && DATA.treatyKinds.crisis) G.signTreaty(s, 'crisis', 'p', e.id, { by: e.id, quiet: true });
         if (r.status === 'war') { r.status = 'peace'; r.since = s.time; }
       }
       G.log(s, 'p', '🕊️ The grand truce is sworn: our wars end while the crisis lasts.', 'good');
@@ -823,6 +848,8 @@
     // the sources and warbands melt away
     for (const id of c.sources) { const k = s.camps[id]; if (k) { const t = G.tileAt(s, k.x, k.y); if (t) t.camp = null; delete s.camps[id]; } }
     for (const mon of Object.values(mons(s))) if (mon.crisis) delete mons(s)[mon.id];
+    // the grand truce ends with the crisis (the peace it made stays)
+    if (G.treatiesOf && G.endTreaty) for (const t of [...((s.dip && s.dip.treaties) || [])]) if (t.kind === 'crisis') G.endTreaty(s, t, 'expired', null);
     if (won) {
       const total = Object.values(c.contrib).reduce((a, b) => a + b, 0) || 1;
       for (const e of Object.values(s.empires)) {
@@ -893,6 +920,15 @@
     G.crisisTick(s);
   });
   G.crisisActive = s => !!(s.crisis && s.crisis.status === 'active');
+  // a realm fighting the crisis: it has given to the rite or slain its creatures, or has an army marching on a source
+  // or a crisis warband. No AI realm starts a war on it while the crisis lasts (js/diplomacy.js).
+  G.crisisFighter = (s, id) => {
+    const c = s.crisis;
+    if (!c || c.status !== 'active' || !id) return false;
+    if ((c.contrib[id] || 0) > 0) return true;
+    const atSource = m => { if (m.type !== 'attack' && m.type !== 'raid') return false; const t = G.tileAt(s, m.x, m.y), k = t && t.camp && s.camps[t.camp]; return !!(k && k.kind === 'crisis'); };
+    return s.moves.some(m => m.owner === id && (m.crisisSrc || (m.monster && mons(s)[m.monster] && mons(s)[m.monster].crisis) || atSource(m)));
+  };
   G.crisisInfo = s => {
     const c = s.crisis;
     if (!c) return null;

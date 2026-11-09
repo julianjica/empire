@@ -90,7 +90,7 @@
         <div><h2 style="margin:0">Magic of ${esc(S.empires[OWNER].name)}</h2>
           <div class="muted" style="font-size:13px">Study the Grimoire, open schools, master spells, bind enchantments.</div></div>
         <span class="spacer"></span>
-        <div class="mg-stat"><span class="muted">Mana</span><b>✨ ${fmt(G.manaOf(S, OWNER))}</b><span class="${inc > 0 ? 'good' : inc < 0 ? 'bad' : 'muted'}">${fmtRate(inc)}/min</span></div>
+        <div class="mg-stat" title="Mana held across the realm / what its stores can hold. Each city holds a little, more with a Warehouse and most with a Mage Tower; what the land gives past that is lost — spend it."><span class="muted">Mana</span><b>✨ ${fmt(G.manaOf(S, OWNER))}<small class="muted"> / ${fmt(G.manaCapOf(S, OWNER))}</small></b><span class="${inc > 0 ? 'good' : inc < 0 ? 'bad' : 'muted'}">${fmtRate(inc)}/min${G.manaFill(S, OWNER) >= 0.97 && inc > 0 ? ' · <span class="bad">full</span>' : ''}</span></div>
         <div class="mg-stat"><span class="muted">Mage Tower</span><b>🔮 ${tower || '—'}</b><span class="muted">${circle >= 0 ? DATA.circles[circle].name + ' circle' : 'no circle yet'}</span></div>
       </div>
       <div class="row mg-schools">
@@ -539,7 +539,8 @@
     const lp = G.leyPower(S, city);
     const v = strainOf(city.id);
     const en = G.enchantmentsOf(S, city);
-    return `<div class="row mg-chiprow"><button class="mg-chip" data-act="tab" data-t="magic" title="Mana made in ${esc(city.name)} per minute${lp > 0 ? '; this city taps a ley enclave' : ''}">✨ <b>${fmtRate(e.net.mana || 0)}</b>/min${lp > 0 ? `<span class="mg-ley">ley enclave ×${lp}</span>` : ''}${en.length ? `<span class="mg-ley" title="${esc(en.map(x => x.name).join(', '))}">${en.map(x => x.icon).join('')}</span>` : ''}</button>
+    const mcap = G.manaCap(S, city), full = (city.res.mana || 0) >= mcap * 0.97 && (e.net.mana || 0) > 0;
+    return `<div class="row mg-chiprow"><button class="mg-chip" data-act="tab" data-t="magic" title="Mana made in ${esc(city.name)} per minute${lp > 0 ? '; this city taps a ley enclave' : ''}. It holds ${fmt(Math.floor(city.res.mana || 0))} of ${fmt(mcap)} (a higher Mage Tower or Warehouse holds more)${full ? ' — full: new mana is lost' : ''}">✨ <b>${fmtRate(e.net.mana || 0)}</b>/min <span class="${full ? 'bad' : 'muted'}">${fmt(Math.floor(city.res.mana || 0))}/${fmt(mcap)}</span>${lp > 0 ? `<span class="mg-ley">ley enclave ×${lp}</span>` : ''}${en.length ? `<span class="mg-ley" title="${esc(en.map(x => x.name).join(', '))}">${en.map(x => x.icon).join('')}</span>` : ''}</button>
       ${v > STRAIN_WARN && !G.isWarded(S, city) ? `<span class="bad" style="font-size:12.5px">🌀 Weave strain ${Math.round(v)}: wild magic may lash back</span>` : ''}</div>`;
   });
 

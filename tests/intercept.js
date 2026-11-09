@@ -2,7 +2,7 @@
 // node tests/intercept.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra!==undefined?' '+extra:'')); };
@@ -265,6 +265,71 @@ const runUntil=(s,pred,max=4000,dt=2)=>{ let k=0; while(!pred()&&k++<max) G.step
     done=true;
   }
   if(!done) console.log('SKIP naval interception: no suitable sea on this map');
+}
+
+// ---- war magi ride with interceptions and fight in the field ----
+{ const {s,c,enemy,T}=setup({n:60});
+  const hireAt=(owner,city,opts)=>{ city.buildings.magetower=10; s.empires[owner].gold=50000; city.res.mana=8000; const R=s.magi.realms[owner]; if(R) R.pool=null;
+    const pool=G.magiPool(s,owner); const i=pool.list.findIndex(x=>x.city===city.id); Object.assign(pool.list[i],opts); const e=G.recruitMagus(s,owner,i); if(e) throw new Error(e);
+    const l=G.magiOf(s,owner), g=l[l.length-1]; G.stationMagus(s,owner,g.id,'war',city.id); return g; };
+  const g=hireAt('p',c,{rank:4,school:G.schoolsOf(s,'p')[0],traits:['devoted']});
+  c.units.knight=60;
+  const plan=G.interceptPlan(s,'p',c,T,{knight:60});
+  ok('(magi) the riders can meet the column', plan.ok, plan.reason);
+  const pv=plan.ok?G.previewIntercept(s,c,T,{knight:60},null,plan):null;
+  ok('the interception preview shows the battle magic expected', pv && /Battle magic: your/.test(pv.magic||'') && g.status==='home', pv&&pv.magic);
+  const err=G.sendIntercept(s,c.id,T.id,{knight:60});
+  const I=s.moves.find(m=>m.type==='intercept'&&m.owner==='p');
+  ok('a war magus rides with an interception', !err && I && I.magi && I.magi.includes(g.id) && g.status==='marching' && g.move===I.id, err);
+  G.MAGI.rng=()=>0.99;
+  try { runUntil(s,()=>!s.moves.includes(I)); } finally { G.MAGI.rng=null; }
+  const rep=s.reports.find(r=>r.body&&r.body.field);
+  ok('the field battle carries the magic: a labelled modifier and the report line', rep && (rep.body.tactics.mods||[]).some(x=>x.kind==='magic'&&x.label.includes(g.name)) && rep.body.extra.includes(g.name) && rep.body.magi && rep.body.magi.att.some(x=>x.name===g.name), rep&&rep.body.extra);
+  ok('the magus gained experience and rides home with the survivors', g.battles===1 && (g.status==='marching' ? s.moves.some(m=>m.id===g.move&&m.type==='return'&&m.magi&&m.magi.includes(g.id)) : g.status==='home'), g.status+' '+g.move);
+}
+{ // the column's own magi defend it: a duel of magi in the field
+  const s=fresh(); const c=G.capital(s,'p');
+  const enemy=Object.values(s.cities).filter(x=>x.owner!=='p'&&G.landReachable(s,c,x)).sort((a,b)=>G.dist(b,c)-G.dist(a,c))[0];
+  war(s,enemy.owner); for(const x of Object.values(s.cities)) x.res.grain=1e5;
+  const hireAt=(owner,city,opts)=>{ city.buildings.magetower=10; s.empires[owner].gold=50000; city.res.mana=8000; const R=s.magi.realms[owner]; if(R) R.pool=null;
+    const pool=G.magiPool(s,owner); const i=pool.list.findIndex(x=>x.city===city.id); Object.assign(pool.list[i],opts); const e=G.recruitMagus(s,owner,i); if(e) throw new Error(e);
+    const l=G.magiOf(s,owner), g=l[l.length-1]; G.stationMagus(s,owner,g.id,'war',city.id); return g; };
+  const d=hireAt(enemy.owner,enemy,{rank:2,traits:['devoted']});
+  const u0=DATA.races[s.empires[enemy.owner].race].units[0]; enemy.units[u0]=(enemy.units[u0]||0)+60;
+  G.sendArmy(s,enemy.id,c.x,c.y,'attack',{[u0]:60});
+  const T=s.moves.find(m=>m.owner===enemy.owner&&m.type==='attack');
+  ok('the enemy magus rides with the column', T && T.magi && T.magi.includes(d.id));
+  const g=hireAt('p',c,{rank:5,traits:['devoted','battlehardened']}); c.units.knight=60;
+  const err=G.sendIntercept(s,c.id,T.id,{knight:60});
+  const I=s.moves.find(m=>m.type==='intercept'&&m.owner==='p');
+  G.MAGI.rng=()=>0.99;
+  try { runUntil(s,()=>!s.moves.includes(I)); } finally { G.MAGI.rng=null; }
+  const rep=s.reports.find(r=>r.body&&r.body.field);
+  ok('the magi riding with the column defend it: a duel in the field', !err && rep && rep.body.magi && rep.body.magi.duel && rep.body.magi.duel.def===d.name && /Duel/.test(rep.body.extra), err||(rep&&rep.body.extra));
+}
+
+// ---- a caravan of ours intercepted by a rival: a clear report ----
+{ const s=fresh(); const c=G.capital(s,'p'); c.buildings.market=5; c.res.grain=5000; c.res.timber=5000;
+  const enemy=Object.values(s.cities).filter(x=>x.owner!=='p'&&G.landReachable(s,c,x)).sort((a,b)=>G.dist(b,c)-G.dist(a,c))[0];
+  const dest=Object.values(s.cities).filter(x=>x.owner!=='p'&&x.owner!==enemy.owner&&G.landReachable(s,c,x)).sort((a,b)=>G.dist(b,c)-G.dist(a,c))[0] || enemy;
+  war(s,enemy.owner);
+  const e=G.sendArmy(s,c.id,dest.x,dest.y,'trade',{},{grain:300,timber:200});
+  const K=s.moves.find(m=>m.owner==='p'&&m.type==='trade');
+  ok('our caravan is on the road', !e && K, e);
+  const race=s.empires[enemy.owner].race; let sent=null;
+  for (const u of DATA.races[race].units) { const d=DATA.units[u]; if(!d||d.type==='ship'||d.type==='civ'||d.type==='siege') continue; enemy.units[u]=(enemy.units[u]||0)+80; if(!G.sendIntercept(s,enemy.id,K.id,{[u]:80})) { sent=u; break; } }
+  if (!sent) { // too slow from their capital: meet it from a city they found beside our road
+    const tl=G.columnTimeline(K), v=tl[Math.floor(tl.length/2)]; const t=G.freeTile(s,x=>!G.isWater(x)&&G.dist(x,v)>=2&&G.dist(x,v)<=3&&G.landReachable(s,x,c));
+    const nc=G.foundCity(s,enemy.owner,t.x,t.y,'Ambushford'); const u=DATA.races[race].units[0]; nc.units[u]=80; if(!G.sendIntercept(s,nc.id,K.id,{[u]:80})) sent=u; }
+  ok('a rival sends troops to take our caravan', !!sent);
+  const I=s.moves.find(m=>m.type==='intercept'&&m.owner===enemy.owner);
+  runUntil(s,()=>!s.moves.includes(I));
+  const rep=s.reports.find(r=>r.body&&r.body.caravan);
+  const nm=s.empires[enemy.owner].name;
+  ok('the report says where it was bound, who took it, where, and that the cargo was lost', rep && rep.title.includes('Your caravan to '+dest.name+' was intercepted by the '+nm) && /(near|at) /.test(rep.title) && /cargo lost/.test(rep.title) && rep.kind==='loss', rep&&rep.title);
+  ok('the report lists the cargo lost', rep && /grain/.test(rep.body.extra) && /timber/.test(rep.body.extra) && rep.body.caravan.lost.grain===300, rep&&rep.body.extra);
+  ok('the log says it too', s.log.some(l=>l.text.includes('Your caravan to '+dest.name+' was intercepted')));
+  ok('the caravan is gone from the road', !s.moves.includes(K));
 }
 
 // ---- saves ----

@@ -3,7 +3,7 @@
 // node tests/arcana.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra!==undefined?' '+extra:'')); };
@@ -47,7 +47,7 @@ const near=(s,c,lo,hi)=>G.freeTile(s,x=>G.dist(x,c)>=lo&&G.dist(x,c)<=hi&&G.land
 // ---- seeds: a new realm knows its trunk roots and its native first spell ----
 { const s=fresh(); const sp=G.spellsOf(s,'p');
   ok('a new realm knows Arcane Theory and the native seed spell', sp.includes('scry')&&sp.includes('bountifulrain'));
-  ok('…the Rites of the Land are innate (Mage Tower 15 to cast)', sp.includes('growforest')&&sp.includes('raiseland'));
+  ok('…but no world-shaping spell: those are studied in the Archmage circle now', !['raiseland','sinkland','growforest','raisepeaks','quicken'].some(x=>sp.includes(x)) && !N.f_rites.innate);
   ok('…but not the rest of its school', !sp.includes('hearthward')&&!sp.includes('summersun'));
   ok('…nor foreign schools', !sp.includes('emberstorm')&&G.schoolsOf(s,'p').join()==='hearthweather');
   ok('every AI realm has a grimoire with its own seed', Object.values(s.empires).filter(e=>e.id!=='p').every(e=>e.arcana&&e.arcana.known.some(i=>N[i].seed&&DATA.schools[N[i].school].race===e.race)));
@@ -299,6 +299,59 @@ const near=(s,c,lo,hi)=>G.freeTile(s,x=>G.dist(x,c)>=lo&&G.dist(x,c)<=hi&&G.land
   ok('an AI realm opens a foreign school through a route', opened, want);
 }
 
+// ---- world-shaping spells live in the tree (Archmage circle) ----
+{ const at={ raiseland:[null], sinkland:[null], growforest:['songroot'], quicken:['hearthweather'], raisepeaks:['runecraft'] };
+  ok('world-shaping spells sit in fitting Archmage-circle nodes', Object.entries(at).every(([sp,[k]])=>{ const n=N[G.spellNode(sp)]; return n && n.circle===3 && n.school===k && !n.innate; }), Object.keys(at).map(sp=>sp+':'+G.spellNode(sp)).join(','));
+  ok('…the moved ones belong to their school', DATA.spells.growforest.school==='songroot' && DATA.spells.quicken.school==='hearthweather' && DATA.spells.raisepeaks.school==='runecraft' && !DATA.spells.raiseland.school);
+  const s=fresh(); const c=G.capital(s,'p'); rich(c,s); c.buildings.magetower=15; c.buildings.townhall=15; era(s,'p',3);
+  ok('…Rites of the Land need study (path through Golem Labour)', !G.spellsOf(s,'p').includes('raiseland') && N.f_rites.pre.some(g=>g.includes('f_golems')));
+  ok('learn the Rites through the tree', G.learnArcanum(s,'p','f_rites',{free:true,path:true})===null && G.spellsOf(s,'p').includes('raiseland') && G.spellsOf(s,'p').includes('sinkland') && A(s).known.includes('f_golems'));
+  ok('Quicken the Soil through the Hearth & Weather tree', G.learnArcanum(s,'p',G.spellNode('quicken'),{free:true,path:true})===null && G.spellsOf(s,'p').includes('quicken'));
+  ok('…Wildwood stays out of reach of a realm without Song & Root', G.learnArcanum(s,'p',G.spellNode('growforest'),{free:true,path:true})===null && !G.spellsOf(s,'p').includes('growforest') && /schools/.test(G.spellStatus(s,'p',c.id,'growforest').reason));
+  ok('…a studied world-shaping spell casts', (()=>{ const land=s.tiles.find(t=>['plains','hills'].includes(t.terrain)&&!t.city&&!t.camp&&!t.oasis&&!t.ruin&&G.dist(t,c)<=3&&G.dist(t,c)>0); return land && G.castSpell(s,'p',c.id,'quicken',{x:land.x,y:land.y})===null; })());
+  // the real study path: an Archmage tower and the Legend era open f_rites once Golem Labour is known
+  const s2=fresh(); const c2=G.capital(s2,'p'); rich(c2,s2); c2.buildings.magetower=15; era(s2,'p',3); G.learnArcanum(s2,'p','f_golems',{free:true,path:true});
+  ok('f_rites can be studied with tower 15 in the Legend era', G.arcanaStatus(s2,'p','f_rites').ok, G.arcanaStatus(s2,'p','f_rites').reason);
+}
+// ---- migration: realms that could cast the old innate rites keep them ----
+{ const s=fresh(); const c=G.capital(s,'p'); c.buildings.magetower=15; c.buildings.townhall=15;
+  const ai=Object.keys(s.empires).find(k=>k!=='p'); const ac=G.capital(s,ai); ac.buildings.magetower=4;
+  for(const k of ['p',ai]) A(s,k).known=[...A(s,k).known,'f_rites'];
+  s.arcanaV=1;
+  const s2=G.deserialize(G.serialize(s));
+  ok('loading a v1 save migrates the Grimoire to v2', s2.arcanaV===2);
+  ok('…a realm with an Archmage tower keeps every world-shaping spell, whatever its schools', ['raiseland','sinkland','growforest','quicken','raisepeaks'].every(x=>G.spellsOf(s2,'p').includes(x)), G.spellsOf(s2,'p').join(','));
+  ok('…kept spells cast (Wildwood for a Hearthfolk realm)', (()=>{ const c2=G.capital(s2,'p'); c2.res.mana=5000; const land=s2.tiles.find(t=>['plains','fertile','hills'].includes(t.terrain)&&!t.city&&!t.camp&&!t.oasis&&!t.ruin&&G.dist(t,c2)<=3&&G.dist(t,c2)>0); return land && G.castSpell(s2,'p',c2.id,'growforest',{x:land.x,y:land.y})===null; })());
+  ok('…a realm that could not cast them forgets the unearned rites', !A(s2,ai).known.includes('f_rites') && !G.spellsOf(s2,ai).includes('raiseland'));
+  // the same through the slow tick, for a game already in memory
+  s.arcanaV=1; for(const h of G.slowHooks) h(s,0.1);
+  ok('…the slow tick migrates a game already in memory', s.arcanaV===2 && G.spellsOf(s,'p').includes('growforest') && !A(s,ai).known.includes('f_rites'));
+  const s3=G.deserialize(G.serialize(s)); ok('…kept spells survive save/load', G.spellsOf(s3,'p').includes('raisepeaks'));
+}
+// ---- enchantment nodes lean on mana, not gold ----
+{ const s=fresh(); const a=G.arcanaCost(s,'p','he_ench'), b=G.arcanaCost(s,'p','he_c');
+  ok('an enchantment node costs more mana and less gold than a spell of its circle', a.gold/a.mana < b.gold/b.mana*0.5, JSON.stringify(a)+' vs '+JSON.stringify(b)); }
+// ---- AI pace: Adept towers enchant, some open a foreign school ----
+{ const s=G.newGame({name:'T',race:'hearth'}); s.settings.hostility=0;
+  const ai=Object.values(s.empires).find(e=>e.id!=='p'); const c=G.capital(s,ai.id);
+  c.buildings.magetower=6; c.buildings.townhall=8; era(s,ai.id,1); c.res.mana=G.manaCap(s,c); ai.gold=400;
+  let ench=false; for(let i=0;i<60&&!ench;i++){ c.res.mana=Math.max(c.res.mana,G.manaCap(s,c)*0.8); for(const h of G.aiHooks) h(s,ai,1/6); ench=(c.ench||[]).length>0; if(A(s,ai.id).active) A(s,ai.id).active.end=s.time; G.advance(s,10,1); }
+  ok('forced: an AI with an Adept tower and modest gold studies and keeps an enchantment', ench, A(s,ai.id).known.filter(id=>N[id].kind==='ench').join(',')+' gold '+Math.round(ai.gold));
+}
+{ // a seeded 8-hour world: AIs that reach tower 5 enchant (and the realm's mana stays under its cap)
+  const mul=a=>()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+  const rnd=Math.random; Math.random=mul(1007919);
+  const s=G.newGame({name:'T',race:'veil',rivals:7}); s.settings.hostility=0.85; const t0=Date.now();
+  G.advance(s,8*3600,8*600);
+  Math.random=rnd;
+  const ais=Object.values(s.empires).filter(e=>e.id!=='p'&&!e.dead);
+  const adept=ais.filter(e=>G.towerLevel(s,e.id)>=5), enchd=adept.filter(e=>G.citiesOf(s,e.id).some(c=>(c.ench||[]).length)||G.enchantmentsKnown(s,e.id).length);   // learned (placing one then depends on the mana flow)
+  const line=ais.map(e=>e.race+' t'+G.towerLevel(s,e.id)+' e'+G.citiesOf(s,e.id).reduce((a,c)=>a+(c.ench||[]).length,0)+' o'+A(s,e.id).opened.length+' m'+Math.round(G.manaOf(s,e.id))+'/'+G.manaCapOf(s,e.id)).join(', ');
+  console.log('  8h world ('+((Date.now()-t0)/1000).toFixed(1)+'s): '+line);
+  ok('by hour 8 AIs with tower 5+ learn or keep enchantments (checked with 2+ such realms)', adept.length<2 || enchd.length>=Math.ceil(adept.length/2), enchd.length+'/'+adept.length);
+  ok('by hour 8 every AI realm\\'s mana sits within its cap', ais.every(e=>G.manaOf(s,e.id)<=G.manaCapOf(s,e.id)*1.02));
+}
+
 // ---- old saves ----
 { const s=fresh(); const c=G.capital(s,'p'); c.buildings.magetower=10;
   for(const e of Object.values(s.empires)) delete e.arcana; delete s.arcanaV;
@@ -306,7 +359,7 @@ const near=(s,c,lo,hi)=>G.freeTile(s,x=>G.dist(x,c)>=lo&&G.dist(x,c)<=hi&&G.land
   ok('an old save gains a grimoire with the spells its towers could cast', G.spellsOf(s,'p').includes('summersun') && G.spellsOf(s,'p').includes('hearthward') && G.spellsOf(s,'p').includes('golems') && !G.spellsOf(s,'p').includes('eternalsummer'), G.spellsOf(s,'p').join(','));
   ok('…its known nodes form a coherent path (every prerequisite known)', A(s).known.every(id=>N[id].innate||N[id].pre.every(g=>g.some(x=>A(s).known.includes(x)))));
   for(const h of G.slowHooks) h(s,0.1);
-  ok('…every realm is migrated in the next slow tick', s.arcanaV===1 && Object.values(s.empires).every(e=>e.arcana));
+  ok('…every realm is migrated in the next slow tick', s.arcanaV===2 && Object.values(s.empires).every(e=>e.arcana));
   ok('ley nodes of old saves get a stable school', s.ley.nodes.every(n=>{ delete n.school; const a=G.leySchool(n); delete n.school; return a===G.leySchool(n)&&DATA.schools[a]; }));
   G.save(s); const s2=G.load(); G.advance(s2,120,12);
   ok('save/load keeps the grimoire', s2 && A(s2).known.length===A(s).known.length);

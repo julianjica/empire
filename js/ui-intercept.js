@@ -3,6 +3,9 @@
 //  - the map: wmPickColumn (hit-testing, called by worldmap.js on a tap)
 //    and wmDrawColumns (side rings, the selected column's road, courses)
 //  - the panel of a selected column (armyPanel, called by ui-world.js)
+//  - the Intercept section of a roaming monster's panel (G.monsterPanel,
+//    drawn by worldmap.js and wrapped here): creatures on the move can be
+//    met on their trail; resting ones are hunted instead (the send form)
 //  - the 🛡️ Intercept button in the incoming-attack warnings
 //    (INCOMING_EXTRAS, read by ui-core.js) and Recall in Movements
 //  - help
@@ -20,6 +23,10 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
   const incSet = () => { try { return new Set(incoming()); } catch (e) { return new Set(); } };
   const shown = (m, p, vis, inc) => m.owner === 'p' || inc.has(m) || !!(vis && vis[idxOf(p)]);
   const findMove = id => S && S.moves.find(m => m.id === id);
+  const findTarget = id => S && (G.interceptTarget ? G.interceptTarget(S, id) : findMove(id));
+  const monOf = m => m && m.kind && S.monsters && S.monsters[m.id] === m ? m : null;
+  const monName = mon => ((DATA.monsterKinds || {})[mon.kind] || { name: 'creatures' }).name.replace(/^The /, 'the ');
+  const navalOf = m => !!m.naval || (!!monOf(m) && ((DATA.monsterKinds || {})[m.kind] || {}).move === 'sea');
   const compass = (dx, dy) => { if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return ''; const a = Math.atan2(-dy, dx); return ['east', 'north-east', 'north', 'north-west', 'west', 'south-west', 'south', 'south-east'][((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]; };
   const heading = m => { const tl = G.columnTimeline(m), nx = tl.find(v => v.t > S.time + 1) || tl[tl.length - 1], p = G.movePos(S, m); return compass(nx.x - p.x, nx.y - p.y); };
   const nameOf = o => S.empires[o] ? S.empires[o].name : 'Brigands';
@@ -111,7 +118,7 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
 
   // ---- the panel of a selected column ----
   const NONFIELD = ['settlers', 'herald'];
-  const fieldList = (city, m) => Object.entries(city.units || {}).filter(([u, n]) => n > 0 && DATA.units[u] && !NONFIELD.includes(u) && (m.naval ? DATA.units[u].type === 'ship' || DATA.units[u].flying : DATA.units[u].type !== 'ship'));
+  const fieldList = (city, m) => Object.entries(city.units || {}).filter(([u, n]) => n > 0 && DATA.units[u] && !NONFIELD.includes(u) && (navalOf(m) ? DATA.units[u].type === 'ship' || DATA.units[u].flying : DATA.units[u].type !== 'ship'));
   const defaultUnits = (city, m) => Object.fromEntries(fieldList(city, m).filter(([u]) => u !== 'hero' && u !== 'scout'));
   const gather = (city, m) => {
     const out = {};
@@ -140,8 +147,9 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
     const tc = pv.tactics, sg = p => (p > 0 ? '+' : '−') + Math.abs(p) + '%';
     const mods = tc ? tc.mods.filter(x => x.kind === 'field' || x.kind === 'counter' || x.kind === 'stance' || x.kind === 'general').map(x => `<span class="${(x.side === 'att') === (x.pct > 0) ? 'good' : 'bad'}">${x.side === 'def' ? 'their ' : ''}${esc(x.label)} ${sg(x.pct)}</span>`) : [];
     return `<div class="preview ${pv.win ? 'win' : 'loss'}"><b>${verdict}</b> expected · ⚔️ ${fmt(pv.A)} vs 🛡️ ${fmt(pv.D)}<br>
-      You lose about ${lostN} of ${sentN} (${Math.round(pv.attLoss * 100)}%)${lostN ? ': ' + unitsHtml(pv.attLost) : ''}. They lose ${Math.round(pv.defLoss * 100)}%${pv.win ? ' and the rest rout' : ''}.
+      You lose about ${lostN} of ${sentN} (${Math.round(pv.attLoss * 100)}%)${lostN ? ': ' + unitsHtml(pv.attLost) : ''}. They lose ${Math.round(pv.defLoss * 100)}%${pv.win ? (pv.monster ? ' — the creatures are slain' : ' and the rest rout') : ''}.
       ${tc ? `<br>⛰️ ${tc.terrain ? esc(DATA.terrain[tc.terrain].name) : 'Open field'}${tc.crossing ? ' · 🌊 river crossing' : ''} · no walls${mods.length ? ' · ' + mods.join(' · ') : ''}` : ''}
+      ${pv.magic ? `<br>🧙 ${esc(pv.magic)}` : ''}
       ${pv.estimated ? '<br><span class="muted">Their strength is an estimate.</span>' : ''}</div>`;
   };
 
@@ -151,6 +159,7 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
     const own = G.citiesOf(S, 'p');
     const p = G.movePos(S, m);
     const from = fromCity(city);
+    const mon = monOf(m);
     const st = S.empires[m.owner] && G.rel ? G.rel(S, m.owner).status : 'war';
     const warn = S.empires[m.owner] && st !== 'war' ? `<p class="warn" style="font-size:12.5px">⚠️ You are not at war with the ${esc(nameOf(m.owner))}: falling on their column is an act of war${st === 'peace' ? ' and breaks your treaties' : ''}.</p>` : '';
     // where from: the nearest cities, each with whether its field army could make it
@@ -163,8 +172,8 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
     }).join('');
     const list = fieldList(from, m);
     const table = list.length ? `<table>${list.map(([u, n]) => { const d = G.unitStats(S, 'p', u); const k = 'ic_' + u; return `<tr><td class="pt-cell">${ptHtml(unitSpec(u, 'p'), 28, '', d.name) || d.icon} ${d.name}</td><td class="muted">${n}</td><td><input type="number" min="0" max="${n}" data-k="${k}" value="${esc(UI.form[k] || '')}" style="width:70px"></td><td><button class="small" data-act="icAll" data-u="${u}" data-n="${n}">all</button></td></tr>`; }).join('')}</table>
-      <div class="row" style="gap:4px;margin-top:4px;flex-wrap:wrap"><button class="small" data-act="icFill" data-f="1">All field troops</button><button class="small" data-act="icFill" data-f="0.5">Half</button><button class="small" data-act="icFill" data-f="0">Clear</button></div>`
-      : `<p class="muted">No troops in ${esc(from.name)} that can ${m.naval ? 'put to sea against a fleet (war galleys or fliers)' : 'fight in the field'}.</p>`;
+      <div class="row" style="gap:4px;margin-top:4px;flex-wrap:wrap"><button class="small" data-act="icFill" data-id="${esc(m.id)}" data-f="1">All field troops</button><button class="small" data-act="icFill" data-id="${esc(m.id)}" data-f="0.5">Half</button><button class="small" data-act="icFill" data-id="${esc(m.id)}" data-f="0">Clear</button></div>`
+      : `<p class="muted">No troops in ${esc(from.name)} that can ${navalOf(m) ? (mon ? 'sail out against it (war galleys)' : 'put to sea against a fleet (war galleys or fliers)') : 'fight in the field'}.</p>`;
     const sending = gather(from, m);
     const orders = ordersOf(from);
     const probe = G.unitsCount(sending) ? sending : defaultUnits(from, m);
@@ -172,13 +181,15 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
     lastPlan = plan ? { id: m.id, fx: from.x, fy: from.y, x: plan.ok ? plan.x : Math.round(p.x), y: plan.ok ? plan.y : Math.round(p.y), ok: plan.ok } : null;
     const terr = plan && plan.ok ? DATA.terrain[plan.terrain] : null;
     const planHtml = !plan ? '' : plan.ok
-      ? `<div class="calam good">⚔️ Meet them at <b>${esc(plan.name)}</b> (${plan.x}, ${plan.y}) · ${terr ? esc(terr.name) : ''}${plan.river ? ' · 🌊 at the ford' : ''}${plan.naval ? ' · ⛵ at sea' : ''}<br>
-          <span style="font-size:12.5px">Battle in ${fmtTime(realSecs(plan.at - S.time))}: your march takes ${fmtTime(realSecs(plan.dur))}${plan.wait > 5 ? `, then ${fmtTime(realSecs(plan.wait))} waiting for them` : ''}. They would reach ${esc(m.type === 'return' ? 'home' : placeName(m.x, m.y))} in ${fmtTime(realSecs(m.arrive - S.time))}.</span></div>`
+      ? `<div class="calam good">⚔️ Meet ${mon ? 'it' : 'them'} at <b>${esc(plan.name)}</b> (${plan.x}, ${plan.y}) · ${terr ? esc(terr.name) : ''}${plan.river ? ' · 🌊 at the ford' : ''}${plan.naval ? ' · ⛵ at sea' : ''}<br>
+          <span style="font-size:12.5px">Battle in ${fmtTime(realSecs(plan.at - S.time))}: your march takes ${fmtTime(realSecs(plan.dur))}${plan.wait > 5 ? `, then ${fmtTime(realSecs(plan.wait))} waiting for ${mon ? 'it' : 'them'}` : ''}. ${mon ? `It reaches the end of this leg, (${m.x}, ${m.y}), in` : `They would reach ${esc(m.type === 'return' ? 'home' : placeName(m.x, m.y))} in`} ${fmtTime(realSecs(m.arrive - S.time))}.</span></div>`
       : `<div class="calam bad">⏳ ${esc(plan.reason)}${plan.late ? ` (about ${fmtTime(realSecs(plan.late))} too late)` : ''}. <span style="font-size:12.5px">Faster troops (cavalry, fliers), a nearer city or the Swift general help.</span></div>`;
     const pv = plan && plan.ok && G.unitsCount(sending) ? G.previewIntercept(S, from, m, sending, orders, G.interceptPlan(S, 'p', from, m, sending, orders)) : null;
     const ordersHtml = orders && typeof ordersForm === 'function' ? (() => { const pm = UI.mode; if (!['raid', 'attack'].includes(UI.mode)) UI.mode = 'attack'; try { return ordersForm(from, orders); } finally { UI.mode = pm; } })() : '';
+    const intro = mon ? `Lie in wait on its trail: your troops march to where its path crosses theirs and fall on it there, an all-out hunt on that ground. If it turns aside before they meet, they follow its tracks once (as any hunt does). Choose where to send troops from:`
+      : 'Meet them on the road, before they arrive: a field battle with no walls, on the ground where you meet. Choose where to send troops from:';
     return `<h4 style="margin:10px 0 4px">🛡️ Intercept</h4>${warn}
-      <p class="muted" style="font-size:12.5px;margin-top:0">Meet them on the road, before they arrive: a field battle with no walls, on the ground where you meet. Choose where to send troops from:</p>
+      <p class="muted" style="font-size:12.5px;margin-top:0">${intro}</p>
       <div class="row" style="gap:4px;flex-wrap:wrap;margin-bottom:6px">${cityBtns}</div>
       ${table}${ordersHtml}${planHtml}${pv ? previewHtml(pv) : ''}
       <div class="row" style="margin-top:8px"><button class="primary" data-act="icSend" data-id="${esc(m.id)}" ${plan && plan.ok && G.unitsCount(sending) ? '' : 'disabled'}>🛡️ Intercept from ${esc(from.name)}</button></div>`;
@@ -212,8 +223,10 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
     } else rows.push(factRow('General', '<span class="muted">unknown</span>'));
     rows.push(factRow(m.type === 'intercept' ? 'Battle in' : 'Arrives in', `${fmtTime(realSecs(m.arrive - S.time))}${m.delayed ? ` <span class="muted">(held up ${fmtTime(realSecs(m.delayed))} by a field battle)</span>` : ''}`));
     if (m.type === 'intercept') {
-      const T = findMove(m.target);
-      rows.push(factRow('Against', T ? `${esc(nameOf(T.owner))} ${esc(G.missionName(T.type))}${m.retargeted ? ' <span class="muted">(followed a change of course)</span>' : ''}` : '<span class="muted">the column is gone</span>'));
+      const T = findTarget(m.target), tm = monOf(T);
+      rows.push(factRow('Against', tm ? `${esc(((DATA.monsterKinds || {})[tm.kind] || {}).icon || '🐾')} ${esc(monName(tm))} <span class="muted">(a hunt: if it turns aside, our troops follow its tracks once)</span>`
+        : T ? `${esc(nameOf(T.owner))} ${esc(G.missionName(T.type))}${m.retargeted ? ' <span class="muted">(followed a change of course)</span>' : ''}`
+        : m.monster ? `<span class="muted">the ${esc(((DATA.monsterKinds || {})[m.mkind] || { name: 'creatures' }).name.toLowerCase())} — gone</span>` : '<span class="muted">the column is gone</span>'));
       rows.push(factRow('Where', `${esc(G.fieldName(S, m.x, m.y))} (${m.x}, ${m.y})`));
     }
     let actions = '';
@@ -231,9 +244,9 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
   Object.assign(act, {
     icFrom: d => { UI.form.icFrom = d.c; clearForm(); delete UI.form.sendGeneral; render(true); },
     icAll: d => { UI.form['ic_' + d.u] = d.n; render(true); },
-    icFill: d => { const m = UI.sel && findMove(UI.sel.move); if (m) fill(fromCity(curCity()), m, +d.f); render(true); },
+    icFill: d => { const m = d.id ? findTarget(d.id) : UI.sel && findMove(UI.sel.move); if (m) fill(fromCity(curCity()), m, +d.f); render(true); },
     icSend: d => {
-      const m = findMove(d.id), from = fromCity(curCity());
+      const m = findTarget(d.id), from = fromCity(curCity());
       if (!m) { toast('That column is no longer on the road'); render(true); return; }
       const err = G.sendIntercept(S, from.id, m.id, gather(from, m), ordersOf(from));
       if (!err) {
@@ -241,7 +254,7 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
         const I = S.moves[S.moves.length - 1];
         if (I && I.type === 'intercept') UI.sel = { x: UI.sel.x, y: UI.sel.y, move: I.id };
       }
-      toast(err || '🛡️ Riders go out to meet them'); render(true);
+      toast(err || (monOf(m) ? '🛡️ Hunters ride out to lie in wait' : '🛡️ Riders go out to meet them')); render(true);
     },
     icRecall: d => { const err = G.recallMove(S, d.id); toast(err || '↩️ The column turns back'); if (!err && UI.sel && UI.sel.move === d.id) { const r = S.moves.find(x => x.via === d.id); UI.sel = r ? { ...UI.sel, move: r.id } : { x: UI.sel.x, y: UI.sel.y }; } render(true); },
     icShow: d => { const m = findMove(d.id); if (!m) return; const p = G.movePos(S, m); UI.tab = 'world'; UI.sel = { x: Math.round(p.x), y: Math.round(p.y), move: m.id }; render(true); },
@@ -259,11 +272,25 @@ let wmPickColumn = null, wmDrawColumns = null, armyPanel = null;
     },
   });
 
+  // ---- a roaming monster's panel: intercept it on its trail while it moves ----
+  if (G.monsterPanel) {
+    const basePanel = G.monsterPanel;
+    G.monsterPanel = (city, t, mon) => {
+      const html = basePanel(city, t, mon);
+      if (!S || !mon || !G.interceptPlan) return html;
+      lastPlan = null;
+      const err = G.canIntercept(S, 'p', mon);
+      if (err) return html + `<h4 style="margin:10px 0 4px">🛡️ Intercept</h4><p class="muted" style="font-size:12.5px;margin-top:0">${esc(err)}. A resting creature has no road to cut across, so the hunt above is the way: your army marches to where it stands and follows its tracks once if it moves.</p>`;
+      return html + interceptForm(city, mon);
+    };
+  }
+
   // ---- hooks into the rest of the interface ----
   INCOMING_EXTRAS.push(m => G.canIntercept(S, 'p', m) ? '' : ` <button class="small" data-act="icGo" data-id="${esc(m.id)}" title="Meet them in the field before they reach the walls">🛡️ Intercept</button>`);
   if (typeof MOVE_EXTRAS !== 'undefined') MOVE_EXTRAS.push(m => {
-    const T = m.type === 'intercept' ? findMove(m.target) : null;
-    const vs = m.type === 'intercept' ? ` <span class="muted">vs ${T ? esc(nameOf(T.owner)) : 'a vanished column'} at ${esc(G.fieldName(S, m.x, m.y))}</span>` : '';
+    const T = m.type === 'intercept' ? findTarget(m.target) : null;
+    const vsName = monOf(T) ? 'the ' + monName(T).toLowerCase() : T ? nameOf(T.owner) : m.monster ? 'vanished creatures' : 'a vanished column';
+    const vs = m.type === 'intercept' ? ` <span class="muted">vs ${esc(vsName)} at ${esc(G.fieldName(S, m.x, m.y))}</span>` : '';
     const can = m.type !== 'return' && !m.route && !m.supply;
     return `${vs} <button class="small" data-act="icShow" data-id="${esc(m.id)}" title="Show on the map">🗺️</button>${can ? ` <button class="small" data-act="icRecall" data-id="${esc(m.id)}" title="Turn back home">↩️</button>` : ''}`;
   });

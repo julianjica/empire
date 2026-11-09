@@ -1,7 +1,7 @@
 // Royal Council and city governors: advisors, priorities, snooze/dismiss, governors, persistence, all peoples, a sim.  node tests/council.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/intercept.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:'')); };
@@ -221,6 +221,55 @@ const realmPair=()=>{ const s=fresh(); const A=G.capital(s,'p'); G.logistics(s,'
 // perf: one snapshot per slow tick, cheap
 { const {s,B}=realmPair(); G.setGovernor(s,B.id,{focus:'balanced'}); const t0=Date.now(); for(let i=0;i<100;i++) G.realmEcon(s,'p',{fresh:true}); const ms=(Date.now()-t0)/100;
   ok('realm snapshot is cheap', ms<5, ms.toFixed(2)+'ms'); }
+
+// ---- the Steward reads the realm too ----
+{ const s=fresh(); const A=G.capital(s,'p'); G.logistics(s,'p');
+  const t=near(s,A,4,6); const B=G.foundCity(s,'p',t.x,t.y,'Orehold');
+  for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){ const u=G.tileAt(s,B.x+dx,B.y+dy); if(u&&!u.city) u.deposit='ore'; const v=G.tileAt(s,A.x+dx,A.y+dy); if(v&&v.deposit==='ore') v.deposit=null; }
+  B.site=null; A.site={...G.siteYield(s,A.x,A.y),x:A.x,y:A.y,ore:0.7};
+  for(const c of [A,B]){ Object.assign(c.buildings,{townhall:6,houses:6,farm:6,lumber:5,quarry:5,mine:2,academy:1,barracks:1,warehouse:14}); c.pop=G.econ(s,c).civCap*0.6; for(const g of DATA.goodOrder) c.res[g]=4000; c.res.iron=0; }
+  s.empires.p.gold=20000; s.time=6*3600*G.pace(s).time; refresh(s);
+  const i=adv(s,new RegExp('^steward:idle:'+B.id+'$'));
+  ok('steward: an ungoverned city gets realm-aware advice with the realm reason', i && /🌐 for the realm: the realm is short of iron and Orehold sits on ore/.test(i.text) && ['mine','smelter'].includes(i.action.b), i&&i.text);
+  const p=G.councilPick(s,B,'balanced',{realm:true}); ok('councilPick marks a realm reason', p.realm===true && /realm is short of iron/.test(p.why), JSON.stringify(p));
+  G.setSupplyRealm(s,'p',{on:false}); refresh(s); const j=adv(s,new RegExp('^steward:idle:'+B.id+'$'));
+  ok('…with supply lines off the Steward reasons locally (no 🌐)', j && !/🌐/.test(j.text), j&&j.text);
+}
+// ---- the people's own producers join the specialisation map ----
+{ const BG=G.COUNCIL_B_GOOD;
+  const want={bakery:'bread',runeforge:'runesteel',heartgrove:'heartwood',dreamspire:'dreamsilk',ossuary:'bonedust',aerie:'stormglass',pearlbeds:'pearls'};
+  ok('specialisation map covers every race-unique producer', Object.entries(want).every(([b,g])=>BG[b]===g) && Object.keys(DATA.buildings).filter(b=>DATA.buildings[b].race&&!DATA.buildings[b].wonder&&(DATA.buildings[b].prod||DATA.buildings[b].recipe)).every(b=>BG[b]), JSON.stringify(BG));
+  // a Delver realm short of runesteel: the city on the ore vein raises the Runeforge for the realm
+  const s=fresh('delver'); const A=G.capital(s,'p'); G.logistics(s,'p');
+  const t=near(s,A,4,6); const B=G.foundCity(s,'p',t.x,t.y,'Deepvein');
+  for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){ const u=G.tileAt(s,B.x+dx,B.y+dy); if(u&&!u.city) u.deposit='ore'; const v=G.tileAt(s,A.x+dx,A.y+dy); if(v&&v.deposit==='ore') v.deposit=null; }
+  B.site=null; A.site={...G.siteYield(s,A.x,A.y),x:A.x,y:A.y,ore:0.7};
+  for(const c of [A,B]){ Object.assign(c.buildings,{townhall:6,houses:6,farm:6,lumber:5,quarry:5,mine:4,smelter:3,academy:1,barracks:1,warehouse:14}); c.pop=G.econ(s,c).civCap*0.6; for(const g of DATA.goodOrder) c.res[g]=4000; c.res.runesteel=0; }
+  s.empires.p.gold=20000;
+  const R=G.realmEcon(s,'p',{fresh:true});
+  ok('realm snapshot reckons with the people\\'s own good (runesteel)', R.list.includes('runesteel') && R.goods.runesteel && R.goods.runesteel.short>0 && !R.list.includes('bread'), R.list.join(','));
+  const wOf=(c,t,r)=>(G.councilCandidates(s,c,'balanced',r).find(x=>x.t===t)||{w:-1e9,why:''});
+  const rf=wOf(B,'runeforge',true), rl=wOf(B,'runeforge',null);
+  ok('the ore-vein city leans into the Runeforge for the realm, and says why', rf.w>rl.w+5 && /runesteel/.test(rf.why) && rf.realm, JSON.stringify(rf)+' vs '+rl.w);
+  ok('the poor-ore city leans away from it', wOf(A,'runeforge',true).w<wOf(A,'runeforge',null).w);
+}
+// ---- the city header carries the realm toggle too (ui-council.js with a stub page) ----
+{ const s=fresh(); const A=G.capital(s,'p'); const t=near(s,A,4,6); const B=G.foundCity(s,'p',t.x,t.y,'Brookby');
+  const el=()=>({style:{},classList:{add(){},remove(){},toggle(){}},appendChild(){},setAttribute(){}});
+  const doc={createElement:el,head:{appendChild(){}},addEventListener(){},getElementById(){return null}};
+  const env={document:doc,TABS:{city:{}},TOP_EXTRAS:[],CITY_EXTRAS:[],MOUNT_HOOKS:[],act:{},UI:{form:{}},S:s,esc:x=>String(x),fmtTime:x=>String(x),realSecs:x=>x,ptHtml:()=> '',ago:()=> 'now',toast(){},render(){}};
+  const src=fs.readFileSync('js/ui-council.js','utf8');
+  new Function(...Object.keys(env),'G','DATA',src)(...Object.values(env),G,DATA);
+  const head=c=>env.CITY_EXTRAS.map(f=>f(c)).join('');
+  ok('header: no realm toggle without a governor', !/gov_realm_/.test(head(B)));
+  G.setGovernor(s,B.id,{focus:'balanced'});
+  ok('header: the governor row shows "think for the realm", checked by default', new RegExp('data-k="gov_realm_'+B.id+'" checked').test(head(B)) && /think for the realm/.test(head(B)));
+  G.setGovernor(s,B.id,{realm:false});
+  ok('header: the toggle follows the governor\\'s setting (off = unchecked)', new RegExp('data-k="gov_realm_'+B.id+'" >').test(head(B)));
+  for(const c of G.citiesOf(s,'p')) if(c!==A&&c!==B) c.owner='a1'; B.owner='a1';
+  G.setGovernor(s,A.id,{focus:'balanced'});
+  ok('header: a lone city has no realm toggle', !/gov_realm_/.test(head(A)));
+}
 
 // ---- persistence ----
 { const s=fresh(); const c=G.capital(s,'p'); G.setGovernor(s,c.id,{focus:'production',reserve:300,troops:5}); slow(s);

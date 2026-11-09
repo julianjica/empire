@@ -21,6 +21,7 @@
     { roof: '#dcd8ea', roof2: '#aaa6c4', wall: '#f6f0ea', wood: '#b09a7a', wood2: '#80694f', stone: '#ece4de', dome: '#efeaf4', cap: '#c8c2dc', accent: '#3fb0c0', trim: '#e6c45a', glass: '#2a4a68', tex: 'nacre' },
   ];
   const SHELL = '#f4e6dc', CORAL = ['#e8786a', '#f0a050', '#c070b8', '#f0c0b0'], PILE = '#5a4a38', ROPE = '#cdbf98';
+  const MOLE_TINT = '#d89a84';   // the breakwater's coral-rubble blush (warm coral sandstone, not grey harbour stone)
 
   // ---------------------------------------------------------------
   // small helpers
@@ -1346,12 +1347,12 @@
       J((out + dd0) / 2, u, () => {
         if (main && stone) {
           // a low mole of tumbled coral rubble: three uneven runs stepping out to a rough head, dark and weedy at the waterline
-          const hw = 0.19 + band * 0.015, mc = A.mix(molC, '#8e8676', 0.35), d1 = dd0 + 0.2, d2 = out + 0.3, sp = (d1 - d2) / 3;
+          const hw = 0.19 + band * 0.015, mc = A.mix(molC, MOLE_TINT, 0.32), d1 = dd0 + 0.2, d2 = out + 0.3, sp = (d1 - d2) / 3;
           const sum = g => g[0] + g[1], near = sum(S.pt((d1 + d2) / 2, u + 1)) > sum(S.pt((d1 + d2) / 2, u - 1)) ? 1 : -1;
           const runs = [[hw + 0.02, 3.3], [hw - 0.025, 2.8], [hw + 0.01, 3.1]].map(([w, z], k) => [d1 - sp * k + 0.02, d1 - sp * (k + 1), w, z]);
           runs.sort((p, q) => sum(S.pt(p[0], u)) - sum(S.pt(q[0], u)));
           for (const [da, db, w, z] of runs) {
-            prism([S.pt(da, u - w), S.pt(da, u + w), S.pt(db, u + w * 0.9), S.pt(db, u - w * 0.9)], -2, z, mc, { top: sn(A.mix(mc, '#a49a86', 0.3)) });
+            prism([S.pt(da, u - w), S.pt(da, u + w), S.pt(db, u + w * 0.9), S.pt(db, u - w * 0.9)], -2, z, mc, { top: sn(A.mix(mc, SHELL, 0.35)) });
             if (!A.GLOW && !A.SNOW) for (let dd = db + 0.06, k = 0; dd < da - 0.04; dd += 0.11, k++) { const p = S.at(dd, u + near * w * 0.97, 1.2 + (k * 7 % 3) * 0.7); c.beginPath(); c.ellipse(p[0], p[1], 2 + (k % 3) * 0.5, 1.2, 0, 0, TAU); fill(A.shade(mc, k % 2 ? -0.16 : 0.06)); if (k % 4 === 1) A.circ(p[0] + 1.4, p[1] - 0.8, 0.7, k % 8 === 1 ? CORAL[0] : SHELL); }
             // broken rubble along both top edges
             for (const sd of [-near, near]) for (let dd = db + 0.1, k = 0; dd < da - 0.05; dd += 0.17, k++) { const p = S.at(dd, u + sd * w * 0.85, z + 0.4); c.beginPath(); c.ellipse(p[0], p[1], 1.6 + (k % 2) * 0.6, 1.1, 0, 0, TAU); fill(sn(A.shade(mc, (k % 3 - 1) * 0.1))); stroke(A.OUT, 0.35); }
@@ -1360,9 +1361,9 @@
           // a rough, lower head of heaped blocks, with tumbled stones in the water round it
           const hr = hw + 0.1, oc = [], rf = [1, 0.9, 1.06, 0.88, 1, 0.93, 1.08, 0.9];
           for (let k = 0; k < 8; k++) { const a = k / 8 * TAU + Math.PI / 8; oc.push(S.pt(d2 + Math.cos(a) * hr * rf[k], u + Math.sin(a) * hr * rf[k])); }
-          const rocks = () => { for (const du of [-0.3, 0.26]) A.rock(...S.pt(d2 - 0.12, u + du), 0.3, sn('#7e786c')); }, seaFront = sum(S.pt(d2 - 0.4, u)) > sum(S.pt(d2, u));
+          const rocks = () => { for (const du of [-0.3, 0.26]) A.rock(...S.pt(d2 - 0.12, u + du), 0.3, sn(A.mix(mc, '#5a7a78', 0.35))); }, seaFront = sum(S.pt(d2 - 0.4, u)) > sum(S.pt(d2, u));
           if (!seaFront) rocks();
-          prism(oc, -2, 3.6, mc, { top: sn(A.mix(mc, '#a49a86', 0.3)) });
+          prism(oc, -2, 3.6, mc, { top: sn(A.mix(mc, SHELL, 0.35)) });
           if (seaFront) rocks();
           if (!A.GLOW && !A.SNOW) { for (let k = 0; k < 4; k++) { const p = S.at(d2 + Math.cos(k * 1.7) * hr * 0.5, u + Math.sin(k * 1.7) * hr * 0.5, 3.8); A.circ(p[0], p[1], 0.8, k % 2 ? SHELL : CORAL[k % 3]); } for (let dd = out + 0.6; dd < dd0; dd += 0.45) { const p = S.at(dd, u + (dd * 7 % 2 ? 0.08 : -0.07), 3.2); A.circ(p[0], p[1], 0.7, (dd * 3 | 0) % 2 ? SHELL : CORAL[(dd * 5 | 0) % 3]); } }
         } else {

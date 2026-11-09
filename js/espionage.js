@@ -371,7 +371,7 @@ const incident = (s, spy, city, md) => {
     const r = G.rel(s, def);
     r.opinion = G.clamp(r.opinion - (8 + 8 * sev), -100, 100);
     let extra = '';
-    if (sev >= 2 && r.status === 'neutral' && r.opinion <= -60) { r.status = 'war'; r.since = s.time; extra = ` The ${s.empires[def].name} declares war!`; }
+    if (sev >= 2 && r.status === 'neutral' && r.opinion <= -60 && !(G.crisisWarBlocked && G.crisisWarBlocked(s, def, 'p'))) { r.status = 'war'; r.since = s.time; extra = ` The ${s.empires[def].name} declares war!`; }
     else if (sev >= 3 && (r.status === 'peace' || r.status === 'alliance') && r.opinion < -20) { r.status = 'neutral'; r.since = s.time; extra = ` The ${s.empires[def].name} tears up your treaty.`; }
     G.log(s, 'p', `🕵️ ${spy.name} was caught in ${city.name} attempting ${md.name.toLowerCase()}. The ${s.empires[def].name} is furious.${extra}`, 'bad');
     G.report(s, ['p'], `Spy caught: ${spy.name} in ${city.name}`, 'loss', { extra: `${spy.name} (level ${spy.level}) was seized while attempting ${md.name.toLowerCase()} in ${city.name}. Relations with the ${s.empires[def].name} worsened (opinion now ${Math.round(r.opinion)}).${extra}` });
@@ -389,7 +389,7 @@ const incident = (s, spy, city, md) => {
     feed(s, { kind: 'caught', owner: att, city: city.id, cityName: city.name, type: spy.task.type, text: `Caught a spy of the ${s.empires[att].name} in ${city.name} (${md.name}).` });
   } else if (G.aiRel && sev >= 2) {
     const ar = G.aiRel(s, att, def);
-    if (ar.status === 'neutral' && Math.random() < 0.2 * sev / 2) {
+    if (ar.status === 'neutral' && Math.random() < 0.2 * sev / 2 && !(G.crisisWarBlocked && G.crisisWarBlocked(s, def, att))) {
       ar.status = 'war'; ar.since = s.time;
       if ([city, G.capital(s, att)].some(c => c && s.explored[c.y * s.map + c.x])) G.log(s, 'p', `⚔️ A spy of the ${s.empires[att].name} was caught in ${city.name}: the ${s.empires[def].name} declares war on them.`, 'warn');
     }

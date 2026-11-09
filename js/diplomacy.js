@@ -26,6 +26,8 @@
 //    G.marriageChecks.push(fn(s, a, b) -> error string | null)   veto or allow a royal marriage
 //    G.signTreaty / G.endTreaty / G.breakTreaties / G.trustOf / G.warScore / G.liegeOf / G.vassalsOf
 //    G.evalDeal / G.counterDeal / G.applyDeal / G.dealError / G.negotiate / G.dealOptions / G.cedeCity
+//    G.crisisWarBlocked(s, aggressor, target)   the late crisis (js/monsters.js): no AI starts a war on a realm
+//                                    fighting it, nor on one bound to it by the grand truce ('crisis' treaty)
 // =====================================================================
 'use strict';
 {   // one block: this file's helpers stay out of the shared global scope
@@ -98,11 +100,12 @@ DATA.treatyKinds = {
   alliance: { name: 'Alliance',            icon: '🤝', dur: 120, sym: true,  pact: true,  desc: 'Shared vision; each side joins the other\'s wars.' },
   marriage: { name: 'Royal marriage',      icon: '💍', dur: 0,   sym: true,  pact: true,  desc: 'The houses are joined: their opinion of you never falls below +10, and it opens dynastic claims. Lasts until broken.' },
   tribute:  { name: 'Tribute',             icon: '💰', dur: 60,  sym: false, desc: 'One realm pays the other gold every hour.' },
+  crisis:   { name: 'Grand truce',         icon: '🕯️', dur: 0,   sym: true,  pact: true,  desc: 'Sworn when the world-threatening crisis rose: neither side may attack the other while it lasts. It ends with the crisis.' },
   vassal:   { name: 'Vassalage',           icon: '👑', dur: 0,   sym: false, pact: true,  desc: 'The vassal pays tribute, follows its liege\'s wars and may not attack it; it may rebel if the liege weakens. The liege can release it, or annex it peacefully after long loyalty.' },
 };
-DATA.treatyOrder = ['truce', 'nap', 'borders', 'trade', 'research', 'defense', 'alliance', 'marriage', 'tribute', 'vassal'];
+DATA.treatyOrder = ['truce', 'crisis', 'nap', 'borders', 'trade', 'research', 'defense', 'alliance', 'marriage', 'tribute', 'vassal'];
 const SYM_DEAL = ['nap', 'borders', 'trade', 'research', 'defense', 'alliance', 'marriage'];   // treaties a deal can hold for both sides
-const PACIFY = { truce: 1, nap: 1, defense: 1, alliance: 1, vassal: 1, marriage: 1 };          // treaties that forbid war between the parties
+const PACIFY = { truce: 1, crisis: 1, nap: 1, defense: 1, alliance: 1, vassal: 1, marriage: 1 };          // treaties that forbid war between the parties
 G.marriageChecks = [];   // fn(s, a, b) -> error string | null   (dynasty.js: rulers must have someone to marry…)
 G.treatyHooks = [];      // fn(s, ev, treaty, by)  ev: 'signed' | 'expired' | 'broken' | 'ended'
 
@@ -300,6 +303,8 @@ const warRec = (s, a, b, make, by) => {
   if (W[k] && by && !W[k].by) W[k].by = by;
   return W[k] || null;
 };
+// a deliberate declaration (js/warplan.js uses it): break any treaty with the reputation cost, then go to war
+G.declareWar = (s, a, b, how) => { if (G.hasTreaty(s, a, b)) G.breakTreaties(s, a, b, how || 'war'); setPair(s, a, b, 'war'); warRec(s, a, b, true, a); };
 const closeWar = (s, a, b) => {
   const W = dip(s).wars, k = pk(a, b), w = W[k];
   if (!w) return;
@@ -414,6 +419,14 @@ const neighbours = (s, a, b) => G.citiesOf(s, a).some(c => G.citiesOf(s, b).some
 // ---------------------------------------------------------------------
 // AI <-> AI: wars, peace terms, treaties
 // ---------------------------------------------------------------------
+// a winning aggressor bent on conquest keeps fighting until its aim is met (js/warplan.js), for up to twice the usual span
+const conquestPending = (s, a, b, age, pace) => {
+  if (!G.warPlanOf || !G.warGoalMet || age > 4800 * pace) return false;
+  const w = dip(s).wars[pk(a, b)], by = w && w.by;
+  if (!by || by === 'p') return false;
+  const foe = by === a ? b : a, P = G.warPlanOf(s, by), W = P && P.wars && P.wars[foe];
+  return !!(W && W.goal === 'conquer' && !G.warGoalMet(s, by, foe) && G.warScore(s, by, foe) > 0);
+};
 const aiSettle = (s, A, B, say) => {
   // the war ends; a crushed loser may cede a city or kneel
   const wsA = G.warScore(s, A.id, B.id);
@@ -468,11 +481,12 @@ G.slowHooks.push((s, dtMin) => {
     const firm = G.treatiesOf(s, A.id, B.id).some(t => t.kind === 'alliance' || t.kind === 'defense' || t.kind === 'vassal' || t.kind === 'marriage');
     const pactF = firm ? 0 : G.pactBetween(s, A.id, B.id) ? TR.aiPactWar : 1;
     const open = r.status === 'neutral' || (r.status === 'peace' && G.hasTreaty(s, A.id, B.id, 'nap'));
-    if (open && pactF > 0 && !lA && !lB && G.aiPressure(s) > 0.2 && neighbours(s, A.id, B.id) && ratio > 0.55 && Math.random() < dtMin / (70 * pace) * ((A.aggr + B.aggr) / 1.2) * pactF) {
+    const aggr = A.aggr >= B.aggr ? A : B, vict = aggr === A ? B : A;
+    if (open && pactF > 0 && !lA && !lB && !crisisHold(s, aggr.id, vict.id) && G.aiPressure(s) > 0.2 && neighbours(s, A.id, B.id) && ratio > 0.55 && Math.random() < dtMin / (70 * pace) * ((A.aggr + B.aggr) / 1.2) * pactF) {
       G.breakTreaties(s, A.aggr >= B.aggr ? A.id : B.id, A.aggr >= B.aggr ? B.id : A.id, 'war');
       setPair(s, A.id, B.id, 'war'); warRec(s, A.id, B.id, true, A.aggr >= B.aggr ? A.id : B.id);
       say(`⚔️ The ${A.name} and the ${B.name} are at war.`);
-    } else if (r.status === 'war' && age > 2400 * pace && (ratio < 0.6 || Math.random() < dtMin / (90 * pace))) {
+    } else if (r.status === 'war' && age > 2400 * pace && !conquestPending(s, A.id, B.id, age, pace) && (ratio < 0.6 || Math.random() < dtMin / (90 * pace))) {
       aiSettle(s, A, B, say);
     } else if (r.status === 'peace' && age > 5400 * pace && !G.pactBetween(s, A.id, B.id) && Math.random() < dtMin / (120 * pace)) {
       r.status = 'neutral'; r.since = s.time;
@@ -522,7 +536,19 @@ G.hostileHooks.push((s, att, def, type) => {
 // The opinion model: drift toward a target made of visible parts
 // ---------------------------------------------------------------------
 const STATUS_BASE = { war: -25, neutral: 0, peace: 15, alliance: 35 };
-const TREATY_OPINION = { trade: 5, borders: 3, research: 4, defense: 5, marriage: 15, vassal: 5, nap: 2, truce: 0, alliance: 0, tribute: 0 };
+const TREATY_OPINION = { trade: 5, borders: 3, research: 4, defense: 5, marriage: 15, vassal: 5, nap: 2, truce: 0, crisis: 3, alliance: 0, tribute: 0 };
+// the crisis: no AI starts a war on a realm that fights it, or breaks the grand truce
+G.crisisWarBlocked = (s, aggressor, target) => !!(G.crisisActive && G.crisisActive(s) && aggressor !== target
+  && ((G.crisisFighter && G.crisisFighter(s, target)) || G.hasTreaty(s, aggressor, target, 'crisis')));
+const crisisHold = (s, a, b) => G.crisisWarBlocked(s, a, b);
+// helping against the crisis: every court warms to the player (up to +20 while it lasts, fading after a won crisis)
+const crisisHelp = s => {
+  const c = s.crisis;
+  if (!c || !c.contrib || !(c.contrib.p > 0)) return 0;
+  if (c.status !== 'active' && !(c.status === 'won' && s.time - (c.ended || 0) < MINS(s, 120))) return 0;
+  return Math.min(20, 4 + Math.round(c.contrib.p / 4));
+};
+G.crisisHelpOpinion = crisisHelp;
 const ethosAffinity = (s, a, b) => {
   if (!G.ethosOf || !G.ETHOS) return 0;
   return safe(() => {
@@ -544,6 +570,8 @@ G.opinionParts = (s, ai) => {
   }
   const aff = ethosAffinity(s, 'p', ai);
   if (aff) parts.push({ key: 'ethos', label: aff > 0 ? 'Kindred ways' : 'Strange ways', v: aff * 2 });
+  const help = crisisHelp(s);
+  if (help) parts.push({ key: 'crisis', label: 'Stood against the crisis', v: help });
   const rep = Math.round((G.trustOf(s, 'p') - TR.repStart) / 4);
   if (rep) parts.push({ key: 'rep', label: rep > 0 ? 'Your good name' : 'Your broken promises', v: rep });
   const target = parts.reduce((a, p) => a + p.v, 0);
@@ -602,7 +630,7 @@ const sweep = (s, dtMin) => {
     const op = t.b === 'p' ? G.rel(s, t.a).opinion : 20;
     const drift = (ratio >= 2.5 ? 1 : ratio >= 1.5 ? 0.4 : ratio >= 1 ? -0.6 : -2) + op / 60 - (t.debt > t.n ? 0.5 : 0);
     t.loyalty = G.clamp((t.loyalty != null ? t.loyalty : 60) + drift * dtMin / paceT(s), 0, 100);
-    if (t.loyalty < TR.rebelBelow && t.a !== 'p' && Math.random() < dtMin / (30 * paceT(s)) * (1 - t.loyalty / TR.rebelBelow + 0.2)) {
+    if (t.loyalty < TR.rebelBelow && t.a !== 'p' && !crisisHold(s, t.a, t.b) && Math.random() < dtMin / (30 * paceT(s)) * (1 - t.loyalty / TR.rebelBelow + 0.2)) {
       const liege = t.b, v = t.a;
       G.breakTreaties(s, v, liege, 'rebellion');
       setPair(s, v, liege, 'war'); warRec(s, v, liege, true, v);
@@ -641,6 +669,7 @@ G.slowHooks.push((s, dtMin) => {
         const w = warRec(s, x, foe, true);
         if (t.kind === 'defense' && w.by !== foe) continue;     // defensive pacts answer only aggression
         if (G.statusOf(s, y, foe) === 'war' || G.pactBetween(s, y, foe)) continue;
+        if (y !== 'p' && crisisHold(s, y, foe)) continue;     // the crisis: no new war on those who fight it
         if (y === 'p') {
           const key = pk(x, foe) + '>p';
           if (d.calls[key] && s.time - d.calls[key] < MINS(s, 60)) continue;
@@ -1195,6 +1224,7 @@ G.pendingHandlers.deal = (s, p, key, auto) => {
     const st = G.rel(s, ai).status;
     if (st === 'war') { shift(s, ai, -5); G.log(s, 'p', `The ${e.name} fight on.`, 'warn'); return null; }
     if (auto) { shift(s, ai, -15); G.log(s, 'p', `You ignored the ${e.name}'s demand. They will not forget.`, 'bad'); return null; }
+    if (crisisHold(s, ai, 'p')) { shift(s, ai, -20); G.log(s, 'p', `You refused the ${e.name}'s demand. While the crisis lasts they will not make war on you, but they will remember.`, 'warn'); return null; }
     shift(s, ai, -25); G.breakTreaties(s, ai, 'p', 'demand'); setStatus(s, ai, 'war'); warRec(s, ai, 'p', true, ai);
     G.log(s, 'p', `You refused the ${e.name}'s demand. They declare war!`, 'bad');
     return null;
@@ -1228,7 +1258,7 @@ G.slowHooks.push((s, dtMin) => {
     }
     // treaties are mostly honoured; a warlike, much stronger realm that dislikes you may tear one up
     const pacts = G.treatiesOf(s, 'p', e.id).filter(t => PACIFY[t.kind] && t.kind !== 'vassal' && t.kind !== 'marriage');
-    if (pacts.length && r.opinion < -10 && G.aiPressure(s) > 0.4 && G.power(s, e.id) > 2.5 * Math.max(1, G.power(s, 'p'))
+    if (pacts.length && r.opinion < -10 && !crisisHold(s, e.id, 'p') && G.aiPressure(s) > 0.4 && G.power(s, e.id) > 2.5 * Math.max(1, G.power(s, 'p'))
       && Math.random() < dtMin / (TR.aiBreak * paceT(s)) * e.aggr * 2) {
       G.breakTreaties(s, e.id, 'p', 'war');
       setStatus(s, e.id, 'war'); warRec(s, e.id, 'p', true, e.id);
@@ -1326,7 +1356,7 @@ G.diplo = {
       return `Fearing your might, the ${e.name} pays ${gold} gold.`;
     }
     shift(s, ai, -12);
-    if (ratio < 1 && r.status === 'neutral' && Math.random() < 0.5) { setStatus(s, ai, 'war'); warRec(s, ai, 'p', true, ai); return `Insulted, the ${e.name} declares war!`; }
+    if (ratio < 1 && r.status === 'neutral' && !crisisHold(s, ai, 'p') && Math.random() < 0.5) { setStatus(s, ai, 'war'); warRec(s, ai, 'p', true, ai); return `Insulted, the ${e.name} declares war!`; }
     return `The ${e.name} laughs at your demand.`;
   },
   // vassals: set them free, or fold them into the realm after long loyalty

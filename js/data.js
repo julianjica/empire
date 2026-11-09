@@ -65,9 +65,9 @@ DATA.races = {
   sylvan: {
     name: 'Sylvani', adj: 'Sylvan', color: '#2e7d32',
     blurb: 'Long-lived wardens of the deep woods. They grow quickly and shape weapons from living wood rather than iron, and their riders are the swiftest anywhere — but ore is scarce to them.',
-    perks: ['+40% timber', '+40% pop growth, +15% housing', 'See 30% farther, march 10% faster', 'Armory works timber, not iron', 'Heartgrove: timber → heartwood', '−25% ore'],
+    perks: ['+40% timber', '+30% pop growth, +10% housing', 'See 30% farther, march 10% faster', 'Armory works timber, not iron', 'Heartgrove: timber → heartwood', '−25% ore'],
     mult: { timber: 1.4, ore: 0.75 },
-    bonus: { popGrowth: 1.4, housing: 1.15, vision: 1.3, travel: 1.1 },
+    bonus: { popGrowth: 1.3, housing: 1.1, vision: 1.3, travel: 1.1 },
     unique: 'heartgrove',
     units: ['warden', 'thornguard', 'longbow', 'winddancer', 'stagrider', 'groveguard', 'ram_s', 'treb_s'],
     recipes: {

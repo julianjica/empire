@@ -1840,6 +1840,154 @@
     A.rec('beams', { x: lx, y: ly }); A.rec('lights', { x: lx, y: ly, r: 34 });
     return { top: zt + 6, noDress: true };
   });
+
+  // =====================================================================
+  //  WONDER — The Everharvest Halls: a podium of feast halls round a tiered granary tower, round
+  //  thatched silos on the corners, a harvest green in front; a golden wheat-sheaf crowns it at 10.
+  // =====================================================================
+  // a round granary silo: banded cob/stone drum, conical roof (thatch/tile/slate), little vent cap
+  function wSilo(gx, gy, r, z, h, roofed, gilt) {
+    const col = stoneOK() ? mix(STONE, '#efe3c6', 0.35) : '#e8dcc0';
+    taperCyl(gx, gy, r, r * 0.92, z, h, col, shade(col, 0.1));
+    const [ex, ey, rx, ry] = A.ell(gx, gy, z, r), c = A.c;
+    for (let v = 8; v < h - 2; v += 9) { c.beginPath(); c.ellipse(ex, ey - v, rx * (1 - 0.08 * v / h), ry * (1 - 0.08 * v / h), 0, 0.1, Math.PI - 0.1); c.strokeStyle = A.F(shade(col, -0.22)); c.lineWidth = 0.7; c.stroke(); }
+    // hay-loft door with a hoist beam and a lit window
+    const [dx, dy] = A.P(gx + r * 0.7, gy + r * 0.7, z + h * 0.62);
+    poly([[dx - 2.4, dy], [dx + 2.4, dy], [dx + 2.4, dy - 6], [dx - 2.4, dy - 6]], '#6a4a2a');
+    line([dx, dy - 7], [dx + 6, dy - 4], '#5a3a22', 1.4); line([dx + 6, dy - 4], [dx + 6, dy + 3], '#3a2a20', 0.5); circ(dx + 6, dy + 4.5, 1.6, '#d8c79e', A.OUT);
+    const [wx, wy] = A.P(gx + r * 0.7, gy + r * 0.7, z + h * 0.3); A.lamp([[wx - 1.2, wy], [wx + 1.2, wy], [wx + 1.2, wy - 3.6], [wx - 1.2, wy - 3.6]], '#4b5a6b', A.nightGlass());
+    if (!roofed) { // unfinished: a ring of bare rafters
+      const zt = z + h, [tx, ty] = A.P(gx, gy, zt + h * 0.45);
+      for (let k = 0; k < 7; k++) { const a = k / 7 * TAU + 0.3; if (Math.sin(a) + Math.cos(a) < -0.6) continue; line(A.P(gx + Math.cos(a) * r, gy + Math.sin(a) * r, zt), lerp(A.P(gx + Math.cos(a) * r, gy + Math.sin(a) * r, zt), [tx, ty], 0.75), BEAM, 1); }
+      return zt + h * 0.3;
+    }
+    const m = roofOf(true), zt = A.cone(gx, gy, r + 0.1, z + h, h * 0.62 + 6, m.col);
+    if (m.tex === 'thatch' && !A.SNOW) { const [bx, by, brx] = A.ell(gx, gy, z + h, r + 0.1); c.beginPath(); c.ellipse(bx, by, brx, brx / 2, 0, 0.05, Math.PI - 0.05); c.strokeStyle = A.F(shade(THATCH, -0.3)); c.lineWidth = 2.2; c.stroke(); }
+    const [px, py] = A.P(gx, gy, zt); line([px, py], [px, py - 6], '#4a3a2a', 1); circ(px, py - 6.5, 1.6, gilt ? GOLD : '#8a6440', A.OUT);
+    if (gilt) A.rec('sparks', { x: px, y: py - 7, kind: 'star' });
+    return zt + 7;
+  }
+  // a skirt roof (pent roof) round the two visible faces of a square tower of half-size s at height z
+  function wApron(cx, cy, s, z, o, col) {
+    const rc = A.SNOW ? '#eef2f4' : col, so = s + o, zt = z + o * 22;
+    poly([P(cx + so, cy - so, z), P(cx + so, cy + so, z), P(cx + s, cy + s, zt), P(cx + s, cy - s, zt)], shade(rc, -0.18));
+    const q = [P(cx - so, cy + so, z), P(cx + so, cy + so, z), P(cx + s, cy + s, zt), P(cx - s, cy + s, zt)];
+    poly(q, rc); if (!A.SNOW) A.roofLines(q, 3, shade(rc, -0.2), 0.5);
+  }
+  // open rafters over an unfinished storey: a half-built pyramid frame with a ridge pole and a hoist
+  function wFrame(cx, cy, s, z, h) {
+    const ap = P(cx, cy, z + h);
+    for (const [gx, gy] of [[cx - s, cy - s], [cx + s, cy - s], [cx + s, cy + s], [cx - s, cy + s]]) line(P(gx, gy, z), lerp(P(gx, gy, z), ap, 0.85), BEAM, 1.4);
+    for (const t of [0.33, 0.62]) { const a = lerp(P(cx - s, cy + s, z), ap, t), b = lerp(P(cx + s, cy + s, z), ap, t), e = lerp(P(cx + s, cy - s, z), ap, t); line(a, b, OAK, 0.9); line(b, e, OAK, 0.9); }
+    line([ap[0], ap[1] + h * 0.15], [ap[0], ap[1] - 8], '#5a3a22', 1.2);
+    box(cx + s - 0.3, cy + s - 0.22, 0.22, 0.14, z, 3, '#b08a5a'); box(cx - s + 0.05, cy + s - 0.2, 0.3, 0.12, z, 2.2, STONE);
+    return z + h;
+  }
+  // the golden wheat sheaf (screen space, centred on its tie at (x, y), size k)
+  function wSheaf(x, y, k = 1) {
+    const g = GOLD, gd = '#b8892a', c = A.c;
+    for (let i = -4; i <= 4; i++) { const a = i * 0.12; line([x + i * 0.5 * k, y + 9 * k], [x + Math.sin(a) * 14 * k, y - 12 * k + Math.abs(i) * 0.8 * k], i % 2 ? gd : g, 1.3 * k); }
+    for (let i = -4; i <= 4; i++) { const a = i * 0.12, ex = x + Math.sin(a) * 14 * k, ey = y - 12 * k + Math.abs(i) * 0.8 * k; c.beginPath(); c.ellipse(ex, ey - 2.2 * k, 1.3 * k, 3 * k, a, 0, TAU); c.fillStyle = A.GLOW ? '#ffe9a0' : g; c.fill(); }
+    poly([[x - 3 * k, y - 1 * k], [x + 3 * k, y - 1 * k], [x + 3 * k, y + 1.4 * k], [x - 3 * k, y + 1.4 * k]], '#c0392b', A.OUT, 0.6);
+  }
+  // one storey of the granary tower: stone (k 0) or timber-framed, windows, loft doors, clocks
+  function wStorey(cx, cy, s, z, h, k, L) {
+    const stone = k === 0, b = box(cx - s, cy - s, 2 * s, 2 * s, z, h, stone ? STONE : WALLS[k % 2 ? 1 : 0]);
+    if (stone) A.courses(b, 4, STONE_D); else A.timber(b, BEAM);
+    for (const side of ['L', 'R']) {
+      const n = Math.max(2, Math.round(2 * s / 0.42));
+      for (let i = 0; i < n; i++) { const u = 2 * s * (i + 0.5) / n; if (Math.abs(u - s) < 0.2 && (stone || k === 2)) continue; shutterWin(b, side, u, h * 0.32, 0.13, Math.min(6, h * 0.3), false, side === 'L' ? '#a8482f' : '#3f6fa8'); }
+    }
+    if (stone) { // the great doors of the tower on both faces, harvest-gold lintels
+      for (const side of ['L', 'R']) { const f = side === 'L' ? A.onL : A.onR; poly(f(b, s - 0.24, s + 0.24, 0, 17), STONE_D, null); poly(f(b, s - 0.18, s + 0.18, 0, 14), '#5a3420', null); line(f(b, s, s, 0, 0)[0], f(b, s, s, 14, 14)[0], '#3a2214', 0.6); poly(f(b, s - 0.26, s + 0.26, 17, 19), GOLD, null); }
+    }
+    if (k === 1 && (X.era >= 1 || L >= 6)) { clock(A.onL(b, s, s, h * 0.72, h * 0.72)[0], 4); clock(A.onR(b, s, s, h * 0.72, h * 0.72)[0], 4); }
+    if (k === 2) { hoist(b, 'L', h * 0.7, 10); poly(A.onL(b, s - 0.14, s + 0.14, h * 0.15, h * 0.62), '#6a4a2a', null); }
+    return b;
+  }
+  reg('wonder_hearth', ([x, y, w, d], L, band, ctx) => {
+    L = Math.max(1, Math.min(10, Math.round(L) || 1));
+    const cx = x + w / 2, cy = y + d / 2, mn = Math.min(w, d), hits = [], m = roofOf(true), fin = L >= 10;
+    const tileCol = m.tex === 'thatch' ? THATCH : m.col;
+    // ---- stage 1: the stone podium with stairs, the harvest green before it
+    const pl = 0.22, PH = 5;
+    grassPatch(x + 0.1, y + 0.1, w - 0.2, d - 0.2);
+    const pod = box(x + pl, y + pl, w - pl * 2, d - pl * 2, 0, PH, STONE_D); A.courses(pod, 2.5, shade(STONE_D, -0.15));
+    hits.push([x + pl, y + pl, w - pl * 2, d - pl * 2, PH]);
+    let top = PH;
+    const s0 = mn * 0.17, SH = [40, 33, 30, 26];   // tower half-size, storey heights
+    // ---- the back silo (stage 2 shell, roofed from 3), the tallest of the three
+    const sr = mn * 0.12;
+    if (L >= 2) { const t = wSilo(x + pl + sr + 0.08, y + pl + sr + 0.08, sr * 1.15, PH, 46, L >= 3, fin); hits.push([x + pl, y + pl, sr * 2.4, sr * 2.4, t]); top = Math.max(top, t); }
+    // ---- the granary tower over the centre: storey 1 at 2, storey 2 at 5, 3 at 6, 4 at 7, belfry 8, spire 9, sheaf 10
+    const nSt = L >= 7 ? 4 : L >= 6 ? 3 : L >= 5 ? 2 : L >= 2 ? 1 : 0;
+    let z = PH, s = s0;
+    if (L === 1) { // footings: the first raw course and cut stone
+      const b = box(cx - s0, cy - s0, 2 * s0, 2 * s0, PH, 6, mix(STONE, '#ffffff', 0.15)); A.courses(b, 3, STONE_D);
+      box(cx - 0.2, cy + s0 + 0.15, 0.3, 0.22, PH, 3, STONE); A.sack(cx + s0 + 0.3, cy + 0.2);
+      top = Math.max(top, PH + 8);
+    }
+    for (let k = 0; k < nSt; k++) {
+      wStorey(cx, cy, s, z, SH[k], k, L); z += SH[k];
+      const last = k === nSt - 1;
+      if (!last || L >= 8) wApron(cx, cy, s, z - 2, 0.16, tileCol);
+      s -= 0.07;
+    }
+    if (nSt) hits.push([cx - s0, cy - s0, 2 * s0, 2 * s0, z]);
+    top = Math.max(top, z);
+    if (nSt && L < 8) top = Math.max(top, wFrame(cx, cy, s + 0.07, z, nSt >= 3 ? 34 : 20));
+    if (L >= 8) { // the belfry: an open lantern stage with a great bell and a lit lamp
+      const bh = 20, bf = box(cx - s, cy - s, 2 * s, 2 * s, z, bh, '#e8dcc4');
+      for (const side of ['L', 'R']) { const f = side === 'L' ? A.onL : A.onR; for (const u of [0.32, 0.68]) A.lamp(f(bf, 2 * s * u - 0.12, 2 * s * u + 0.12, 3, bh - 3), '#2e2620', '#ffd88a'); }
+      const bp = A.onL(bf, s, s, bh * 0.55, 0)[0]; bell(bp[0], bp[1], 2.6);
+      const [lx, ly] = P(cx, cy, z + bh * 0.5); A.rec('lights', { x: lx, y: ly, r: 40 });
+      z += bh; top = z;
+      if (L >= 9) { // the tall spire roof
+        const zt = spire({ x: cx - s - 0.1, y: cy - s - 0.1, w: 2 * s + 0.2, d: 2 * s + 0.2, z, h: 0, col: '#e8dcc4' }, 40, X.era >= 2 ? SLATE : tileCol);
+        if (X.era >= 2 && !A.SNOW) line(P(cx + s + 0.1, cy + s + 0.1, z), P(cx, cy, zt), GOLD, 1.2);
+        top = zt;
+        if (fin) { const [fx, fy] = P(cx, cy, zt); line([fx, fy], [fx, fy - 8], '#8a6a2a', 1.6); wSheaf(fx, fy - 14, 0.95); A.lampDot(fx, fy - 20, 2.4, '#f6d878', '#fff4c0'); A.rec('lights', { x: fx, y: fy - 16, r: 80 }); A.rec('sparks', { x: fx, y: fy - 22, kind: 'star' }); A.rec('birds', { x: fx, y: fy - 10, r: 46, n: 5, seed: A.R() }); top = zt + 22; }
+        else { const [fx, fy] = P(cx, cy, zt); line([fx, fy], [fx, fy - 7], '#5a3a22', 1.4); top = zt + 7; }
+      } else top = Math.max(top, wFrame(cx, cy, s, z, 28));
+      hits.push([cx - s, cy - s, 2 * s, 2 * s, top]);
+    }
+    // ---- the side silos: left at 3, right at 4 (roofed from 5, gilt finials at 10)
+    const siloL = [x + pl + sr + 0.1, y + d - pl - sr - 0.1], siloR = [x + w - pl - sr - 0.1, y + pl + sr + 0.1];
+    for (const [k, [gx, gy]] of [[3, siloL], [4, siloR]]) if (L >= k) { const t = wSilo(gx, gy, sr, PH, 36, L >= 5, fin); hits.push([gx - sr, gy - sr, sr * 2, sr * 2, t]); top = Math.max(top, t); }
+    // ---- the feast halls: the right wing at 4 (along x), the left wing at 3 (along y), both from the tower's faces
+    const hw = Math.min(0.95, mn * 0.21), HH2 = 30;
+    if (L >= 4) {
+      const x0 = cx + s0 - 0.04, len = x + w - pl - 0.12 - x0;
+      const h = house(x0, cy - hw / 2, len, hw, HH2, { two: true, stone: true, grand: true, axis: 'x', shut: '#a8482f', door: false, chim: 'hall' });
+      A.door(h.lo, 'R', hw / 2, 0.34, 12, '#5a3420'); poly(A.onR(h.lo, hw / 2 - 0.22, hw / 2 + 0.22, 12, 13.5), GOLD, null);
+      if (L >= 6) dormer(h.b, h.rh, len * 0.5, h.m, 0.24, 'x');
+      hits.push([x0, cy - hw / 2, len, hw, h.top]);
+    }
+    if (L >= 3) {
+      const y0 = cy + s0 - 0.04, len = y + d - pl - 0.12 - y0;
+      const h = house(cx - hw / 2, y0, hw, len, HH2, { two: true, stone: true, grand: true, axis: 'y', shut: '#a8482f', door: false, chim: 'hall' });
+      A.door(h.lo, 'L', hw / 2, 0.34, 12, '#5a3420'); poly(A.onL(h.lo, hw / 2 - 0.22, hw / 2 + 0.22, 12, 13.5), GOLD, null);
+      // a wheat-sheaf boss in the gable
+      const gp = A.onL(h.b, hw / 2, 0, h.b.h + 4, 0)[0]; wSheaf(gp[0], gp[1], 0.35);
+      if (L >= 6) awning(h.lo, 'R', 0.2, len - 0.2, 11, 0.2, '#c0392b', '#e0b84a');
+      hits.push([cx - hw / 2, y0, hw, len, h.top]);
+    }
+    // ---- the harvest green in the front corner: sheaves and carts from 2, feast tables and a maypole from 7
+    const gx0 = cx + hw / 2 + 0.15, gy0 = cy + hw / 2 + 0.15, gw = x + w - pl - gx0, gd = y + d - pl - gy0;
+    if (L >= 2 && gw > 0.5 && gd > 0.5) {
+      A.haystack(gx0 + gw * 0.25, gy0 + gd * 0.2, 0.8);
+      if (L >= 3) A.sack(gx0 + gw * 0.7, gy0 + 0.15), A.barrel(gx0 + 0.15, gy0 + gd * 0.7);
+      if (L >= 5) cart(gx0 + gw * 0.45, gy0 + gd * 0.35, true, 'hay');
+      if (L >= 7) { for (let i = 0; i < 2; i++) { const tx = gx0 + 0.15 + i * 0.5, ty = gy0 + gd - 0.35; box(tx, ty, 0.42, 0.16, 0, 3, OAK); const [px, py] = P(tx + 0.21, ty + 0.08, 3); for (let j = -1; j <= 1; j++) circ(px + j * 3, py - 1, 1.1, ['#e8873a', '#e2b84a', '#c0392b'][j + 1], null); } maypole(gx0 + gw - 0.3, gy0 + gd - 0.3, 30); }
+    }
+    if (L >= 2) for (const [gx, gy] of [[x + w - pl - 0.08, y + d - pl - 0.08], [x + pl + 0.1, y + d - pl - 0.08], [x + w - pl - 0.08, y + pl + 0.1]]) lampPost(gx, gy, 12);
+    if (fin) { // banners at the podium corners, bunting from the tower to the wing gables
+      A.banner(x + pl + 0.1, y + d - pl - 0.3, PH, 34, '#c0392b'); A.banner(x + w - pl - 0.3, y + pl + 0.1, PH, 34, GOLD);
+      const t0 = P(cx + s0, cy + s0, PH + SH[0] + 4);
+      bunting(t0, P(cx, y + d - pl - 0.1, PH + HH2 + 4), 8, 10); bunting(t0, P(x + w - pl - 0.1, cy, PH + HH2 + 4), 8, 10);
+    }
+    return { top, hit: hits, noDress: true, noTech: true };
+  });
 })();
 
 // cityview opt-outs (the return-object format in js/cityart.js): stock extras this people's art already draws itself.

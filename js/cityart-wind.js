@@ -1411,4 +1411,152 @@
   }
   def('gate', (s, L, band) => { const r = gatePiece(band, true); return { top: r.top, hit: [[s[0], s[1], s[2], s[3], r.top]] }; });
   def('postern', (s, L, band) => { const r = gatePiece(band, false); return { top: r.top, hit: [[s[0], s[1], s[2], s[3], r.top]] }; });
+
+  // ================================================================ WONDER: the Storm Eyrie
+  //  a cliff-spire aerie: the crag climbs in four rocky shelves (1-4) with stilt roosts, rope lifts and prayer flags,
+  //  a white perch-tower rises out of the summit (5-9) wrapped in galleries, turning sails, wind-vanes and great cloth
+  //  vane-sails, a lesser perch-tower and rope bridge (8+), open timber framing on the unfinished top, and at 10 a
+  //  cerulean spire under a storm crown: stormglass orb, storm clouds, lightning, a roc on the peak and rocs circling.
+  //  Fixed endgame palette (white stone, cerulean tile, gilt, stormglass) in every era.
+  const SE_WHITE = '#f1ece0', SE_STONE = '#e4ddcc', SE_ROOF = '#3f8ccc', SE_GILT = '#e0b440';
+  function seShelf(bx, by, bw, bd, z, h) { // a craggy shelf of the peak: strata, cracks, a bulging boulder, tufts on the lip
+    const col = A.mix(A.STY.stone, ROCK, 0.55);
+    const b = A.box(bx, by, bw, bd, z, h, col, { top: X.snow ? '#f2f6f8' : A.mix(A.GROUND, A.shade(col, 0.12), 0.72) });
+    for (let v = 3.5; v < h - 1; v += 3.5 + RN() * 1.5) {
+      const j = (RN() - 0.5) * 2;
+      A.line(A.onL(b, 0, 0, v, 0)[0], A.onL(b, bw, 0, v + j, 0)[0], A.shade(col, -0.2), 0.6);
+      A.line(A.onR(b, 0, 0, v + j, 0)[0], A.onR(b, bd, 0, v, 0)[0], A.shade(col, -0.34), 0.6);
+    }
+    for (let q = 0; q < 3; q++) { const u = (q + 0.3 + RN() * 0.4) / 3; A.line(A.onL(b, bw * u, 0, 0, 0)[0], A.onL(b, bw * u + 0.1, 0, h * 0.8, 0)[0], A.shade(col, -0.3), 0.6); A.line(A.onR(b, bd * u, 0, 0, 0)[0], A.onR(b, bd * u - 0.1, 0, h * 0.7, 0)[0], A.shade(col, -0.42), 0.6); }
+    const [px, py] = A.P(bx + bw, by + bd, z + h * 0.4); boulder(px, py + 2, 0.5 + h / 40, A.shade(col, 0.04));
+    for (const f of [0.3, 0.7]) { const [qx, qy] = A.P(bx + bw * f, by + bd + 0.03, z); boulder(qx, qy + 1, 0.35, A.shade(col, -0.06)); const [rx, ry] = A.P(bx + bw + 0.03, by + bd * f, z); boulder(rx, ry + 1, 0.35, A.shade(col, -0.14)); }
+    if (!X.snow) for (let q = 0; q < 3; q++) { const t = A.P(bx + bw * (0.2 + q * 0.3), by + bd, z + h); A.line(t, [t[0] - 1, t[1] + 3], '#6a8a4a', 0.8); A.line([t[0] + 1.5, t[1]], [t[0] + 2, t[1] + 3.5], '#5a7a3a', 0.8); }
+    return b;
+  }
+  function seRoost(gx, gy, s, z) { // a stilt roost on a shelf: legs, deck, a little hut with a cerulean roof
+    legs(gx, gy, s, s * 0.8, z, 5);
+    deck(gx - 0.05, gy - 0.05, s + 0.1, s * 0.8 + 0.1, z + 5, true);
+    const b = A.box(gx + 0.04, gy + 0.04, s - 0.08, s * 0.8 - 0.08, z + 6.4, 7, SE_WHITE);
+    A.lamp(A.onL(b, b.w * 0.4, b.w * 0.6, 2, 5.5), '#3a4655', A.nightGlass());
+    const rt = A.gable(b, s * 14, snowy(SE_ROOF), 'x', 'tile', 0.08);
+    const q = A.gableQ(b, s * 14, 'x', 0.08); crest(q[3], q[2]);
+    return rt;
+  }
+  function seVaneSail(gx, gy, z, h, flip, col) { // a tall mast with a triangular cloth vane-sail bellied in the wind
+    const b = A.P(gx, gy, z), t = A.P(gx, gy, z + h);
+    A.line(b, t, beamC(), 1.4);
+    const c = A.c, ex = t[0] + flip * h * 0.42, ey = t[1] + h * 0.55;
+    c.beginPath(); c.moveTo(t[0], t[1] + 2); c.quadraticCurveTo(t[0] + flip * h * 0.34, t[1] + h * 0.12, ex, ey); c.lineTo(b[0], b[1] - h * 0.12); c.closePath();
+    c.fillStyle = A.F(col); c.fill(); c.strokeStyle = A.F(A.OUT); c.lineWidth = 0.6; c.stroke();
+    A.line([t[0], t[1] + h * 0.3], [t[0] + flip * h * 0.3, t[1] + h * 0.42], A.shade(col, -0.2), 0.5);
+    A.pennant && A.rec('flags', { x: t[0], y: t[1], col: A.STY.flag, len: 8, seed: RN(), pole: 0 });
+  }
+  def('wonder_wind', ([x, y, w, d], L) => {
+    L = Math.max(1, Math.min(10, Math.round(L) || 1));
+    const { P, box, line, shade } = A, M = CITYART.mage, k = Math.min(w, d) / 4.5, cx = x + w / 2, cy = y + d / 2, hits = [];
+    let top = 0;
+    // the crag: four rocky shelves, one per stage to 4, each stepped back toward the summit
+    const SH = [14, 20, 18, 16], INS = [0.25, 0.5, 0.42, 0.36].map(v => v * k), S = [];
+    let bx = x, by = y, bw = w, bd = d, z = 0;
+    let lesser = null;
+    for (let i = 0; i < 4 && i < L; i++) {
+      bx += INS[i]; by += INS[i]; bw -= INS[i] * 2; bd -= INS[i] * 2;
+      seShelf(bx, by, bw, bd, z, SH[i]); z += SH[i];
+      S.push([bx, by, bw, bd, z]); hits.push([bx, by, bw, bd, z]);
+      if (i === 1 && L >= 8) { // the lesser perch-tower on the second shelf's left corner, linked by a rope bridge
+        const gx = bx + 0.2 * k, gy = by + bd - 0.2 * k, rr = 0.15 * k, lh = 62 + (L - 8) * 6;
+        A.cyl(gx, gy, rr * 1.4, z, 3, A.mix(A.STY.stone, ROCK, 0.4)); A.cyl(gx, gy, rr, z + 3, lh - 3, SE_STONE);
+        for (let v = 10; v < lh - 6; v += 12) { const [wx, wy] = P(gx + rr * 0.5, gy + rr * 0.85, z + v); A.lamp([[wx - 1, wy], [wx + 1, wy], [wx + 1, wy - 4], [wx - 1, wy - 4]], '#3a4655', A.nightGlass()); }
+        A.cyl(gx, gy, rr * 1.8, z + lh, 1.6, woodC()); A.cyl(gx, gy, rr * 1.05, z + lh + 1.6, 7, SE_WHITE);
+        const ct = A.cone(gx, gy, rr * 1.6, z + lh + 8.6, 20, snowy(SE_ROOF)), [sx, sy] = P(gx, gy, ct + 2);
+        A.line([sx, sy + 2], [sx, sy - 1], SE_GILT, 1); storm(sx, sy - 2.5, 2);
+        lesser = [gx, gy, z + lh]; hits.push([gx - rr * 1.8, gy - rr * 1.8, rr * 3.6, rr * 3.6, ct + 6]); top = Math.max(top, ct + 6);
+      }
+      top = z;
+    }
+    const sum = S[S.length - 1];
+    // the white perch-tower out of the summit (5-9 going up, 10 crowned)
+    const tcx = sum[0] + sum[2] / 2, tcy = sum[1] + sum[3] / 2, tz = sum[4], r = 0.4 * k;
+    let tt = tz;
+    if (L >= 5) {
+      const th = [0, 0, 0, 0, 0, 28, 62, 76, 88, 96, 96][L], fin = L >= 10;
+      A.cyl(tcx, tcy, r * 1.3, tz, 3, A.mix(A.STY.stone, ROCK, 0.4));
+      A.cyl(tcx, tcy, r, tz + 3, th - 3, SE_STONE);
+      for (let v = 10; v < th - 6; v += 12) for (const a of [0.55, 1.05]) { const [wx, wy] = P(tcx + Math.cos(a) * r, tcy + Math.sin(a) * r, tz + v); A.lamp([[wx - 1.1, wy], [wx + 1.1, wy], [wx + 1.1, wy - 4.5], [wx, wy - 5.5], [wx - 1.1, wy - 4.5]], '#3a4655', fin ? STORM_N : A.nightGlass()); }
+      if (L >= 7) for (let v = 20; v < th; v += 20) { const [ex, ey, erx, ery] = A.ell(tcx, tcy, tz + v, r); A.c.beginPath(); A.c.ellipse(ex, ey, erx, ery, 0, 0.05, Math.PI - 0.05); A.c.strokeStyle = A.F(SE_GILT); A.c.lineWidth = 1; A.c.stroke(); }
+      tt = tz + th; hits.push([tcx - r * 1.3, tcy - r * 1.3, r * 2.6, r * 2.6, tt]);
+      // galleries with perch arms and hawks, every ~30 px from stage 6
+      if (L >= 6) for (let gz = tz + 30; gz < tt - 6; gz += 32) {
+        A.cyl(tcx, tcy, r * 1.75, gz, 1.6, woodC());
+        const [gx0, gy0, rx, ry] = A.ell(tcx, tcy, gz + 1.6, r * 1.75);
+        A.c.beginPath(); A.c.ellipse(gx0, gy0 - 4, rx, ry, 0, 0, Math.PI); A.c.strokeStyle = A.F(beamC()); A.c.lineWidth = 0.7; A.c.stroke();
+        for (let q = 0; q <= 6; q++) { const a = q / 6 * Math.PI; A.line([gx0 + Math.cos(a) * rx, gy0 + Math.sin(a) * ry], [gx0 + Math.cos(a) * rx, gy0 + Math.sin(a) * ry - 4], beamC(), 0.6); }
+        perchArm(tcx + r * 1.7, tcy - r * 0.3, gz + 1, 0.5 * k, -0.1, true); perchArm(tcx - r * 0.3, tcy + r * 1.7, gz + 1, -0.1, 0.5 * k, (gz | 0) % 2 === 0);
+        vane(tcx + r * 1.2, tcy + r * 1.2, gz + 1.6, 0.8);
+      }
+      // turning sails on both faces we see (6+)
+      if (L >= 6) for (const [a, zz] of [[0.25, 0.55], [1.3, 0.72]]) { const [sx, sy] = P(tcx + Math.cos(a) * r * 1.1, tcy + Math.sin(a) * r * 1.1, tz + (tt - tz) * zz); A.circ(sx, sy, 2.4, '#4a3020'); A.rec('sails', { x: sx, y: sy, r: 15 + k * 3, col: '#f4f0e4', frame: '#6a4a30', ph: a * 3 }); }
+      top = Math.max(top, tt);
+      if (!fin) { // the open top: fresh courses, timber framing for the next lift, a hoist
+        A.cyl(tcx, tcy, r * 0.98, tt, 3, shade(SE_STONE, 0.12));
+        const fh = L >= 9 ? 30 : 18, pk = L >= 9 ? 0.15 : 0.7;
+        for (let q = 0; q < 5; q++) { const a = 0.1 + q / 4 * (Math.PI - 0.2) - Math.PI / 4 + Math.PI / 4; const ax = tcx + Math.cos(a) * r, ay = tcy + Math.sin(a) * r; line(P(ax, ay, tt + 3), P(tcx + (ax - tcx) * pk, tcy + (ay - tcy) * pk, tt + 3 + fh), beamC(), 1.1); }
+        const [ex, ey, erx, ery] = A.ell(tcx, tcy, tt + 3 + fh * 0.5, r * (1 + pk) / 2); A.c.beginPath(); A.c.ellipse(ex, ey, erx, ery, 0, 0, Math.PI); A.c.strokeStyle = A.F(beamC()); A.c.lineWidth = 0.9; A.c.stroke();
+        ropeLift(tcx - r * 0.6, tcy + r * 0.2, tt - 30, tt + 3 + fh * 0.8, 'crate');
+        top = Math.max(top, tt + 3 + fh + 2);
+      } else { // the crown: lookout cabin, gallery, cerulean spire, the storm crown with its stormglass orb
+        A.cyl(tcx, tcy, r * 1.8, tt, 1.8, woodC());
+        A.cyl(tcx, tcy, r * 1.1, tt + 1.8, 9, SE_WHITE);
+        for (const a of [0.35, 0.8, 1.25]) { const [wx, wy] = P(tcx + Math.cos(a) * r * 1.1, tcy + Math.sin(a) * r * 1.1, tt + 3.5); A.lamp([[wx - 1.4, wy], [wx + 1.4, wy], [wx + 1.4, wy - 4.5], [wx - 1.4, wy - 4.5]], STORM_D, STORM_N); }
+        const zc = tt + 10.8, ct = A.cone(tcx, tcy, r * 1.7, zc, 32, snowy(SE_ROOF));
+        if (!X.snow) { const [ex, ey, erx, ery] = A.ell(tcx, tcy, zc, r * 1.7); A.c.beginPath(); A.c.ellipse(ex, ey, erx, ery, 0, 0.1, Math.PI - 0.1); A.c.strokeStyle = A.F(SE_GILT); A.c.lineWidth = 1.3; A.c.stroke(); }
+        const [ox, oy] = P(tcx, tcy, ct + 10);
+        // storm-cloud puffs ringing the crown (behind the orb), the gilt rod and the orb itself
+        for (const [dx, dy, sc, col] of [[-20, -6, 1.3, '#5e6c80'], [19, -4, 1.35, '#66758a'], [-2, -14, 1.5, '#56647a'], [-17, 4, 1, '#76869a'], [17, 6, 1, '#7e8ea2']]) M.cloud(A, ox + dx, oy + dy, sc, col);
+        for (const [bx0, sd] of [[-22, -1], [21, 1]]) { // forks of lightning from the storm crown
+          const pts = [[ox + bx0, oy + 2], [ox + bx0 + sd * 3, oy + 9], [ox + bx0 - sd * 1, oy + 11], [ox + bx0 + sd * 4, oy + 20]];
+          M.glowLine(A, pts, '#fff6c0', '#e8f6ff', 1.4);
+        }
+        A.line(P(tcx, tcy, ct - 2), [ox, oy + 4], SE_GILT, 1.5);
+        for (const sd of [-1, 1]) { A.line([ox, oy + 6], [ox + sd * 6, oy - 2], SE_GILT, 1); A.circ(ox + sd * 6, oy - 2.5, 1.4, STORM_D); }
+        storm(ox, oy - 1, 4.2, true);
+        A.rec('magic', { x: ox, y: oy - 1, r: 14, n: 7, col: 'rgba(140,200,255,A)', seed: RN(), bolt: true });
+        A.rec('magic', { x: ox - 14, y: oy - 4, r: 8, n: 3, col: 'rgba(170,215,255,A)', seed: RN(), bolt: true });
+        A.rec('lights', { x: ox, y: oy - 1, r: 80, col: 'storm' }); M.pulse(A, ox, oy - 1, 20, '#9fd6ff', 2.6);
+        M.ring(A, tcx, tcy, ct - 4, 0.55 * k, '#bfe6ff', 6, 0.7);
+        roc(ox + 10, oy + 16, 0.8);
+        hits.push([tcx - r * 1.7, tcy - r * 1.7, r * 3.4, r * 3.4, ct + 16]);
+        top = Math.max(top, ct + 16);
+      }
+    }
+    // the rope bridge from the lesser perch-tower's gallery to the great tower (8+)
+    if (lesser && L >= 8) {
+      const a2 = P(lesser[0], lesser[1], lesser[2] + 1.5), b3 = P(tcx - r * 1.2, tcy + r * 1.2, tz + 62 + 1.6), pts = [];
+      for (let q = 0; q <= 10; q++) { const t = q / 10; pts.push([a2[0] + (b3[0] - a2[0]) * t, a2[1] + (b3[1] - a2[1]) * t + Math.sin(t * Math.PI) * 10]); }
+      for (let q = 0; q < 10; q++) A.line(pts[q], pts[q + 1], woodC(), 2.2);
+      A.c.beginPath(); pts.forEach((p, q) => q ? A.c.lineTo(p[0], p[1] - 4) : A.c.moveTo(p[0], p[1] - 4)); A.c.strokeStyle = A.F('#cdbf98'); A.c.lineWidth = 0.6; A.c.stroke();
+    }
+    // great cloth vane-sails on masts at the summit's corners (7+), taller each stage
+    if (L >= 7) {
+      const [sx0, sy0, sw0, sd0, sz] = sum, mh = 30 + (L - 7) * 6, e = 0.12 * k;
+      seVaneSail(sx0 + e, sy0 + sd0 - e, sz, mh, -1, cloth(0));
+      seVaneSail(sx0 + sw0 - e, sy0 + e, sz, mh, 1, cloth(2));
+      if (L >= 9) seVaneSail(sx0 + sw0 - e, sy0 + sd0 - e, sz, mh * 0.8, 1, '#f4ead2');
+      top = Math.max(top, sz + mh);
+    }
+    // stilt roosts on the lower shelves (3+, 4+), a rope lift up the crag (2+), prayer flags and anemometers
+    if (S[0] && S[1] && L >= 3) { const [ax, ay, aw, ad, az] = S[0], s = 0.38 * k;
+      seRoost(ax + 0.12, ay + ad - s * 0.8 - 0.06, s, az); seRoost(ax + aw - s - 0.06, ay + 0.12, s, az);
+      if (L >= 5) seRoost(ax + aw - s - 0.06, ay + ad - s * 0.8 - 0.06, s, az); }
+    if (S[1] && S[2] && L >= 4) { const [ax, ay, aw, ad, az] = S[1], s = 0.32 * k;
+      seRoost(ax + aw * 0.5 - s / 2 - 0.5 * k, ay + ad - s * 0.8 - 0.04, s, az); cups(ax + aw - 0.15, ay + ad - 0.15, az); }
+    if (L >= 2 && S[1]) ropeLift(S[0][0] + S[0][2] - 0.25, S[0][1] + S[0][3] * 0.5, 0, S[1][4] + 4, 'basket');
+    if (L >= 4 && S[3]) { const [ax, ay, aw, ad, az] = S[0], [, , , , sz] = sum;
+      flags(P(ax + 0.12, ay + ad - 0.1, az + 18), P(sum[0] + 0.1, sum[1] + sum[3] - 0.1, sz + 6), 7, 8, 1);
+      flags(P(ax + aw - 0.1, ay + 0.12, az + 18), P(sum[0] + sum[2] - 0.1, sum[1] + 0.1, sz + 6), 7, 8, 3); }
+    A.pennant(x + w - 0.2, y + d - 0.2, 0, 26 + L * 2, A.STY.flag);
+    if (L >= 6) { const [bx2, by2] = P(tcx, tcy, top - 10); A.rec('birds', { x: bx2, y: by2, r: 36 + L * 3, n: 3 + (L >= 10 ? 3 : 0), seed: RN() }); }
+    if (L >= 3) birds(cx, cy, Math.min(top, 80), 2, 28);
+    return { top, hit: hits };
+  });
 })();

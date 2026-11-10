@@ -1056,33 +1056,124 @@
   };
 
   // ----- the Moonwell Gate (wonder): a great moonstone ring rising over a star-pool -----
+  // a standing moonstone menhir at a grid point: two tapered faces, a rune, a crescent cap when crowned
+  function menhir(gx, gy, h, L) {
+    const [x, y] = P(gx, gy), b = 4.2, t = 2.6, col = sn(E.stone);
+    A.poly([[x - b, y], [x, y + 1.6], [x, y + 1.6 - h], [x - t, y - h + 1]], A.shade(col, 0.04), A.OUT, 0.6);
+    A.poly([[x, y + 1.6], [x + b, y], [x + t, y - h + 1], [x, y + 1.6 - h]], A.shade(col, -0.18), A.OUT, 0.6);
+    A.poly([[x - t, y - h + 1], [x, y + 1.6 - h], [x + t, y - h + 1], [x, y - h - 0.6]], A.shade(col, 0.14), A.OUT, 0.5);
+    if (!A.GLOW && !A.SNOW) A.line([x - 2.2, y - h * 0.35], [x - 1.2, y - h * 0.7], 'rgba(255,255,255,0.45)', 0.6);
+    if (L >= 4) { A.lampDot(x - 1.6, y - h * 0.5, 1, E.accent, E.ng); A.lampDot(x + 1.8, y - h * 0.4, 0.8, E.accent, E.ng); }
+    if (L >= 8) crescent(x - 1, y - h - 4, 2.6, L >= 10 ? GOLD : A.mix(E.stone, '#ffffff', 0.5), '#f0e8ff');
+    return [x, y - h];
+  }
+  // one arc of the moonstone ring between screen angles a0..a1 (canvas radians), centred at (X, Y)
+  function ringArc(X, Y, Ro, Ri, a0, a1, dy) {
+    c.beginPath(); c.arc(X, Y + dy, Ro, a0, a1, a1 < a0); c.arc(X, Y + dy, Ri, a1, a0, a1 >= a0); c.closePath();
+  }
+
   ART.wonder_veil = ([x, y, w, d], L) => {
-    const s = Math.min(w, d), cx = x + w / 2, cy = y + d / 2, prog = Math.min(1, L / 10);
-    const R = s * 0.42 * 20 + 6;                          // ring radius in px
-    const [gx, gy] = P(cx - s * 0.08, cy - s * 0.08);
-    // standing stones round the well
-    const n = 6;
-    for (let j = 0; j < n; j++) { const a = j / n * TAU; if (Math.cos(a) + Math.sin(a) > 0) continue; const [sx, sy] = P(cx + Math.cos(a) * s * 0.42, cy + Math.sin(a) * s * 0.42); A.poly([[sx - 2, sy], [sx + 2, sy], [sx + 1.5, sy - 9], [sx - 1.5, sy - 9]], sn(E.stone)); }
-    // the ring: built up stone by stone from both feet
-    const thick = 4 + s * 1.5, segs = 18, built = Math.round(segs * prog);
-    for (let j = 0; j < segs; j++) {
-      const side = j % 2, idx = Math.floor(j / 2); if (j >= built) continue;
-      const t0 = idx / (segs / 2), t1 = (idx + 1) / (segs / 2);
-      const a0 = side ? Math.PI * (0.5 + t0) : Math.PI * (0.5 - t0), a1 = side ? Math.PI * (0.5 + t1) : Math.PI * (0.5 - t1);
-      const cX = gx, cY = gy - R;
-      const p = (a, r) => [cX + Math.cos(a) * r, cY + Math.sin(a) * r];
-      A.poly([p(a0, R), p(a1, R), p(a1, R - thick), p(a0, R - thick)], sn(j % 4 < 2 ? E.stone : A.shade(E.stone, -0.08)));
-      if (j % 3 === 0) { const q = p((a0 + a1) / 2, R - thick / 2); A.lampDot(q[0], q[1], 1, E.accent, E.ng); }
+    const s = Math.min(w, d), cx = x + w / 2, cy = y + d / 2, k = s / 4.5, hit = [];
+    // ---- stage 1: the star-pool, dug in front of a low moonstone dais
+    const pcx = cx + s * 0.27, pcy = cy + s * 0.27;
+    pool(pcx, pcy, s * 0.24, s * 0.17, { stars: 4 + L, moon: L >= 10 });
+    // standing stones round the precinct (from stage 2): the back ones now, the front ones last
+    const SA = [100, 170, 205, 250, 285, 350].map(a => a * Math.PI / 180), sr = s * 0.46;
+    const stoneH = L >= 2 ? 15 + Math.min(L, 10) * 2.2 : 0, stones = SA.map(a => [cx + Math.cos(a) * sr, cy + Math.sin(a) * sr]).sort((p, q) => p[0] + p[1] - q[0] - q[1]);
+    const back = stones.filter(p => p[0] + p[1] < cx + cy), front = stones.filter(p => p[0] + p[1] >= cx + cy), tops = [];
+    if (stoneH) for (const [gx, gy] of back) { tops.push(menhir(gx, gy, stoneH, L)); hit.push([gx - 0.2, gy - 0.2, 0.4, 0.4, stoneH]); }
+    // the flanking hover-spires (from stage 5), standing a little behind the ring's sides
+    const sp = 1.78 * k, sb = 0.32 * k, SP = [[cx - sp - sb, cy + sp - sb], [cx + sp - sb, cy - sp - sb]];
+    let top = 12;
+    if (L >= 5) {
+      const sh = [0, 0, 0, 0, 0, 52, 66, 78, 88, 96, 104][Math.min(L, 10)];
+      for (const [gx, gy] of SP) { const t = spire(gx, gy, 0.2 * k, sh, { gap: 4, motes: 3, finial: L >= 9 }); top = Math.max(top, t); hit.push([gx - 0.3, gy - 0.3, 0.6, 0.6, t]); }
     }
-    if (prog >= 1) { // complete: a crescent hangs in the ring and the space within shimmers
-      c.beginPath(); c.arc(gx, gy - R, R - thick, 0, TAU); c.fillStyle = A.GLOW ? 'rgba(70,50,150,0.35)' : 'rgba(200,220,255,0.28)'; c.fill();
-      crescent(gx, gy - R, R * 0.35); A.rec('sparks', { x: gx, y: gy - R, kind: 'moon' }); light(gx, gy - R, R * 1.4);
-      A.rec('sparks', { x: gx, y: gy - R * 0.5, kind: 'motes', r: R * 0.8, n: 10, h: R * 1.5 });
-    } else { A.box(cx + s * 0.2, cy - s * 0.35, 0.25, 0.25, 0, 5, E.stone); }
-    // the star-pool in front
-    pool(cx + s * 0.1, cy + s * 0.12, s * 0.28, s * 0.22, { stars: 3 + Math.round(prog * 5), moon: prog >= 1 });
-    for (let j = 0; j < n; j++) { const a = j / n * TAU; if (Math.cos(a) + Math.sin(a) <= 0) continue; const [sx, sy] = P(cx + Math.cos(a) * s * 0.42, cy + Math.sin(a) * s * 0.42); A.poly([[sx - 2, sy], [sx + 2, sy], [sx + 1.5, sy - 9], [sx - 1.5, sy - 9]], sn(E.stone)); A.lampDot(sx, sy - 6, 0.8, E.accent, E.ng); }
-    return (R * 2 + 4) / 1;
+    // the dais and its stepped cradle
+    const a1 = s * 0.27, a2 = s * 0.19, a3 = s * 0.1;
+    const d1 = wallBox(cx - a1, cy - a1, a1 * 2, a1 * 2, 0, 6, { stone: true });
+    hit.push([cx - a1, cy - a1, a1 * 2, a1 * 2, 6]);
+    for (const [u, side] of [[a1 * 0.5, 'L'], [a1 * 1.5, 'L'], [a1 * 0.5, 'R'], [a1 * 1.5, 'R']]) { const f = side === 'L' ? A.onL : A.onR, p = f(d1, u, u, 3, 3)[0]; A.lampDot(p[0], p[1], 0.9, E.accent, E.ng); }
+    let zc0 = 6;
+    if (L >= 2) { wallBox(cx - a2, cy - a2, a2 * 2, a2 * 2, 6, 6, { stone: true }); zc0 = 12; }
+    if (L >= 3) { const b3 = A.box(cx - a3, cy - a3, a3 * 2, a3 * 2, 12, 5, sn(A.shade(E.stone, -0.06))); A.courses(b3, 2.5, A.shade(E.stone, -0.18)); zc0 = 17; }
+    hit.push([cx - a2, cy - a2, a2 * 2, a2 * 2, zc0]);
+    top = Math.max(top, zc0 + 4);
+    if (L <= 2) { // cut blocks waiting on the dais
+      for (let j = 0; j < 3; j++) A.box(cx - a2 + 0.1 + j * 0.3, cy + a2 - 0.35, 0.24, 0.24, zc0, 5, sn(A.mix(E.stone, '#ffffff', 0.3)));
+      top = Math.max(top, zc0 + 6);
+    }
+// ---- stages 3–10: the great moonstone ring, raised stone by stone from its foot up both sides
+    const Ro = Math.min(90, (w + d) * A.HW * 0.43), th = Ro * 0.2, Ri = Ro - th, dl = 13 * k, zc = zc0 + Ro;
+    const [X, Y] = P(cx, cy, zc), done = L >= 10;
+    const TH = [0, 0, 0, 0.2, 0.36, 0.5, 0.66, 0.8, 0.9, 1, 1][Math.min(L, 10)] * Math.PI;
+    if (TH > 0) {
+      const RA = [[Math.PI / 2, Math.PI / 2 + TH], [Math.PI / 2, Math.PI / 2 - TH]];
+      const face = sn(done ? '#eceaf8' : E.stone), side = sn(A.shade(E.stone, -0.22));
+      if (done) { // the space within the ring shines
+        c.beginPath(); c.arc(X, Y, Ri, 0, TAU);
+        if (A.GLOW) c.fillStyle = 'rgba(110,90,220,0.32)';
+        else { const g = c.createRadialGradient(X, Y, Ri * 0.1, X, Y, Ri); g.addColorStop(0, 'rgba(235,240,255,0.65)'); g.addColorStop(0.7, 'rgba(190,200,255,0.35)'); g.addColorStop(1, 'rgba(160,170,240,0.5)'); c.fillStyle = g; }
+        c.fill();
+      }
+      for (const [a0, a1] of RA) { // back face, the thickness, then the front face
+        ringArc(X, Y, Ro, Ri, a0, a1, -dl); fill(A.shade(side, -0.12)); stroke(A.OUT, 0.6, A.F(A.OUT));
+        for (let dy = -dl + 2; dy < 0; dy += 2) { ringArc(X, Y, Ro, Ri, a0, a1, dy); fill(side); }
+      }
+      for (const [a0, a1] of RA) {
+        ringArc(X, Y, Ro, Ri, a0, a1, 0);
+        if (A.GLOW) fill(A.F(face)); else { const g = c.createLinearGradient(X - Ro, Y - Ro, X + Ro, Y + Ro); g.addColorStop(0, A.shade(face, 0.1)); g.addColorStop(0.5, face); g.addColorStop(1, A.shade(face, -0.16)); c.fillStyle = g; c.fill(); }
+        stroke(A.OUT, 0.8, A.F(A.OUT));
+        // joints between the voussoirs, runes set in every other stone
+        const n = Math.max(1, Math.round(Math.abs(a1 - a0) / (Math.PI / 11)));
+        for (let j = 1; j <= n; j++) {
+          const a = a0 + (a1 - a0) * j / n, am = a0 + (a1 - a0) * (j - 0.5) / n;
+          if (j < n || TH >= Math.PI) A.line([X + Math.cos(a) * Ri, Y + Math.sin(a) * Ri], [X + Math.cos(a) * Ro, Y + Math.sin(a) * Ro], A.shade(face, -0.25), 0.6);
+          if (L >= 4 && j % 2) A.lampDot(X + Math.cos(am) * (Ri + th / 2), Y + Math.sin(am) * (Ri + th / 2), 1.3 + (done ? 0.4 : 0), E.accent, E.ng);
+        }
+        if (L >= 7) { c.beginPath(); c.arc(X, Y, Ri + th * 0.18, a0, a1, a1 < a0); stroke(done ? GOLD : E.metal, 1, done ? '#fff2c0' : null); }
+      }
+      ghost([[X - Ro, Y], [X - Ro * 0.7, Y - Ro * 0.7], [X, Y - Ro]]);
+      const zTop = TH >= Math.PI ? zc + Ro : zc0 + Ro * (1 - Math.cos(TH));
+      if (TH < Math.PI) { // unfinished: raw blocks at the rising ends and a timber centering across the gap
+        for (const a of [Math.PI / 2 + TH, Math.PI / 2 - TH]) { const px = X + Math.cos(a) * (Ri + th / 2), py = Y + Math.sin(a) * (Ri + th / 2); A.poly([[px - 3, py], [px + 3, py], [px + 3, py - 5], [px - 3, py - 5]], sn(A.mix(E.stone, '#ffffff', 0.35)), A.OUT, 0.5); }
+        c.save(); c.setLineDash([4, 3]); c.beginPath(); c.arc(X, Y, Ri + th / 2, Math.PI / 2 + TH, Math.PI * 2.5 - TH); stroke('rgba(150,120,90,0.8)', 1, A.F('#8a6a4a')); c.restore();
+        for (let j = 1; j <= 3; j++) { const a = Math.PI / 2 + TH + (2 * Math.PI - 2 * TH) * j / 4; A.line([X, Y + Ri * 0.2], [X + Math.cos(a) * (Ri + th / 2), Y + Math.sin(a) * (Ri + th / 2)], 'rgba(140,110,80,0.7)', 0.7); }
+        A.line([X, Y + Ri * 0.2], [X, Y + Ro], 'rgba(140,110,80,0.8)', 1.2);
+      }
+      // the ring's hit: a row of boxes across its face, each as tall as the ring over it
+      for (let j = -2; j <= 2; j++) {
+        const u = j / 2.5, off = u * Ro / (2 * A.HW), hz = Math.max(zc0 + 8, Math.min(zTop, zc + Ro * Math.sqrt(1 - u * u)));
+        hit.push([cx + off - 0.3, cy - off - 0.3, 0.6, 0.6, hz]);
+      }
+      top = Math.max(top, zTop + 4);
+      if (L >= 9) { // the keystone; at 10 a crowned crescent rides on it
+        const ky = Y - Ro;
+        A.poly([[X - 6, ky + th + 1], [X + 6, ky + th + 1], [X + 7.5, ky - 2], [X - 7.5, ky - 2]], sn(done ? '#f6f4ff' : A.mix(E.stone, '#ffffff', 0.3)), A.OUT, 0.7);
+        if (done) {
+          A.line([X, ky - 2], [X, ky - 12], GOLD, 1.4);
+          crescent(X - 2, ky - 20, 8, GOLD, '#fff6d8');
+          const cp = [X, ky - 20]; A.rec('sparks', { x: cp[0], y: cp[1], kind: 'moon' }); light(cp[0], cp[1], 50);
+          top = Math.max(top, zc + Ro + 29);
+        } else top = Math.max(top, zc + Ro + 4);
+      }
+      if (done) { // the moon hanging within, threads from the stones, motes and moths
+        crescent(X - Ro * 0.08, Y, Ri * 0.42, '#f4f0ff', '#ffffff');
+        light(X, Y + Ri * 0.2, Ro * 0.8);
+        A.rec('sparks', { x: X, y: Y + Ri * 0.3, kind: 'motes', r: Ri * 0.9, n: 14, h: Ro * 1.4 });
+        for (const p of tops) thread(p, [X + (p[0] < X ? -Ro * 0.75 : Ro * 0.75), Y - Ro * 0.4], 8);
+        for (let q = 0; q < 4; q++) flyMoth(cx + Math.cos(q * 1.7) * s * 0.3, cy + Math.sin(q * 1.7) * s * 0.3, zc + Ro * (q % 2 ? 0.5 : -0.3));
+      }
+      // the cradle's front saddle grips the ring's foot
+      { const fy = Y + Ro + 3, sw = Ro * 0.5, sh2 = 13, col = sn(A.shade(E.stone, 0.02));
+        A.poly([[X - sw, fy], [X + sw, fy], [X + sw * 0.62, fy - sh2], [X + Ro * 0.2, fy - sh2 + 2], [X - Ro * 0.2, fy - sh2 + 2], [X - sw * 0.62, fy - sh2]], col, A.OUT, 0.7);
+        A.poly([[X - sw, fy], [X + sw, fy], [X + sw * 0.9, fy - 3], [X - sw * 0.9, fy - 3]], A.shade(col, -0.12), A.OUT, 0.5);
+        for (const f of [-0.6, 0, 0.6]) A.lampDot(X + sw * f, fy - 7, 1.1, E.accent, E.ng); }
+    }
+    // the front standing stones
+    if (stoneH) for (const [gx, gy] of front) { const t = menhir(gx, gy, stoneH, L); if (done) thread(t, [X + (t[0] < X ? -Ro * 0.9 : Ro * 0.9), Y], 6); hit.push([gx - 0.2, gy - 0.2, 0.4, 0.4, stoneH]); }
+    if (L >= 6) { const [px, py] = P(pcx, pcy); light(px, py, 26 + L * 2); }
+    return { top, hit, noDress: true };
   };
 
   // ----- walls: briar hedge → bough palisade → moonstone with glass → silver -----

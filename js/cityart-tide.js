@@ -1165,20 +1165,134 @@
   //  WONDER — the Pearl Lighthouse on a spare plot: a mother-of-pearl
   //  spiral with a pearl lantern and a sweeping beam
   // =================================================================
-  B.wonder_tide = wrap(([x, y, w, d], L, band) => {
-    const cx = x + w / 2, cy = y + d / 2, H = 46 + band * 10 + L;
-    roundPool(cx, cy, Math.min(w, d) * 0.42);
-    A.rock(cx - 0.1, cy, 1.4, A.SNOW ? '#d8dcde' : '#9aa49e');
-    const t = spiralTower(cx, cy, 0.3, 4, H, { col: '#f6f0f4', capCol: '#e0d8ec', capH: 12 });
-    // the great pearl lantern crowning it
-    const [px, py] = P(cx, cy, t + 4), pr = 4 + band;
-    A.line([px, py + 4], [px, py], '#d9b44a', 1.4);
-    A.lampDot(px, py - pr, pr, '#f4eef6', '#fff6e0');
-    if (!A.GLOW) { A.circ(px - pr * 0.35, py - pr * 1.35, pr * 0.3, '#ffffff'); c.beginPath(); c.arc(px, py - pr, pr, 0, TAU); stroke('rgba(180,150,200,0.7)', 0.7); }
-    A.rec('beams', { x: px, y: py - pr, col: 'pearl' }); A.rec('lights', { x: px, y: py - pr, r: 40 }); A.rec('sparks', { x: px, y: py - pr, kind: 'star' });
-    A.rock(cx + 0.35, cy + 0.3, 0.9, A.SNOW ? '#d8dcde' : '#9aa49e');
-    gulls(px, py - 18, 26, 3);
-    return t + 6 + pr * 2;
+  // a tapered nacre shaft from z0 to z1 (radii in tiles), wound with coral and teal spirals
+  function nacreShaft(cx, cy, r0, r1, z0, z1, turns) {
+    const [x0, y0] = P(cx, cy, z0), H = z1 - z0, R0 = r0 * A.SQ2 * A.HW, R1 = r1 * A.SQ2 * A.HW, col = sn('#f6f0f4');
+    c.beginPath(); c.moveTo(x0 - R0, y0); c.lineTo(x0 - R1, y0 - H); c.lineTo(x0 + R1, y0 - H); c.lineTo(x0 + R0, y0); c.ellipse(x0, y0, R0, R0 / 2, 0, 0, Math.PI); c.closePath(); A.gradFill(x0 - R0, x0 + R0, col);
+    if (!A.SNOW) for (let k = 0; k < 3; k++) {
+      c.beginPath(); let pen = false;
+      for (let i = 0; i <= 40; i++) { const t = i / 40, rr = R0 + (R1 - R0) * t, a = t * TAU * turns + k * TAU / 3; if (Math.sin(a) < -0.05) { pen = false; continue; } const px = x0 + Math.cos(a) * rr, py = y0 - t * H + Math.sin(a) * rr * 0.5; if (pen) c.lineTo(px, py); else c.moveTo(px, py); pen = true; }
+      stroke(k === 1 ? '#3fb0c0' : '#c0704a', k === 1 ? 1.4 : 2.4);
+    }
+    nacreSheen([[x0 - R0, y0], [x0 - R1, y0 - H], [x0 + R1, y0 - H], [x0 + R0, y0]]);
+    return [x0, y0, R0, R1];
+  }
+  // the raw, unfinished rim of a rising shaft: a hollow top and ragged fresh courses
+  function rawRim(cx, cy, r, z) {
+    const [x, y, rx, ry] = A.ell(cx, cy, z, r);
+    c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, TAU); fill(A.SNOW ? '#f2f6f8' : '#e8ddd0'); stroke(A.OUT, 0.6);
+    c.beginPath(); c.ellipse(x, y, rx * 0.72, ry * 0.72, 0, 0, TAU); fill(A.GLOW ? '#000' : '#5a4e48');
+    for (let k = 0; k < 9; k++) { const a = Math.PI * (k + 0.5) / 9, bx = x + Math.cos(a) * rx * 0.9, by = y + Math.sin(a) * ry * 0.9, hh = k % 3 === 1 ? 0 : k % 2 ? 4 : 2.5; if (!hh) continue; A.poly([[bx - 2.6, by], [bx + 2.6, by], [bx + 2.6, by - hh], [bx - 2.6, by - hh]], sn(k % 2 ? '#efe6dc' : '#e2d6c8'), A.OUT, 0.5); }
+  }
+  // a waterfall spilling over a terrace rim at screen point (x, y), falling h px
+  function spill(x, y, h, wd = 5) {
+    if (A.SNOW) { A.poly([[x - wd / 2, y], [x + wd / 2, y], [x + wd / 2 - 0.5, y + h], [x - wd / 2 + 0.5, y + h]], '#e6f0f6', 'rgba(120,150,170,0.5)', 0.5); return; }
+    A.poly([[x - wd / 2, y], [x + wd / 2, y], [x + wd / 2 + 0.6, y + h], [x - wd / 2 - 0.6, y + h]], A.GLOW ? '#0c2a34' : 'rgba(120,210,225,0.85)', null);
+    if (!A.GLOW) { for (const o of [-0.3, 0.25]) A.line([x + o * wd, y + 1], [x + o * wd, y + h - 1], 'rgba(255,255,255,0.75)', 0.6); c.beginPath(); c.ellipse(x, y + h, wd * 0.9, 1.6, 0, 0, TAU); fill('rgba(255,255,255,0.7)'); }
+  }
+  // a little nacre turret with a conch cap standing on a terrace
+  function pearlTurret(gx, gy, z, h, lit) {
+    const r = 0.17;
+    A.cyl(gx, gy, r * 1.3, z, 3, sn('#e2d4c4'));
+    nacreShaft(gx, gy, r, r * 0.85, z + 3, z + h, 1.2);
+    for (let v = 8; v < h - 4; v += 9) { const [wx, wy] = P(gx + r * 0.6, gy + r * 0.6, z + v); A.lampDot(wx, wy, 1.1, E.glass, '#ffd27a'); }
+    A.cyl(gx, gy, r * 1.15, z + h, 1.6, '#d9b44a');
+    const tip = A.cone(gx, gy, r * 1.05, z + h + 1.6, 13, '#e4dcee');
+    if (!A.SNOW) A.twistLines(gx, gy, z + h + 1.6, tip, r * 1.05, '#a89cc0', 2.4, 0.95);
+    if (lit) { const [px, py] = P(gx, gy, tip); pearlTip(px, py, 1.3); }
+    return tip;
+  }
+
+  B.wonder_tide = wrap(([x, y, w, d], L, band, ctx) => {
+    const s = Math.min(w, d), cx = x + w / 2, cy = y + d / 2, hit = [];
+    const r1 = s * 0.46, r2 = s * 0.335, r3 = s * 0.225, Z1 = 9, Z2 = 20, Z3 = 31;
+    const ROCK = A.SNOW ? '#d8dcde' : '#9aa49e';
+    // ---- ground: tide pools in the site's corners, rocks and coral
+    for (const [px, py, pr] of [[x + 0.45, y + d - 0.45, 0.32], [x + w - 0.45, y + 0.45, 0.32], [x + w - 0.5, y + d - 0.5, 0.36]]) { roundPool(px, py, pr * s / 4.5); }
+    A.rock(x + 0.35, y + 0.35, 1.2, ROCK);
+    if (L >= 2) { coral(x + w - 0.3, y + d - 0.85, 0, 0.9, CORAL[0]); coral(x + w - 0.85, y + d - 0.3, 0, 0.8, CORAL[2]); }
+    // ---- stage 1: the lowest terrace, its top a great ring of tide-pool
+    drum(cx, cy, r1, 0, Z1, sn('#e6d4c4'));
+    roundPool(cx, cy, r1 - 0.1, Z1, false);
+    hit.push([cx - r1, cy - r1, r1 * 2, r1 * 2, Z1]);
+    let top = Z1 + 4;
+    if (L === 1) { A.rock(cx - 0.2, cy - 0.2, 1.6, ROCK); for (let k = 0; k < 3; k++) A.crate(cx - 0.3 + k * 0.28, cy + 0.35, 0.24, Z1); return { top: Z1 + 14, hit }; }
+    // turrets on the lowest terrace (from stage 5): grid offsets round the ring
+    const tr = (r1 + r2) / 2, TUR = [[-tr, 0], [0, -tr], [tr, 0], [0, tr]].map(([ox, oy]) => [cx + ox * 0.98, cy + oy * 0.98]);
+    const turH = 26 + Math.min(L, 10) * 1.5;
+    if (L >= 5) for (const [gx, gy] of TUR.slice(0, 2)) { top = Math.max(top, pearlTurret(gx, gy, Z1, turH, L >= 10)); hit.push([gx - 0.25, gy - 0.25, 0.5, 0.5, Z1 + turH + 14]); }
+    // ---- stage 2: the second terrace with its own pool, spilling over the rim
+    drum(cx, cy, r2, Z1, Z2 - Z1, sn('#eee2d8'));
+    roundPool(cx, cy, r2 - 0.09, Z2, false);
+    hit.push([cx - r2, cy - r2, r2 * 2, r2 * 2, Z2]);
+    { const [ex, ey, rx, ry] = A.ell(cx, cy, Z2, r2); for (const f of [-0.45, 0.4]) spill(ex + rx * f, ey + ry * Math.sqrt(1 - f * f), Z2 - Z1 + 1, 4.5); }
+    { const [ex, ey, rx, ry] = A.ell(cx, cy, Z1, r1); for (const f of [-0.62, 0.05, 0.58]) spill(ex + rx * f, ey + ry * Math.sqrt(1 - f * f), Z1 + 1, 5.5); }
+    top = Math.max(top, Z2 + 4);
+    if (L === 2) { for (let k = 0; k < 3; k++) A.crate(cx - 0.25 + k * 0.26, cy + 0.15, 0.22, Z2); A.rock(cx - 0.15, cy - 0.15, 1.1, ROCK); return { top: Z2 + 12, hit }; }
+    // ---- stage 3: the third terrace, scallop crowns round the lower rims, coral in the pools
+    if (!A.SNOW) for (const a of [0.4, 1.3, 2.2, 3.4, 4.6, 5.6]) coral(cx + Math.cos(a) * (r1 + r2) / 2 * 0.98, cy + Math.sin(a) * (r1 + r2) / 2 * 0.98, Z1, 0.8, CORAL[Math.floor(a * 3) % 3]);
+    drum(cx, cy, r3, Z2, Z3 - Z2, sn('#f4ece6'));
+    scallopCrown(cx, cy, r2 * 1.01, Z2, '#f8f2ee', 1.1);
+    scallopCrown(cx, cy, r1 * 1.0, Z1, '#f0e6dc', 1.3);
+    // arched sea-doors round the third terrace
+    { const [ex, ey, rx, ry] = A.ell(cx, cy, Z2, r3); for (const f of [-0.55, 0, 0.55]) { const xw = ex + rx * f, yb = ey + ry * Math.sqrt(1 - f * f); A.poly([[xw - 2.6, yb], [xw + 2.6, yb], [xw + 2.6, yb - 5.5], [xw, yb - 8.5], [xw - 2.6, yb - 5.5]], '#355a6a', A.OUT, 0.5); A.lampDot(xw, yb - 3.5, 1, '#355a6a', '#ffd27a'); } }
+    hit.push([cx - r3, cy - r3, r3 * 2, r3 * 2, Z3]);
+    top = Math.max(top, Z3 + 4);
+    if (L === 3) { rawRim(cx, cy, r3 * 0.98, Z3); return { top: Z3 + 6, hit }; }
+    // ---- stage 4: the lighthouse foot, a coral drum with a gold band
+    const rb = s * 0.135, rt = rb * 0.62, Zb = Z3 + 13, FULL = 118;
+    drum(cx, cy, rb * 1.3, Z3, Zb - Z3, sn('#efe4da'), false);
+    { const [ex, ey, rx, ry] = A.ell(cx, cy, Z3, rb * 1.3); A.poly([[ex - 3, ey + ry], [ex + 3, ey + ry], [ex + 3, ey + ry - 7], [ex, ey + ry - 10], [ex - 3, ey + ry - 7]], '#2c4a5a', A.OUT, 0.6); A.lampDot(ex, ey + ry - 5, 1.2, '#2c4a5a', '#ffd27a'); }
+    const sh = L <= 4 ? 0 : [0, 0, 0, 0, 0, 48, 96, 108, FULL][L] || FULL;
+    if (L === 4) { rawRim(cx, cy, rb * 1.28, Zb); top = Math.max(top, Zb + 5); }
+    else A.cyl(cx, cy, rb * 1.38, Zb, 2.2, '#d9b44a');
+    let zt = Zb + 2.2;
+    if (sh > 0) { // ---- stages 5–8: the spiral shaft climbs, its top raw until it is finished
+      const f = sh / FULL, rTop = rb + (rt - rb) * f, z1 = zt + sh;
+      const [sx, sy, R0] = nacreShaft(cx, cy, rb, rTop, zt, z1, 2.4 * f);
+      for (let v = 12, k = 0; v < sh - 6; v += 12, k++) { const fr = 1 - v / FULL * 0.38, o = (k % 2 ? 0.35 : -0.3) * R0 * fr; A.poly([[sx + o - 1.4, sy - v], [sx + o + 1.4, sy - v], [sx + o + 1.4, sy - v - 3.5], [sx + o, sy - v - 5], [sx + o - 1.4, sy - v - 3.5]], '#2a4a68', null); A.lampDot(sx + o, sy - v - 2.2, 1.1, '#2a4a68', '#ffd27a'); }
+      if (L >= 7) { // a mid gallery ringed with a rope rail
+        const zg = zt + 56, rg = rb + (rt - rb) * (56 / FULL);
+        A.cyl(cx, cy, rg * 1.25, zg, 1.8, '#d9b44a'); rail2(cx, cy, rg * 1.25, zg + 1.8);
+      }
+      if (L >= 8) { // nautilus medallions and coral buttresses at the foot
+        for (const v of [32, 84]) nautilus(sx, sy - v, 4.2, '#f8eef0');
+        for (const sg of [-1, 1]) A.poly([[sx + sg * R0, sy - 2], [sx + sg * (R0 + 9), sy + 2], [sx + sg * R0 * 0.88, sy - 44]], sn('#eadbd0'), A.OUT, 0.6);
+      }
+      hit.push([cx - rb, cy - rb, rb * 2, rb * 2, z1]);
+      zt = z1; top = Math.max(top, zt + 5);
+      if (L < 9) rawRim(cx, cy, rTop, zt);
+    }
+    if (L >= 9) { // ---- stage 9: the lantern gallery and its gold ribs; 10: glazed, the great pearl lit, the conch cap
+      A.cyl(cx, cy, rt * 1.7, zt, 2.6, '#d9b44a'); rail2(cx, cy, rt * 1.7, zt + 2.6);
+      const [lx, ly] = P(cx, cy, zt + 2.6), cageH = 25, cw = rt * A.SQ2 * A.HW * 1.25, pr = 8;
+      if (L >= 10) A.poly([[lx - cw, ly], [lx + cw, ly], [lx + cw, ly - cageH], [lx - cw, ly - cageH]], A.GLOW ? '#000' : 'rgba(200,236,244,0.45)', null);
+      if (L >= 10) {
+        A.lampDot(lx, ly - cageH / 2, pr, '#f4eef6', '#fff6e0');
+        if (!A.GLOW) { A.circ(lx - pr * 0.35, ly - cageH / 2 - pr * 0.4, pr * 0.3, '#ffffff'); c.beginPath(); c.arc(lx, ly - cageH / 2, pr, 0, TAU); stroke('rgba(180,150,200,0.7)', 0.7); }
+      } else A.rock(cx, cy, 0.5, '#d8d0c8');
+      for (const dx of [-1, -0.45, 0.1, 0.6, 1]) A.line([lx + dx * cw, ly], [lx + dx * cw, ly - cageH], '#d9b44a', 1.1);
+      A.line([lx - cw, ly - cageH], [lx + cw, ly - cageH], '#d9b44a', 1.1);
+      zt += 2.6 + cageH;
+      if (L >= 10) {
+        const capR = rt * 1.5, capC = sn('#e4dcee');
+        A.cyl(cx, cy, capR * 1.08, zt, 2, '#d9b44a');
+        const tip = A.cone(cx, cy, capR, zt + 2, 22, capC);
+        if (!A.SNOW) A.twistLines(cx, cy, zt + 2, tip, capR, '#a89cc0', 3, 0.95);
+        { const [x0, y0, rx] = A.ell(cx, cy, zt + 2, capR); nacreSheen([[x0 - rx, y0], [x0, y0 - 22], [x0 + rx, y0]]); }
+        const [tx, ty] = P(cx, cy, tip); pearlTip(tx, ty, 2.2);
+        const by = ly - cageH / 2;
+        A.rec('beams', { x: lx, y: by, col: 'pearl' }); A.rec('lights', { x: lx, y: by, r: 90 }); A.rec('sparks', { x: lx, y: by, kind: 'star' });
+        A.rec('flags', { x: tx, y: ty - 1, col: A.STY.flag, len: 12, seed: A.R() });
+        gulls(lx, by - 34, 40, 4);
+        top = tip + 8;
+      } else top = Math.max(top, zt + 3);
+      hit.push([cx - rt * 1.5, cy - rt * 1.5, rt * 3, rt * 3, top]);
+    }
+    // front turrets, drawn last
+    if (L >= 5) for (const [gx, gy] of TUR.slice(2)) { top = Math.max(top, pearlTurret(gx, gy, Z1, turH, L >= 10)); hit.push([gx - 0.25, gy - 0.25, 0.5, 0.5, Z1 + turH + 14]); }
+    if (L >= 6) { const [ex, ey] = P(cx, cy, Z3); A.rec('lights', { x: ex, y: ey, r: 30 + L * 2 }); }
+    return { top, hit };
   });
 
   // =================================================================

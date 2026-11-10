@@ -1435,6 +1435,131 @@
     skullPole(cx + 0.38, cy + 0.42, 16, 1);
     return ft + 6;
   });
+
+  // =================================================================
+  //  the Ember Throne (wonder): a throne of fused bone and obsidian over an undying fire.
+  //  Stage by stage: an obsidian plinth with a fire-maw (1), a stepped ziggurat terrace by terrace with a bone-edged
+  //  stair (1-5), braziers (3+) and skull standards (4+); then the throne itself on its dais (6), its towering back
+  //  ribbed with bone (7), great horns rising from it (8, full-grown at 9) and at 10 the undying fire: a crown of
+  //  flame between gilded horns, a fire-bowl before the seat, lava running down the stair and embers on the wind.
+  //  Below 6 the top terrace is a work floor of raw obsidian blocks.
+  // =================================================================
+  // a thick tapering bone horn from (x, y) curving out to side sg and up h px (screen space)
+  function greatHorn(x, y, sg, h, wid, col = BONE) {
+    const pts = [], back = [];
+    for (let i = 0; i <= 10; i++) {
+      const t = i / 10, a = t * Math.PI * 0.62, px = x + sg * Math.sin(a) * h * 0.55 - sg * Math.pow(t, 3) * h * 0.12, py = y - (1 - Math.cos(a)) * h * 0.25 - t * h * 0.7, ww = wid * (1 - t * 0.92);
+      pts.push([px - ww * 0.6, py + ww * sg * 0.3]); back.unshift([px + ww * 0.6, py - ww * sg * 0.3]);
+    }
+    A.poly(pts.concat(back), col, A.OUT, 0.8);
+    if (!A.GLOW) for (let i = 2; i < 10; i += 2) A.line(pts[i], back[10 - i], A.shade(col, -0.22), 0.6);
+    return pts[10];
+  }
+  // a static flame shape (outer, middle, core), bright in the night pass
+  function flameShape(x, y, w, h) {
+    const c = A.c;
+    for (const [k, day, night] of [[1, '#c8401a', '#ff7a2a'], [0.68, '#f08a2a', '#ffb050'], [0.36, '#ffd860', '#fff0a0']]) {
+      const ww = w * k, hh = h * k;
+      c.beginPath(); c.moveTo(x - ww, y);
+      c.quadraticCurveTo(x - ww * 1.1, y - hh * 0.45, x - ww * 0.35, y - hh * 0.7); c.quadraticCurveTo(x - ww * 0.2, y - hh * 0.85, x, y - hh);
+      c.quadraticCurveTo(x + ww * 0.25, y - hh * 0.8, x + ww * 0.45, y - hh * 0.62); c.quadraticCurveTo(x + ww * 1.1, y - hh * 0.4, x + ww, y);
+      c.closePath(); c.fillStyle = A.GLOW ? night : day; c.fill();
+    }
+  }
+  def('wonder_ash', ([x, y, w, d], L) => {
+    L = Math.max(1, Math.min(10, Math.round(L) || 1));
+    const M = CITYART.mage, P = A.P, s = Math.min(w, d), k = s / 4.5, cx = x + w / 2, cy = y + d / 2, hits = [];
+    const m = 'obs', OB2 = '#3a3240', floor = A.SNOW ? '#e8eaec' : '#4a3e44';
+    // the plinth, with a fire-maw on its front-left face: the undying fire burns beneath the whole mount
+    const pl = 0.2, pb = stoneBlock(x + pl, y + pl, w - pl * 2, d - pl * 2, 0, 7, m, { slits: false });
+    A.poly(A.quad(x + pl, y + pl, w - pl * 2, d - pl * 2, 7), floor);
+    hits.push([x + pl, y + pl, w - pl * 2, d - pl * 2, 7]);
+    const TH = [22, 20, 19, 18, 17], inset = 0.27 * k, n = Math.min(5, L);
+    let tw = w - 0.9, td = d - 0.9, z = 7, prevIn = 0.25;
+    const tiers = [];
+    for (let i = 0; i < n; i++) {
+      const bx = cx - tw / 2, by = cy - td / 2, h = TH[i] * (0.85 + k * 0.15), fresh = i === n - 1 && L < 6;
+      const b = stoneBlock(bx, by, tw, td, z, h, m, { col: fresh ? '#3e3646' : OB2, door: true });
+      // a bone-edged stair up the middle of the front-left face
+      const sw = Math.min(0.5, tw * 0.2), run = Math.max(0.15, prevIn), fy = by + td;
+      const q = [P(cx - sw / 2, fy + run, z), P(cx + sw / 2, fy + run, z), P(cx + sw / 2, fy, z + h), P(cx - sw / 2, fy, z + h)];
+      A.poly([P(cx + sw / 2, fy + run, z), P(cx + sw / 2, fy, z), P(cx + sw / 2, fy, z + h)], '#1e1820');
+      A.poly(q, '#5a4c54');
+      if (!A.GLOW) for (let st = 1; st < 7; st++) { const t = st / 7; A.line(A.lerp2(q[0], q[3], t), A.lerp2(q[1], q[2], t), '#2a2228', 0.5); }
+      A.line(q[0], q[3], BONE, 1.4); A.line(q[1], q[2], BONE, 1.4);
+      if (L >= 10) { // lava runs down beside the stair
+        for (const sg of [-1, 1]) { const u = cx + sg * (sw / 2 + 0.07); A.lamp([P(u - 0.03, fy + 0.01, z), P(u + 0.03, fy + 0.01, z), P(u + 0.03, fy + 0.01, z + h), P(u - 0.03, fy + 0.01, z + h)], '#d0501a', '#ffa040'); }
+      }
+      // a fissure of ember light down the right face
+      { const f = A.onR(b, td * 0.5 - 0.03, td * 0.5 + 0.03, 2, h - 3); A.lamp(f, '#6a2416', '#ff7a2a'); }
+      A.poly(A.quad(bx, by, tw, td, z + h), floor);
+      if (!fresh) spikeTop({ x: bx, y: by, w: tw, d: td, z, h, col: OB2 }, 3.5, BONE);
+      hits.push([bx, by, tw, td, z + h]);
+      tiers.push({ bx, by, tw, td, z, h });
+      z += h; prevIn = inset;
+      if (i < n - 1) { tw -= inset * 2; td -= inset * 2; }
+    }
+    const top0 = z, bx = cx - tw / 2, by = cy - td / 2;
+    // fire-maw in the plinth front, firelit
+    { const u = (w - pl * 2) / 2, q = A.onL(pb, u - 0.35, u + 0.35, 0, 6); A.lamp(q, '#5a1a10', '#ff9a40'); const [fx, fy] = A.lerp2(q[0], q[1], 0.5); A.rec('fires', { x: fx, y: fy, s: 0.9 }); A.rec('lights', { x: fx, y: fy - 4, r: 30 }); }
+    // braziers on the terrace corners we see, skull standards on the plinth corners
+    if (L >= 3) tiers.slice(0, -1).forEach(t => { for (const [gx, gy] of [[t.bx + t.tw - 0.12, t.by + t.td - 0.12], [t.bx + 0.12, t.by + t.td - 0.12], [t.bx + t.tw - 0.12, t.by + 0.12]]) brazier(gx, gy, t.z + t.h, 0.6, false); });
+    if (L >= 4) for (const [gx, gy] of [[x + pl + 0.15, y + d - pl - 0.15], [x + w - pl - 0.15, y + d - pl - 0.15], [x + w - pl - 0.15, y + pl + 0.15]]) skullPole(gx, gy, 22 + Math.min(L, 9) * 1.5, 2, 7);
+    let top = z;
+    if (L < 6) { // the work floor: raw obsidian blocks waiting to be set
+      for (const [u, v, hh] of [[0.2, 0.25, 5], [0.55, 0.2, 4], [0.3, 0.6, 6]]) stoneBlock(bx + tw * u, by + td * v, 0.28 * k, 0.24 * k, z, hh, m, { slits: false });
+      top = z + 8;
+    } else {
+      // the dais and the throne, facing down the stair
+      const dz = z, dais = A.box(bx + 0.08, by + 0.08, tw - 0.16, td - 0.16, dz, 6, OB2);
+      if (!A.GLOW) A.courses(dais, 3, A.shade(OB2, 0.12));
+      A.poly(A.quad(bx + 0.08, by + 0.08, tw - 0.16, td - 0.16, dz + 6), '#2a2228');
+      const z1 = dz + 6, bw = Math.min(tw - 0.3, 1.25 * k), x0 = cx - bw / 2, yb = by + 0.14, bd = 0.24 * k;
+      const BH = L >= 7 ? 50 : 30;
+      const back = stoneBlock(x0, yb, bw, bd, z1, BH, m, { slits: false });
+      // fused bone: ribs up the face of the throne back
+      const nR = 5; for (let i = 0; i < nR; i++) { const u = bw * (i + 0.5) / nR, q2 = A.onL(back, u, u, 3, BH - (L >= 7 ? 6 : 2)); A.line(q2[0], q2[1], BONE, L >= 7 ? 2 : 1.4); }
+      if (L >= 7) { const p = A.onL(back, bw / 2, bw / 2, BH * 0.62, BH * 0.62)[0]; horns(p[0], p[1] - 1, 1.3); A.skull(p[0], p[1] + 1, 1.6); A.lampDot(p[0] - 1.2, p[1] + 0.5, 0.6, '#3a1010', '#ff7a2a'); A.lampDot(p[0] + 1.2, p[1] + 0.5, 0.6, '#3a1010', '#ff7a2a'); }
+      else { // raw courses at the unfinished top of the back
+        for (let i = 0; i < 3; i++) stoneBlock(x0 + bw * (0.1 + i * 0.3), yb, 0.2 * k, bd, z1 + BH, 4, m, { slits: false });
+      }
+      // armrests ending in skulls, then the seat
+      for (const ax of [x0, x0 + bw - 0.2 * k]) { const ar = A.box(ax, yb + bd, 0.2 * k, 0.55 * k, z1, 14, OB2); const p = A.onL(ar, 0.1 * k, 0.1 * k, 15, 15)[0]; A.skull(p[0], p[1] - 1, 0.9); }
+      const seat = A.box(x0 + 0.2 * k, yb + bd, bw - 0.4 * k, 0.5 * k, z1, 9, '#2e2632');
+      A.poly(A.quad(x0 + 0.2 * k, yb + bd, bw - 0.4 * k, 0.5 * k, z1 + 9), RED);
+      if (!A.GLOW) A.line(A.onL(seat, 0, seat.w, 6, 6)[0], A.onL(seat, 0, seat.w, 6, 6)[1], GOLD, 0.8);
+      hits.push([x0, yb, bw, bd + 0.55 * k, z1 + BH]);
+      top = z1 + BH;
+      // the great horns rise from the throne's top corners
+      if (L >= 8) {
+        const hl = (L >= 9 ? 46 : 28) * (0.8 + k * 0.2), wid = 11 * k + 2;
+        const pL = P(x0 + 0.06, yb + bd, z1 + BH - 2), pR = P(x0 + bw - 0.06, yb + bd, z1 + BH - 2);
+        const tL = greatHorn(pL[0], pL[1], -1, hl, wid), tR = greatHorn(pR[0], pR[1], 1, hl, wid);
+        if (L >= 10) for (const t of [tL, tR]) { A.circ(t[0], t[1], 2, GOLD, A.OUT); A.rec('sparks', { x: t[0], y: t[1] - 2, kind: 'star' }); }
+        top = Math.max(top, z1 + BH - 2 + hl * 0.95);
+        hits.push([x0 - 0.5 * k, yb, bw + k, bd, top]);
+      }
+      if (L >= 9) { // tusks arching up from the dais sides to frame the throne
+        for (const [gx, sg] of [[bx + 0.15, -1], [bx + tw - 0.15, 1]]) { const p = P(gx, by + td * 0.55, z1); curve(p, [p[0] + sg * 14, p[1] - 22], [p[0] - sg * 2, p[1] - 40], BONE, 4.2); }
+      }
+      if (L >= 10) { // the undying fire: a crown of flame between the horns, a fire-bowl before the seat
+        const [hx, hy] = P(cx, yb + bd / 2, z1 + BH);
+        flameShape(hx, hy + 2, 12 * k + 3, 40 * k + 8);
+        A.rec('fires', { x: hx, y: hy - 4, s: 3.2 }); A.rec('fires', { x: hx - 6, y: hy, s: 1.8 }); A.rec('fires', { x: hx + 6, y: hy, s: 1.8 });
+        A.rec('lights', { x: hx, y: hy - 18, r: 110 });
+        M.rise(A, hx, hy - 20, { r: 16, h: 60, n: 12, col: '#ffb050', sp: 0.14, sz: 2.2 });
+        smoke(cx, yb + bd / 2, z1 + BH + 40, 'hall', true);
+        const fb = P(cx, by + td - 0.12, dz + 6);
+        A.poly([[fb[0] - 7, fb[1] - 3], [fb[0] + 7, fb[1] - 3], [fb[0] + 4.5, fb[1] + 1.5], [fb[0] - 4.5, fb[1] + 1.5]], '#1a1418', A.OUT);
+        flameShape(fb[0], fb[1] - 3, 5, 13);
+        A.rec('fires', { x: fb[0], y: fb[1] - 3, s: 1.6 }); A.rec('lights', { x: fb[0], y: fb[1] - 8, r: 44 });
+        top = Math.max(top, z1 + BH + 40 * k + 12);
+        for (const [gx, gy] of [[x + pl + 0.5, y + d - pl - 0.15], [x + w - pl - 0.15, y + pl + 0.5]]) hornBanner(gx, gy, 34, RED, 7);
+      }
+    }
+    void top0;
+    return { top, hit: hits };
+  });
 })();
 
 // cityview opt-outs (the return-object format in js/cityart.js): stock extras this people's art already draws itself.

@@ -1280,6 +1280,157 @@
     if (band >= 3 && era() >= 3 && st) { const [rx, ry] = at(a + len / 2, base * 0.5); A.lampDot(rx, ry, 1.2, '#9ad8e8', '#d8f8ff'); }
     return base + H + 8;
   });
+
+  // =================================================================
+  //  the World-Root Tree (wonder): a sapling of the first tree, sung into a living tower that touches the clouds.
+  //  Stage by stage: great arching roots and singing stones (1), the braided trunk climbing with a spiral stair (2+),
+  //  decks of pod-halls (3, 5, 7), boughs (5+), tiers of canopy (7, 8), a bare leader reaching up (9) and at 10 a
+  //  vast glowing crown in the clouds, with fireflies, motes of light and birds. Below 10 the top is a raw growing
+  //  leader inside a wicker guide-frame.
+  // =================================================================
+  // a tapering trunk section (frustum) with braided strands spiralling up its front
+  function taperTrunk(cx, cy, r0, r1, z0, h, col, ph = 0) {
+    const c = A.c, [x0, y0, rx0, ry0] = A.ell(cx, cy, z0, r0), [x1, y1, rx1] = A.ell(cx, cy, z0 + h, r1);
+    c.beginPath(); c.moveTo(x0 - rx0, y0); c.lineTo(x1 - rx1, y1); c.lineTo(x1 + rx1, y1); c.lineTo(x0 + rx0, y0); c.ellipse(x0, y0, rx0, ry0, 0, 0, Math.PI); c.closePath();
+    A.gradFill(x0 - rx0, x0 + rx0, col);
+    if (A.GLOW) return;
+    // braided strands: the sung trunk is many trunks twined into one
+    const dk = A.shade(col, -0.3), lt = A.shade(col, 0.16);
+    for (let k = 0; k < 5; k++) {
+      let pen = false; c.beginPath();
+      for (let i = 0; i <= 14; i++) {
+        const t = i / 14, a = ph + k / 5 * Math.PI * 2 + t * Math.PI * 0.9, rr = (r0 + (r1 - r0) * t) * 0.99, [px, py] = A.P(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, z0 + h * t);
+        if (front(a)) { if (pen) c.lineTo(px, py); else c.moveTo(px, py); pen = true; } else pen = false;
+      }
+      stroke(dk, 1.3);
+      c.save(); c.translate(-1, 0); stroke(lt, 0.5); c.restore();
+    }
+  }
+  // one great root: arching out of the trunk foot and diving into the ground at radius R
+  function bigRoot(cx, cy, t, r0, R, h, wid, col) {
+    const L1 = [], L2 = [], nx = -Math.sin(t), ny = Math.cos(t);
+    for (let i = 0; i <= 9; i++) {
+      const u = i / 9, rr = r0 + (R - r0) * u, z = h * Math.pow(1 - u, 1.7) + Math.sin(u * Math.PI) * h * 0.25, ww = wid * (1 - u * 0.8);
+      const gx = cx + Math.cos(t) * rr, gy = cy + Math.sin(t) * rr;
+      L1.push(A.P(gx + nx * ww, gy + ny * ww, z)); L2.unshift(A.P(gx - nx * ww, gy - ny * ww, z));
+    }
+    A.poly(L1.concat(L2), col, A.OUT, 0.7);
+    if (!A.GLOW) { const m = L1.map((p, i) => [(p[0] + L2[9 - i][0]) / 2, (p[1] + L2[9 - i][1]) / 2 - 1.2]); A.c.beginPath(); A.c.moveTo(m[0][0], m[0][1]); for (const p of m) A.c.lineTo(p[0], p[1]); stroke(A.shade(col, 0.14), 0.8); }
+  }
+  // a cluster of crown blobs, with lit motes in the night pass when glowing
+  function canopy(gx, gy, z, r, glow) {
+    const [x, y] = A.P(gx, gy, z), Rr = r * A.HW * 1.1;
+    A.blobs(x, y, Rr, glow && A.SEASON !== 3 ? ['#2f7a4a', '#5fbf6a', '#d8f8a0'] : leaves(), A.SEASON === 0);
+    if (glow) for (let k = 0; k < 4 + Math.round(r * 5); k++) { const a = A.R() * Math.PI * 2, rr = A.R() * Rr * 0.85; A.lampDot(x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.75, 1.2, '#f4f0a0', '#fff8c0'); }
+    return [x, y, Rr];
+  }
+  def('wonder_sylvan', ([x, y, w, d], L) => {
+    L = Math.max(1, Math.min(10, Math.round(L) || 1));
+    const M = CITYART.mage, S = scene(), s = Math.min(w, d), cx = x + w / 2, cy = y + d / 2, k = s / 4.5;
+    const col = bark(true), dk = A.shade(col, -0.1);
+    const TH = [30, 50, 70, 88, 104, 120, 133, 145, 152, 156][L - 1];   // trunk top
+    const r0 = 0.62 * k, rAt = z => r0 * (1 - 0.52 * Math.min(1, z / 156));
+    const Rr = s * 0.45, hits = [[x + 0.25, y + 0.25, w - 0.5, d - 0.5, 14]];
+    const ROOTS = (L >= 3 ? [0.1, 0.95, 1.85, 2.75, 3.65, 4.55, 5.45] : [0.35, 1.6, 2.85, 4.1, 5.3]);
+    const rootH = 12 + Math.min(L, 6) * 3;
+    const DECKS = [[3, 46], [5, 82], [7, 114]].filter(e => L >= e[0] && e[1] < TH - 8).map(e => e[1]);
+    // singing stones on the site corners (the back one hides behind the tree)
+    const corners = [[x + 0.35 * k, y + 0.35 * k], [x + w - 0.35 * k, y + 0.35 * k], [x + 0.35 * k, y + d - 0.35 * k], [x + w - 0.35 * k, y + d - 0.35 * k]];
+    corners.forEach(([gx, gy], i) => S.add(gx, gy, () => {
+      const top = menhir(gx, gy, 14 + Math.min(L, 8) * 1.5, 1.1);
+      if (L >= 2) { const [px, py] = A.P(gx, gy, top * 0.55); A.lampDot(px - 0.5, py, 1.3, '#7ab8c8', '#c8f4ff'); A.rec('lights', { x: px, y: py, r: 12, col: 'grove' }); }
+      if (L >= 10 && i) { const [px, py] = A.P(gx, gy, top + 3); M.pulse(A, px, py, 4, '#bff0d8'); }
+      return top;
+    }));
+    // the tree: back roots, back stair, trunk, decks, front stair, front roots, boughs, canopy
+    S.add(cx, cy, () => {
+      for (const t of ROOTS) if (!front(t)) bigRoot(cx, cy, t, r0 * 0.7, Rr, rootH, 0.2 * k, A.shade(dk, -0.12));
+      const segs = [0, ...DECKS.map(z => z + 2.2), TH];
+      // the spiral stair winds up from the ground to the highest deck
+      const stairTop = DECKS.length ? DECKS[DECKS.length - 1] : 0;
+      const stairSeg = (part) => { for (let i = 0; i < DECKS.length; i++) { const z0 = i ? DECKS[i - 1] + 2.2 : 2, z1 = DECKS[i]; stair(cx, cy, rAt((z0 + z1) / 2) + 0.02, z0, z1, 1, part, 0.6 + i * 0.4); } };
+      if (L >= 2 && stairTop) stairSeg('back');
+      else if (L === 2) stair(cx, cy, r0 * 0.9, 2, TH - 10, 0.8, 'back');
+      for (let i = 0; i < segs.length - 1; i++) {
+        const z0 = segs[i], z1 = i < DECKS.length ? DECKS[i] : TH;
+        taperTrunk(cx, cy, rAt(z0), rAt(z1), z0, z1 - z0, col, i * 0.7);
+        if (i < DECKS.length) { const dr = rAt(z1) + 0.38 * k; deck(cx, cy, dr, z1, rAt(z1)); rail(cx, cy, dr, z1 + 2.2, false); }
+      }
+      // the great door and lit windows grown into the bark
+      { const [dx, dy] = Gp(cx, cy, Math.PI / 4, r0 * 0.98, 0), dw = 5.5 * k + 1, dh = 17 * k + 2;
+        A.poly([[dx - dw - 1.5, dy], [dx + dw + 1.5, dy], [dx + dw + 1.5, dy - dh + dw], [dx, dy - dh - 2.5], [dx - dw - 1.5, dy - dh + dw]], stoneOf() || A.STY.trim);
+        lightFill(c => { c.moveTo(dx - dw, dy); c.lineTo(dx - dw, dy - dh + dw); c.arc(dx, dy - dh + dw, dw, Math.PI, 0); c.lineTo(dx + dw, dy); c.closePath(); }, '#2a1e14', '#ffcf66');
+        A.rec('lights', { x: dx, y: dy - dh / 2, r: 22 }); }
+      for (let z = 26, j = 0; z < TH - 10; z += 19, j++) if (!DECKS.some(dz => Math.abs(dz - z) < 9)) roundWin(cx, cy, rAt(z), z, j % 2 ? 1.25 : -0.2, 1.8);
+      // pod-halls and lanterns on the decks
+      DECKS.forEach((dz, i) => {
+        const zz = dz + 2.2, dr = rAt(dz) + 0.38 * k, rt = rAt(dz);
+        const a = [0.95, -0.15, 1.9][i], hr = 0.17 * k;
+        trunkHall(cx + Math.cos(a) * (rt + hr + 0.04), cy + Math.sin(a) * (rt + hr + 0.04), hr, 9, { z: zz, rh: 12 });
+        rail(cx, cy, dr, zz, true);
+        for (const t of [0.3, 1.5]) { const [lx, ly] = Gp(cx, cy, t, dr, dz); hang(lx, ly + 8, 1.5); }
+      });
+      if (L >= 2 && stairTop) stairSeg('front');
+      else if (L === 2) stair(cx, cy, r0 * 0.9, 2, TH - 10, 0.8, 'front');
+      for (const t of ROOTS) if (front(t)) bigRoot(cx, cy, t, r0 * 0.7, Rr, rootH, 0.2 * k, dk);
+      // little rootlets and moss between the great roots
+      if (L >= 4 && !A.GLOW) for (const t of ROOTS) if (front(t + 0.45)) bigRoot(cx, cy, t + 0.45, r0 * 0.9, Rr * 0.7, rootH * 0.4, 0.08 * k, A.shade(dk, 0.05));
+      hits.push([cx - r0, cy - r0, r0 * 2, r0 * 2, TH]);
+      let top = TH;
+      // boughs and canopy tiers
+      const rT = rAt(TH);
+      const bough = (t, z, len, lift, cr, glow) => {
+        const a = Gp(cx, cy, t, rAt(z) * 0.8, z), ex = cx + Math.cos(t) * (rAt(z) + len), ey = cy + Math.sin(t) * (rAt(z) + len), b = A.P(ex, ey, z + lift);
+        curve(a, [(a[0] + b[0]) / 2, a[1] - lift * 0.2], b, col, 3.4 * k + 1.2);
+        if (cr) { canopy(ex, ey, z + lift + cr * A.HW * 0.5, cr, glow); return z + lift + cr * A.HW * 1.4; }
+        return z + lift;
+      };
+      const glow = L >= 10;
+      const backB = [], frontB = [];
+      if (L >= 5) [[3.9, 98, 0.75], [2.4, 92, 0.8]].forEach(e => backB.push(e));
+      if (L >= 6) [[0.4, 104, 0.85], [-0.6, 110, 0.7]].forEach(e => frontB.push(e));
+      if (L >= 7) [[4.8, 124, 0.95], [1.4, 120, 1.0]].forEach(e => (front(e[0]) ? frontB : backB).push(e));
+      if (L >= 8) [[2.9, 134, 1.05], [0.9, 136, 0.9], [-0.3, 132, 1.0]].forEach(e => (front(e[0]) ? frontB : backB).push(e));
+      for (const [t, z, len] of backB.concat(frontB)) if (z < TH) top = Math.max(top, bough(t, z, len * k * 1.15, 12, (0.36 + len * 0.18) * k, glow));
+      if (L < 10) {
+        // the growing leader: a raw young shoot inside a wicker guide-frame
+        const lh = 14 + L * 1.5, [tx, ty] = A.P(cx, cy, TH + lh);
+        taperTrunk(cx, cy, rT * 0.55, rT * 0.18, TH, lh, A.mix(col, '#9aa860', 0.35));
+        const fr = rT * 1.25;
+        for (const t of [-0.5, 0.6, 1.7, 2.8, 3.9, 5.0]) A.line(Gp(cx, cy, t, fr, TH), Gp(cx, cy, t, fr * 0.6, TH + lh + 6), WICKER, 1);
+        for (const z of [TH + 6, TH + lh * 0.7]) { const rr = fr * (1 - (z - TH) / (lh + 6) * 0.4), [ex, ey, rx, ry] = A.ell(cx, cy, z, rr); A.c.beginPath(); A.c.ellipse(ex, ey, rx, ry, 0, 0, Math.PI); stroke(WICKER, 1.1); }
+        const lc = leaves(); for (const [dx, dy] of [[-4, 3], [4, 1], [0, -2]]) A.circ(tx + dx, ty + dy, 3, lc[1], A.OUT);
+        if (L >= 9) { // bare upper boughs fanning out, waiting for their leaves
+          for (const t of [0.2, 1.5, 2.9, 4.4]) { const a = A.P(cx, cy, TH - 2), b = Gp(cx, cy, t, 1.1 * k, TH + 22); curve(a, [(a[0] + b[0]) / 2, b[1] + 6], b, col, 2.2); A.circ(b[0], b[1], 2.4, lc[0], A.OUT); }
+        }
+        top = Math.max(top, TH + lh + 8);
+        if (L >= 4) { const [lx, ly] = A.P(cx, cy, TH + 4); hang(lx + rT * 30, ly + 6, 1.4); }
+      } else {
+        // the crown in the clouds: a great glowing canopy, lit from within
+        for (const t of [3.6, 2.4, 4.8]) canopy(cx + Math.cos(t) * 1.25 * k, cy + Math.sin(t) * 1.25 * k, TH + 12, 0.85 * k, true);
+        for (const t of [0.3, 1.3, -0.6]) { const a = A.P(cx, cy, TH - 4), b = Gp(cx, cy, t, 1.0 * k, TH + 14); curve(a, [(a[0] + b[0]) / 2, b[1] + 8], b, col, 3); }
+        for (const t of [0.2, 1.4, -0.85]) canopy(cx + Math.cos(t) * 1.2 * k, cy + Math.sin(t) * 1.2 * k, TH + 10, 0.85 * k, true);
+        const [hx, hy, HR] = canopy(cx, cy, TH + 30, 1.25 * k, true);
+        // clouds drifting round the crown
+        M.cloud(A, hx - HR * 1.05, hy + HR * 0.55, 1.2 * k, '#f4f6fa'); M.cloud(A, hx + HR * 1.1, hy + HR * 0.2, 1.0 * k, '#eef2f8');
+        // the heart of the tree: a lantern of living light in the crown
+        M.orb(A, hx, hy + HR * 0.15, 4 * k + 1, '#c8f0a0');
+        A.rec('lights', { x: hx, y: hy, r: HR * 2.4, col: 'grove' });
+        A.rec('sparks', { x: hx, y: hy + HR * 0.2, kind: 'grove', r: HR * 1.2 });
+        M.rise(A, hx, hy + HR * 0.6, { r: HR * 0.9, h: HR * 1.6, n: 10, col: '#f4f0a0', sp: 0.08 });
+        A.rec('birds', { x: hx, y: hy - HR * 0.6, r: HR * 1.3, n: 4, seed: A.R() });
+        for (const t of [0.4, 1.4]) { const p = Gp(cx, cy, t, 1.1 * k, TH + 14); tealLamp(p[0], p[1] + 8, 1.8); }
+        top = TH + 30 + HR * 1.15;
+        hits.push([cx - 0.9 * k, cy - 0.9 * k, 1.8 * k, 1.8 * k, top - 20]);
+      }
+      if (L >= 6) fireflies(cx, cy, TH * 0.6, 30 + L * 3);
+      return top;
+    });
+    // leaf banners on the front corners of the precinct from stage 4
+    if (L >= 4) for (const [gx, gy] of [[x + w - 0.75 * k, y + d - 0.2 * k], [x + 0.2 * k, y + d - 0.75 * k]]) S.add(gx, gy, () => leafBanner(gx, gy, 26 + Math.min(L, 9) * 1.5));
+    const top = S.run();
+    return { top, hit: hits };
+  });
 })();
 
 // cityview opt-outs (the return-object format in js/cityart.js): stock extras this people's art already draws itself.

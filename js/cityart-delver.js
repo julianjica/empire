@@ -1277,6 +1277,149 @@
     A.rec('beams', { x: bx, y: by - 5 }); A.rec('lights', { x: bx, y: by - 5, r: 34 });
     return { top: zt + 4, noDress: true };
   });
+
+  // =====================================================================
+  //  WONDER — The Anvil of Ages: a hold hall carved in terraces into a mountain's roots, the Great
+  //  Forge stack rising out of it, molten falls down the terraces, the colossal anvil before the gate.
+  // =====================================================================
+  // the mountain behind the hall: a crag rising to a peak of height hm (screen-space ridge on grid anchors)
+  function wMountain(x, y, w, d, hm, L) {
+    const c = A.c, col = ROCK;
+    const ridge = [[x + 0.02, y + d * 0.78, 0], [x - 0.05, y + d * 0.55, hm * 0.42], [x + 0.08, y + d * 0.3, hm * 0.66], [x + w * 0.2, y + 0.28, hm * 0.86], [x + w * 0.4, y + 0.2, hm],
+      [x + w * 0.52, y + 0.08, hm * 0.9], [x + w * 0.66, y - 0.02, hm * 0.72], [x + w * 0.82, y + 0.02, hm * 0.45], [x + w * 0.98, y + 0.05, 0]].map(p => P(...p));
+    c.beginPath(); c.moveTo(...ridge[0]); for (let i = 1; i < ridge.length; i++) c.lineTo(...ridge[i]); c.lineTo(...P(x + w * 0.6, y + d * 0.6, 0)); c.closePath();
+    A.gradFill(ridge[1][0], ridge[ridge.length - 1][0], col);
+    // a lit face down from the peak, ledges and cracks
+    poly([ridge[3], ridge[4], P(x + w * 0.45, y + d * 0.3, hm * 0.4), P(x + w * 0.22, y + d * 0.42, hm * 0.3)], A.SNOW ? '#eef3f6' : shade(col, 0.12), null);
+    line(ridge[2], P(x + w * 0.25, y + d * 0.45, hm * 0.2), shade(col, -0.3), 0.8);
+    line(ridge[6], P(x + w * 0.62, y + d * 0.3, hm * 0.25), shade(col, -0.3), 0.8);
+    if (hm > 70) { // snow on the summit
+      const pk = ridge[4], a = lerp2(pk, ridge[3], 0.3), b = lerp2(pk, ridge[5], 0.45);
+      poly([a, pk, b, [b[0] - 3, b[1] + 4], [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + 2], [a[0] + 2, a[1] + 5]], '#f2f6f8', null);
+    }
+    if (L >= 4) { // molten veins glowing in the rock
+      for (const [p0, p1] of [[[x + w * 0.3, y + d * 0.35, hm * 0.62], [x + w * 0.38, y + d * 0.4, hm * 0.3]], [[x + w * 0.58, y + d * 0.2, hm * 0.6], [x + w * 0.66, y + d * 0.3, hm * 0.28]]]) {
+        const a = P(...p0), b = P(...p1), m = [(a[0] + b[0]) / 2 + 3, (a[1] + b[1]) / 2];
+        A.lamp([[a[0] - 0.8, a[1]], [m[0] - 0.8, m[1]], [b[0] - 0.8, b[1]], [b[0] + 0.8, b[1]], [m[0] + 0.8, m[1]], [a[0] + 0.8, a[1]]], '#b8501a', '#ff9a3a');
+      }
+    }
+    return ridge[4];
+  }
+  const lerp2 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  // the colossal anvil (iso masses along x) on a stepped plinth at (ax, ay); k = scale; gilt in the Legend era / at 10
+  function wAnvil(ax, ay, k, z0, gilt, hot) {
+    const met = gilt ? '#5a5048' : '#3e3c40', edge = gilt ? GOLD : '#6a6870';
+    box(ax - 0.42 * k, ay - 0.26 * k, 0.84 * k, 0.52 * k, z0, 6 * k, met);                 // foot
+    box(ax - 0.22 * k, ay - 0.15 * k, 0.44 * k, 0.3 * k, z0 + 6 * k, 7 * k, shade(met, -0.05));  // waist
+    const fz = z0 + 13 * k, face = box(ax - 0.5 * k, ay - 0.22 * k, 1.0 * k, 0.44 * k, fz, 7 * k, met, { top: shade(met, 0.3) });
+    // the horn, tapering out along +x
+    const hx = ax + 0.5 * k;
+    poly([P(hx, ay + 0.22 * k, fz), P(hx + 0.55 * k, ay + 0.02 * k, fz + 5 * k), P(hx + 0.55 * k, ay, fz + 7 * k), P(hx, ay + 0.22 * k, fz + 7 * k)], met);
+    poly([P(hx, ay - 0.22 * k, fz + 7 * k), P(hx + 0.55 * k, ay, fz + 7 * k), P(hx, ay + 0.22 * k, fz + 7 * k)], shade(met, 0.3));
+    line(P(ax - 0.5 * k, ay + 0.22 * k, fz + 7 * k), P(hx, ay + 0.22 * k, fz + 7 * k), edge, 1.2);
+    if (X.era >= 1 || gilt) runeRow(face, 'L', 3.2 * k, 0.1 * k, 0.9 * k, 0.12 * k);
+    if (hot) { // a glowing ingot on the face, embers rising
+      const [ix, iy] = P(ax, ay, fz + 7 * k);
+      A.lamp([[ix - 6 * k, iy], [ix + 2 * k, iy - 3 * k], [ix + 6 * k, iy - 1.5 * k], [ix - 2 * k, iy + 1.5 * k]], '#f08a2a', '#ffd070');
+      A.rec('lights', { x: ix, y: iy - 2, r: 34 * k }); A.rec('hammers', { x: ix - 10 * k, y: iy + 2 });
+      CITYART.mage.rise(A, ix, iy - 3, { r: 6 * k, h: 26 * k, n: 6, col: '#ffb040', sp: 0.2, sz: 1.8 });
+    }
+    return fz + 7 * k;
+  }
+  // a stretch of the Great Forge stack: square, tapering, ashlar-coursed, bronze bands and glowing vents
+  function wStack(cx, cy, sA, sB, z0, h, col) {
+    const T = CITYART.mage.taper(A, cx, cy, sA, sB, z0, h, col, shade(col, -0.22), { cap: '#3a2a22' });
+    for (let v = 6; v < h - 2; v += 6) { const t = v / h, s = sA + (sB - sA) * t; line(P(cx - s, cy + s, z0 + v), P(cx + s, cy + s, z0 + v), shade(col, -0.22), 0.5); line(P(cx + s, cy + s, z0 + v), P(cx + s, cy - s, z0 + v), shade(col, -0.35), 0.5); }
+    for (let v = 24; v < h - 8; v += 30) { const t = v / h, s = sA + (sB - sA) * t;
+      box(cx - s - 0.04, cy - s - 0.04, 2 * s + 0.08, 2 * s + 0.08, z0 + v, 3, X.era >= 2 ? BRONZE : IRON, { noTop: true });
+      for (const [q, f] of [[0, 'L'], [1, 'R']]) { void q; const p = f === 'L' ? P(cx, cy + s, z0 + v + 8) : P(cx + s, cy, z0 + v + 8); A.lamp([[p[0] - 1.6, p[1]], [p[0] + 1.6, p[1]], [p[0] + 1.6, p[1] - 7], [p[0], p[1] - 8.5], [p[0] - 1.6, p[1] - 7]], FIRE_D, FIRE_N); }
+    }
+    return T.z1;
+  }
+  reg('wonder_delver', ([x, y, w, d], L, band, ctx) => {
+    L = Math.max(1, Math.min(10, Math.round(L) || 1));
+    const cx = x + w / 2, hits = [], fin = L >= 10, pl = 0.2;
+    const D1 = Math.max(1.8, d - 1.65), H1 = 26, H2 = 22;
+    // ---- the mountain at the back grows every stage
+    const HM = [0, 22, 40, 56, 72, 88, 100, 110, 118, 124, 128][L];
+    wMountain(x + 0.05, y + 0.05, w - 0.1, D1, HM, L);
+    hits.push([x + 0.3, y + 0.3, w * 0.7, 0.7, HM * 0.8]);
+    let top = HM;
+    // ---- terrace 1 (stage 3; raw footings before), with the great gate
+    const t1 = [x + pl, y + pl, w - 2 * pl, D1 - pl];
+    const gateU = t1[2] / 2;
+    if (L < 3) { const b = box(...t1, 0, 6 + (L - 1) * 4, stone(0.08)); ashlar(b, 4); top = Math.max(top, b.h); }
+    else {
+      const b = box(...t1, 0, H1, stone()); ashlar(b, 5);
+      box(b.x - 0.05, b.y - 0.05, b.w + 0.1, b.d + 0.1, H1 - 3, 3, shade(stone(), -0.2));
+      ironDoor(b, 'L', gateU, 0.75, 18, true);
+      for (const u of [gateU - 0.85, gateU + 0.85]) if (u > 0.2 && u < b.w - 0.2) deepWin(b, 'L', u, 8, 0.16, 6);
+      for (let u = 0.3; u < b.d - 0.2; u += 0.55) vent(b, 'R', u, 6, 0.16, 5);
+      runeRow(b, 'L', H1 - 1.6, 0.1, gateU - 0.5); runeRow(b, 'L', H1 - 1.6, gateU + 0.5, b.w - 0.1);
+      A.parapet(b, 3);
+      hits.push([...t1, H1 + 3]); top = Math.max(top, H1 + 3);
+    }
+    // ---- terrace 2 (raw course at 4, finished at 5) with the great carved king's face
+    const t2 = [t1[0] + 0.35, t1[1] + 0.1, t1[2] - 0.7, t1[3] - 0.7];
+    if (L === 4) { const b = box(...t2, H1, 7, stone(0.1)); ashlar(b, 3.5); box(t2[0] + 0.2, t2[1] + t2[3] - 0.3, 0.3, 0.2, H1 + 7, 4, stone(0.12)); }
+    if (L >= 5) {
+      const b = box(...t2, H1, H2, stone(0.04)); ashlar(b, 5);
+      const fp = A.onL(b, t2[2] / 2, 0, 1, 0)[0]; stoneFace(fp[0], fp[1], 0.95);
+      for (const u of [0.3, t2[2] - 0.3]) deepWin(b, 'L', u, 6, 0.14, 6);
+      for (let u = 0.3; u < t2[3] - 0.2; u += 0.5) deepWin(b, 'R', u, 7, 0.12, 5);
+      A.parapet(b, 3);
+      hits.push([...t2, H1 + H2 + 3]); top = Math.max(top, H1 + H2 + 3);
+      if (L >= 7) for (const f of [0.12, 0.88]) { // molten falls: down terrace 2, across the roof of terrace 1, down its face
+        const u2 = t2[2] * f, u1 = u2 + 0.35, yF = t2[1] + t2[3];
+        A.lamp(A.onL(b, u2 - 0.06, u2 + 0.06, 0, H2 - 2), '#e0701e', '#ffb850');
+        const gx = t1[0] + u1; A.lamp([P(gx - 0.06, yF, H1), P(gx + 0.06, yF, H1), P(gx + 0.06, t1[1] + t1[3], H1), P(gx - 0.06, t1[1] + t1[3], H1)], '#e0701e', '#ffb850');
+        A.lamp([P(gx - 0.06, t1[1] + t1[3], H1), P(gx + 0.06, t1[1] + t1[3], H1), P(gx + 0.08, t1[1] + t1[3], 0), P(gx - 0.08, t1[1] + t1[3], 0)], '#e8802a', '#ffc860');
+        const [px, py, prx, pry] = A.ell(gx, t1[1] + t1[3] + 0.15, 0, 0.16); const c = A.c; c.beginPath(); c.ellipse(px, py, prx, pry, 0, 0, A.TAU); c.fillStyle = A.GLOW ? '#ffb040' : '#d8601a'; c.fill();
+        A.rec('lights', { x: px, y: py - 10, r: 26 }); A.rec('fires', { x: px, y: py, s: 0.35, glowOnly: true });
+      }
+    }
+    // ---- the Great Forge stack out of terrace 2: grows from 6, crowned with a gilded ring and a beacon at 10
+    if (L >= 6) {
+      const sx = cx, sy = t2[1] + 0.55, sA = Math.min(0.5, t2[2] * 0.2), HF = 152, h = [0, 0, 0, 0, 0, 0, 95, 118, 138, 152, 152][L], sB = sA - 0.2 * h / HF;
+      const z0 = H1 + H2, zt = wStack(sx, sy, sA, sB, z0, h, stone(-0.06));
+      top = Math.max(top, zt);
+      if (!fin) { // raw top: rough blocks and a timber hoist frame
+        box(sx - sB + 0.02, sy - sB + 0.02, 0.2, 0.2, zt, 4, stone(0.1)); box(sx + sB - 0.24, sy + sB - 0.22, 0.2, 0.18, zt, 3, stone(0.12));
+        const a = P(sx - sB, sy + sB, zt), b = P(sx + sB, sy - sB, zt), apx = P(sx, sy, zt + 14);
+        line(a, apx, WOOD, 1.3); line(b, apx, WOOD, 1.3); line(apx, [apx[0] + 8, apx[1] + 3], WOOD, 1.1); line([apx[0] + 8, apx[1] + 3], [apx[0] + 8, apx[1] + 12], '#2a2a2a', 0.5);
+        top = Math.max(top, zt + 14);
+        const [mx, my] = P(sx, sy, zt); A.lampDot(mx, my, 3, '#a04a1a', '#ff9a3a'); A.rec('smoke', { x: mx, y: my - 2, kind: 'smelter', seed: A.R(), dark: true });
+      } else {
+        const r = box(sx - sB - 0.06, sy - sB - 0.06, 2 * sB + 0.12, 2 * sB + 0.12, zt, 5, GOLD, { top: '#3a2a22' });
+        for (let k = 0; k < 3; k++) { box(r.x + k * (r.w - 0.1) / 2, r.y + r.d - 0.1, 0.1, 0.1, zt + 5, 3, GOLD); box(r.x + r.w - 0.1, r.y + k * (r.d - 0.1) / 2, 0.1, 0.1, zt + 5, 3, GOLD); }
+        const [fx, fy] = P(sx, sy, zt + 6);
+        A.lampDot(fx, fy - 3, 4.5, '#f07a20', '#ffd070'); A.lampDot(fx, fy - 6, 2.6, '#ffc040', '#fff2b0');
+        A.rec('fires', { x: fx, y: fy, s: 0.9 }); A.rec('lights', { x: fx, y: fy - 6, r: 90 });
+        CITYART.mage.rise(A, fx, fy - 6, { r: 10, h: 50, n: 10, col: '#ffb040', sp: 0.14, sz: 2.2 });
+        A.rec('smoke', { x: fx, y: fy - 10, kind: 'smelter', seed: A.R(), dark: true });
+        top = Math.max(top, zt + 18);
+      }
+      hits.push([sx - sA, sy - sA, 2 * sA, 2 * sA, zt - 10]); hits.push([sx - sB, sy - sB, 2 * sB, 2 * sB, top]);
+    }
+    // ---- two lesser forge chimneys on the roof of terrace 1 (from 7)
+    if (L >= 7) for (const [gx, gy] of [[t1[0] + t1[2] - 0.42, t1[1] + 0.12], [t1[0] + 0.06, t1[1] + t1[3] - 0.42]]) {
+      const ch = 42 + (L >= 9 ? 8 : 0), b = box(gx, gy, 0.3, 0.3, H1, ch, stone(-0.1)); ashlar(b, 5);
+      vent(b, 'L', 0.15, ch * 0.5, 0.12, 4); box(gx - 0.03, gy - 0.03, 0.36, 0.36, H1 + ch, 2.5, X.era >= 2 ? BRONZE : '#4e4844');
+      const [px, py] = P(gx + 0.15, gy + 0.15, H1 + ch + 3); A.rec('smoke', { x: px, y: py, kind: 'smelter', seed: A.R(), dark: true });
+      hits.push([gx, gy, 0.3, 0.3, H1 + ch + 3]); top = Math.max(top, H1 + ch + 3);
+    }
+    // ---- the forecourt: king statues flanking the gate (8), the colossal anvil (plinth at 1, anvil from 2), braziers (3)
+    const fy0 = t1[1] + t1[3], front = y + d - fy0;
+    if (L >= 8) for (const du of [-0.8, 0.8]) { const t = statue(t1[0] + gateU + du, fy0 + 0.28, 26); hits.push([t1[0] + gateU + du - 0.17, fy0 + 0.11, 0.34, 0.34, t]); }
+    const k = Math.max(0.7, Math.min(1, (front - 0.35) / 1.2)), ax = cx - 0.12, ay = fy0 + Math.min(0.85, front * 0.55);
+    const pb = box(ax - 0.62 * k, ay - 0.36 * k, 1.24 * k, 0.72 * k, 0, 4, stone(-0.12)); ashlar(pb, 2);
+    box(ax - 0.5 * k, ay - 0.28 * k, 1.0 * k, 0.56 * k, 4, 3, stone(-0.04));
+    if (L >= 2) { const t = wAnvil(ax - 0.1 * k, ay, k, 7, fin || X.era >= 3, true); hits.push([ax - 0.62 * k, ay - 0.36 * k, 1.24 * k, 0.72 * k, t]); }
+    else { box(ax - 0.3, ay - 0.15, 0.4, 0.3, 7, 5, '#3e3c40'); A.crate(ax + 0.25, ay - 0.1, 0.2, 7); }
+    if (L >= 3) for (const [gx, gy] of [[x + pl + 0.15, y + d - 0.25], [x + w - 0.3, y + d - 0.25], [x + w - 0.25, fy0 + 0.2]]) brazier(gx, gy, 0, 1.1);
+    if (fin) { stoneBanner(x + pl + 0.2, fy0 + 0.35, 24); stoneBanner(x + w - pl - 0.2, fy0 + 0.35, 24); }
+    return { top, hit: hits, noDress: true, noTech: true };
+  });
 })();
 
 // cityview opt-outs (the return-object format in js/cityart.js): stock extras this people's art already draws itself.

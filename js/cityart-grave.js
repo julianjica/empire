@@ -1133,4 +1133,187 @@
     raven(fx + 5, fy + 8, 0.7); if (band >= 2) ravensCircle(cx, cy, zt, 3, 22);
     return zt + 10;
   });
+
+  // ================================================================ WONDER: the Necropolis Eternal
+  //  a mausoleum city in tiers: a black plinth and three terraces of tomb-fronts (1-4), the kings' mausoleum on the
+  //  top court (5), a black spire rising out of it (6-9) with bone spires and bone flying buttresses round it (7+),
+  //  and at 10 a slate spire crowned with bone and a soul-fire, witch-lights on every spire and wisps over the tiers.
+  //  Fixed endgame palette (black basalt, bone, iron, witch-green) in every era.
+  const NB = '#3c3c46', NB2 = '#34343e', NROOF = '#22232a', NFRESH = '#74747e', NBONE = '#d8cfb4';
+  function nNiche(b, side, u, v, nw, nh) { // a dark arched tomb niche with a skull in it
+    const f = side === 'L' ? A.onL : A.onR, q = f(b, u - nw / 2, u + nw / 2, v, v + nh), tp = f(b, u, u, v + nh + 3, v + nh + 3)[0];
+    A.path([q[0], q[1], q[2], tp, q[3]]); A.c.fillStyle = A.F('#141418'); A.c.fill();
+    const m = f(b, u, u, v + nh * 0.35, 0)[0]; A.skull(m[0], m[1], 0.42);
+  }
+  function nStair(bx, by, tw, td, z, h, run, col) { // a grand stair up the middle of both faces we see
+    const { P, poly, line, shade, lerp2 } = A, cx = bx + tw / 2, cy = by + td / 2, sw = Math.min(0.5, tw * 0.2), sd = Math.min(0.5, td * 0.2);
+    { const fy = by + td, q = [P(cx - sw / 2, fy + run, z), P(cx + sw / 2, fy + run, z), P(cx + sw / 2, fy, z + h), P(cx - sw / 2, fy, z + h)];
+      poly([P(cx + sw / 2, fy + run, z), P(cx + sw / 2, fy, z), P(cx + sw / 2, fy, z + h)], shade(col, -0.3));
+      poly(q, shade(col, 0.1)); for (let s = 1; s < 7; s++) line(lerp2(q[0], q[3], s / 7), lerp2(q[1], q[2], s / 7), shade(col, -0.25), 0.5); }
+    { const fx = bx + tw, q = [P(fx + run, cy + sd / 2, z), P(fx + run, cy - sd / 2, z), P(fx, cy - sd / 2, z + h), P(fx, cy + sd / 2, z + h)];
+      poly([P(fx + run, cy + sd / 2, z), P(fx, cy + sd / 2, z), P(fx, cy + sd / 2, z + h)], shade(col, -0.12));
+      poly(q, shade(col, -0.04)); for (let s = 1; s < 7; s++) line(lerp2(q[0], q[3], s / 7), lerp2(q[1], q[2], s / 7), shade(col, -0.32), 0.5); }
+  }
+  function nCrypt(gx, gy, s, z, h) { // a little gabled mausoleum standing on a terrace
+    const b = A.box(gx, gy, s, s * 0.8, z, h, NB2); A.courses(b, 3.5, A.shade(NB2, -0.2));
+    A.poly(A.onL(b, s * 0.32, s * 0.68, 0, h * 0.7), X.night ? '#a8ffc0' : '#1a2a20', null);
+    const rf = gableL(b, s * 16, NROOF, 'y', 0, 0.04); A.skull(rf.apex[0], rf.apex[1] + 3, 0.4);
+  }
+  function nBoneSpire(gx, gy, z0, h, k) { // a spire of stacked vertebrae with bone horns and a witch-light at the tip
+    const s0 = 0.1 * k, s1 = 0.035 * k;
+    CITYART.mage.taper(A, gx, gy, s0, s1, z0, h, NBONE, '#aaa288', { cap: NBONE });
+    for (let v = 6; v < h - 3; v += 7) {
+      const [px, py] = A.P(gx + s0, gy + s0, z0 + v), r = (2.2 * (1 - v / h * 0.6) + 0.6) * k;
+      A.c.beginPath(); A.c.ellipse(px, py, r + 1.2, r * 0.55, 0, 0, TAU); A.c.fillStyle = A.F('#ece2c8'); A.c.fill(); A.c.strokeStyle = A.F(A.OUT); A.c.lineWidth = 0.5; A.c.stroke();
+    }
+    const [tx, ty] = A.P(gx, gy, z0 + h);
+    for (const sd of [-1, 1]) { A.c.beginPath(); A.c.moveTo(tx, ty + 2); A.c.quadraticCurveTo(tx + sd * 5, ty, tx + sd * 4, ty - 7); A.c.strokeStyle = A.F(NBONE); A.c.lineWidth = 1.4; A.c.stroke(); }
+    A.skull(tx, ty + 4, 0.55);
+    A.lampDot(tx, ty - 3, 1.8, '#4a8a5a', GLOW); A.rec('lights', { x: tx, y: ty - 3, r: 20, col: 'witch' }); A.rec('sparks', { x: tx, y: ty - 3, kind: 'witch' });
+    return z0 + h + 6;
+  }
+  function nRib(a, b, bow) { // a bone flying buttress between two screen points
+    const c = A.c, m = [(a[0] + b[0]) / 2 + bow[0], (a[1] + b[1]) / 2 + bow[1]];
+    c.beginPath(); c.moveTo(a[0], a[1]); c.quadraticCurveTo(m[0], m[1], b[0], b[1]); c.strokeStyle = A.F(A.OUT); c.lineWidth = 3.2; c.stroke(); c.strokeStyle = A.F(NBONE); c.lineWidth = 1.9; c.stroke();
+    for (let q = 1; q < 4; q++) { const t = q / 4, rx = (1 - t) * (1 - t) * a[0] + 2 * t * (1 - t) * m[0] + t * t * b[0], ry = (1 - t) * (1 - t) * a[1] + 2 * t * (1 - t) * m[1] + t * t * b[1]; A.circ(rx, ry, 1.2, NBONE, A.OUT); }
+  }
+  function nTier(bx, by, tw, td, z, h, raw, i) { // one terrace of tomb-fronts; raw = still going up (half height, fresh stone, no cornice)
+    const { box, courses, shade, poly, quad } = A;
+    if (raw) {
+      const hh = h * 0.5, b = box(bx, by, tw, td, z, hh, NFRESH, { top: shade(NFRESH, 0.1) }); courses(b, 3.2, shade(NFRESH, -0.22));
+      for (const [gx, gy] of [[bx + tw * 0.3, by + td * 0.7], [bx + tw * 0.75, by + td * 0.35]]) { box(gx - 0.12, gy - 0.12, 0.24, 0.24, z + hh, 4, shade(NFRESH, 0.05)); box(gx - 0.1, gy - 0.02, 0.2, 0.2, z + hh + 4, 3.5, NFRESH); }
+      for (const [gx, gy] of [[bx, by + td], [bx + tw, by + td], [bx + tw, by]]) A.line(A.P(gx, gy, z + hh), A.P(gx, gy, z + h + 4), IRON, 1);
+      A.line(A.P(bx, by + td, z + h + 2), A.P(bx + tw, by + td, z + h + 2), IRON, 0.8); A.line(A.P(bx + tw, by + td, z + h + 2), A.P(bx + tw, by, z + h + 2), IRON, 0.8);
+      skel(...A.P(bx + tw * 0.55, by + td * 0.8, z + hh), 0.8);
+      return { z: z + hh, b };
+    }
+    const col = shade(NB, -i * 0.04), b = box(bx, by, tw, td, z, h, col); courses(b, 4.5, shade(col, -0.2));
+    for (const side of ['L', 'R']) {
+      const Lf = side === 'L' ? tw : td, n = Math.max(3, Math.min(9, Math.round(Lf / 0.36)));
+      for (let j = 0; j < n; j++) {
+        const u = Lf * (j + 0.5) / n; if (Math.abs(u - Lf / 2) < 0.3) continue;
+        if ((j + i) % 2) A.lancet(b, side, u, h * 0.2, 0.12, h * 0.42); else nNiche(b, side, u, h * 0.2, 0.15, h * 0.42);
+        const ub = Lf * j / n; if (j > 0 && Math.abs(ub - Lf / 2) > 0.3) (side === 'L' ? buttressL : buttressR)(b, ub, h, 0.09);
+      }
+      skullRow(b, side, h - 4, Math.min(7, n), 0.42);
+    }
+    box(bx - 0.05, by - 0.05, tw + 0.1, td + 0.1, z + h, 2.2, '#5a5662', { noTop: true });
+    poly(quad(bx, by, tw, td, z + h + 2.2), X.snow ? '#eef2f4' : shade(col, 0.12));
+    return { z: z + h + 2.2, b };
+  }
+  def('wonder_grave', ([x, y, w, d], L) => {
+    L = Math.max(1, Math.min(10, Math.round(L) || 1));
+    const { P, box, poly, line, shade, courses } = A, M = CITYART.mage, k = Math.min(w, d) / 4.5, cx = x + w / 2, cy = y + d / 2, hits = [];
+    let top = 0;
+    // the black plinth with a stair up both faces we see
+    const pl = 0.15, px = x + pl, py = y + pl, pw = w - pl * 2, pd = d - pl * 2;
+    const plb = box(px, py, pw, pd, 0, 6, shade(NB, -0.15)); courses(plb, 3, shade(NB, -0.32));
+    hits.push([px, py, pw, pd, 6]); top = 6;
+    // the three terraces of tomb-fronts, one per stage (the newest still going up)
+    const TH = [22, 20, 18], INS = [0.42, 0.38, 0.36].map(v => v * k);
+    let tx = px, ty = py, tw = pw, td = pd, z = 6, prevIn = 0.3;
+    const T = [];   // finished terrace rects [bx, by, tw, td, zTop]
+    nStair(px, py, pw, pd, 0, 6, 0.25, shade(NB, -0.1));
+    for (let i = 0; i < 3 && i < L; i++) {
+      tx += INS[i]; ty += INS[i]; tw -= INS[i] * 2; td -= INS[i] * 2;
+      const raw = L === i + 1, r = nTier(tx, ty, tw, td, z, TH[i], raw, i);
+      if (!raw) nStair(tx, ty, tw, td, z, TH[i] + 2.2, prevIn, shade(NB, -0.05));
+      hits.push([tx, ty, tw, td, r.z + (raw ? 6 : 0)]);
+      T.push([tx, ty, tw, td, r.z, raw]); z = r.z; prevIn = INS[i]; top = Math.max(top, z + (raw ? 8 : 0));
+      // the back bone spire stands on the middle terrace's back corner (behind everything above)
+      if (i === 1 && !raw && L >= 7) top = Math.max(top, nBoneSpire(tx + 0.14 * k, ty + 0.14 * k, z, [0, 0, 0, 0, 0, 0, 0, 34, 46, 54, 60][L], k));
+    }
+    // the kings' mausoleum on the top court (5): rose windows, lancets, corner pinnacles, a parapet of iron spikes
+    const ms = 0.66 * k, mh = 26, mz = z;
+    let tz = z, tcx = cx, tcy = cy;
+    if (L >= 5) {
+      const mb = box(cx - ms, cy - ms, ms * 2, ms * 2, mz, mh, NB2); courses(mb, 4.2, shade(NB2, -0.2));
+      for (const side of ['L', 'R']) {
+        for (const u of [0.3, ms * 2 - 0.3]) A.lancet(mb, side, u * 1, 4, 0.12, 12);
+        A.archDoor(mb, side, ms, 0.3, 10);
+        const [rx, ry] = side === 'L' ? P(cx, cy + ms, mz + mh - 7) : P(cx + ms, cy, mz + mh - 7);
+        rose(rx, ry, 3.6 * k + 0.8, L >= 10 ? 3 : 2);
+        A.skull(...(side === 'L' ? P(cx, cy + ms, mz + 13) : P(cx + ms, cy, mz + 13)), 0.6);
+      }
+      box(cx - ms - 0.04, cy - ms - 0.04, ms * 2 + 0.08, ms * 2 + 0.08, mz + mh, 2.5, '#5a5662', { noTop: false, top: X.snow ? '#eef2f4' : shade(NB2, 0.1) });
+      for (const [gx, gy] of [[cx - ms, cy + ms], [cx + ms, cy + ms], [cx + ms, cy - ms]]) pinnacle(gx, gy, mz + mh + 2.5, 9, shade(NB2, -0.1));
+      hits.push([cx - ms, cy - ms, ms * 2, ms * 2, mz + mh + 2.5]);
+      tz = mz + mh + 2.5; top = Math.max(top, tz + 9);
+      if (L === 5) { // the vault of the court still open: iron centering over the roof, a labourer
+        for (const f of [0.3, 0.7]) { const a = P(cx - ms * 0.8, cy - ms + ms * 2 * f, tz), b = P(cx + ms * 0.8, cy - ms + ms * 2 * f, tz), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 12]; A.c.beginPath(); A.c.moveTo(a[0], a[1]); A.c.quadraticCurveTo(m[0], m[1] - 6, b[0], b[1]); A.c.strokeStyle = A.F(IRON); A.c.lineWidth = 1; A.c.stroke(); }
+        skel(...P(cx + ms * 0.3, cy + ms * 0.5, tz), 0.8); top = Math.max(top, tz + 14);
+      }
+    }
+    // the black spire out of the mausoleum (6-9 going up, 10 crowned)
+    const s0 = 0.36 * k, s1 = 0.25 * k;
+    let spireTop = tz, tAt = null;
+    if (L >= 6) {
+      const hs = [0, 0, 0, 0, 0, 0, 44, 58, 70, 78, 72][L], fin = L >= 10;
+      const t = M.taper(A, tcx, tcy, s0, s1, tz, hs, fin ? '#383842' : '#40404a', '#2a2a32', { cap: fin ? '#4a4a54' : NFRESH });
+      for (let v = 8; v < hs - 8; v += 13) for (const side of [0, 1]) {
+        const s = s0 + (s1 - s0) * (v / hs), [lx, ly] = side ? P(tcx + s, tcy, tz + v) : P(tcx, tcy + s, tz + v);
+        A.lamp([[lx - 1.1, ly], [lx + 1.1, ly], [lx + 1.1, ly - 6], [lx, ly - 8], [lx - 1.1, ly - 6]], '#24302a', GLOW);
+        if (fin) M.pulse(A, lx, ly - 4, 6, GLOW, 2 + v * 0.04);
+      }
+      // course bands every few metres
+      for (let v = 14; v < hs; v += 14) { const s = s0 + (s1 - s0) * (v / hs); line(P(tcx - s, tcy + s, tz + v), P(tcx + s, tcy + s, tz + v), '#5a5662', 1.1); line(P(tcx + s, tcy + s, tz + v), P(tcx + s, tcy - s, tz + v), '#4a4652', 1.1); }
+      spireTop = tz + hs; tAt = v => P(tcx, tcy, tz + v);
+      hits.push([tcx - s0, tcy - s0, s0 * 2, s0 * 2, spireTop]);
+      top = Math.max(top, spireTop);
+      if (!fin) { // the raw rim: fresh blocks, open iron framing for the next course, a risen labourer
+        const zr = spireTop;
+        for (let j = 0; j < 4; j++) { const f = (j + 0.5) / 4; box(tcx - s1 + f * s1 * 2 - 0.05, tcy + s1 - 0.12, 0.1, 0.1, zr, 3 + (j % 2) * 2.5, NFRESH); box(tcx + s1 - 0.12, tcy - s1 + f * s1 * 2 - 0.05, 0.1, 0.1, zr, 2 + ((j + 1) % 2) * 3, shade(NFRESH, -0.1)); }
+        const fh = 18;
+        for (const [gx, gy] of [[tcx - s1, tcy + s1], [tcx + s1, tcy + s1], [tcx + s1, tcy - s1]]) line(P(gx, gy, zr), P(gx * 0.7 + tcx * 0.3, gy * 0.7 + tcy * 0.3, zr + fh), IRON, 1);
+        line(P(tcx - s1 * 0.7, tcy + s1 * 0.7, zr + fh * 0.6), P(tcx + s1 * 0.7, tcy + s1 * 0.7, zr + fh * 0.6), IRON, 0.8);
+        line(P(tcx + s1 * 0.7, tcy + s1 * 0.7, zr + fh * 0.6), P(tcx + s1 * 0.7, tcy - s1 * 0.7, zr + fh * 0.6), IRON, 0.8);
+        skel(...P(tcx + s1 * 0.2, tcy + s1 * 0.6, zr), 0.75);
+        top = Math.max(top, zr + fh + 2);
+      }
+    }
+    if (L >= 10) { // the crown: bone pinnacles, a slate needle, a ring of bone spikes and the soul-fire of the dead kings
+      const c = A.c, zs = spireTop;
+      for (const [gx, gy] of [[tcx - s1, tcy + s1], [tcx + s1, tcy + s1], [tcx + s1, tcy - s1]]) { pinnacle(gx, gy, zs, 11, NBONE); const [qx, qy] = P(gx, gy, zs + 12); A.lampDot(qx, qy, 1.3, '#4a8a5a', GLOW); A.rec('lights', { x: qx, y: qy, r: 14, col: 'witch' }); }
+      const nh = 34; M.taper(A, tcx, tcy, s1 * 0.85, 0.01, zs, nh, rc('#2e3038'), rc('#202228'));
+      const [ox, oy] = P(tcx, tcy, zs + nh + 2);
+      const spikes = front => { for (let q = 0; q < 10; q++) { const a = q / 10 * TAU, ex = ox + Math.cos(a) * 8, ey = oy + Math.sin(a) * 3.5 + 2; if ((Math.sin(a) >= 0) === front) { c.beginPath(); c.moveTo(ex, ey); c.quadraticCurveTo(ex + Math.cos(a) * 3, ey - 6, ex + Math.cos(a) * 4.5, ey - 12 - (q % 2) * 4); c.strokeStyle = A.F(A.OUT); c.lineWidth = 2.6; c.stroke(); c.strokeStyle = A.F(NBONE); c.lineWidth = 1.6; c.stroke(); } } };
+      spikes(false);
+      if (!A.GLOW) { c.beginPath(); c.moveTo(ox - 5, oy - 1); c.quadraticCurveTo(ox - 6, oy - 12, ox, oy - 20); c.quadraticCurveTo(ox + 1, oy - 11, ox + 5, oy - 1); c.closePath(); c.fillStyle = 'rgba(90,220,140,0.85)'; c.fill(); }
+      A.lampDot(ox, oy - 6, 4, '#4aa870', '#c8ffd8');
+      spikes(true);
+      for (let q = 0; q < 5; q++) { const a = q / 5 * TAU + 0.3; if (Math.sin(a) > -0.2) A.skull(ox + Math.cos(a) * 10, oy + 3 + Math.sin(a) * 3.5, 0.6); }
+      M.pulse(A, ox, oy - 7, 22, GLOW, 2.4); M.rise(A, ox, oy - 16, { r: 9, h: 60, n: 8, col: '#8affb0', sp: 0.1, sz: 2.6 });
+      M.ring(A, tcx, tcy, zs + nh - 4, 0.5 * k, '#8affb0', 6, 0.45);
+      A.rec('lights', { x: ox, y: oy - 7, r: 80, col: 'witch' }); A.rec('sparks', { x: ox, y: oy - 8, kind: 'witch' });
+      A.rec('magic', { x: ox, y: oy - 8, r: 12, n: 6, col: 'rgba(120,255,160,A)', seed: A.R(), bolt: false });
+      hits.push([tcx - s1, tcy - s1, s1 * 2, s1 * 2, zs + nh + 16]);
+      top = Math.max(top, zs + nh + 16);
+    }
+    // bone spires on the middle terrace's other corners (7+) and bone flying buttresses to the spire (8+)
+    const t2 = T[1] && !T[1][5] ? T[1] : null;
+    if (t2 && L >= 7) {
+      const [bx, by, bw, bd, bz] = t2, e = 0.14 * k, sh = [0, 0, 0, 0, 0, 0, 0, 34, 46, 54, 60][L];
+      const sp = [[bx + e, by + bd - e, [-10, -8]], [bx + bw - e, by + e, [10, -8]], [bx + bw - e, by + bd - e, [0, -4]]];
+      for (const [gx, gy, bow] of sp) {
+        if (L >= 8 && tAt) { const a = P(gx, gy, bz + sh * 0.7), tx2 = tcx + (gx - tcx) * 0.25, ty2 = tcy + (gy - tcy) * 0.25; nRib(a, P(tx2, ty2, tz + 30), bow); }
+        top = Math.max(top, nBoneSpire(gx, gy, bz, sh, k));
+      }
+    }
+    // the little mausolea along the first terrace's front (4+), braziers on the terrace corners (3+)
+    const t1 = T[0] && !T[0][5] ? T[0] : null, t1b = T[1] || null;
+    if (t1 && t1b && L >= 4) {
+      const [bx, by, bw, bd, bz] = t1, s = Math.min(0.3, INS[1] * 0.8), n = Math.max(1, Math.floor((bw - 0.9) / 2 / 0.42));
+      for (let j = 0; j < n; j++) for (const f of [0.22 + j * 0.42, bd - 0.22 - s * 0.8 - j * 0.42]) nCrypt(bx + bw - s - 0.03, by + f, s, bz, 9);   // the right face's strip
+      for (let j = 0; j < n; j++) for (const f of [0.22 + j * 0.42, bw - 0.22 - s - j * 0.42]) nCrypt(bx + f, by + bd - s * 0.8 - 0.03, s, bz, 9);   // the left face's strip
+    }
+    if (L >= 3) for (const t of T) { if (t[5]) continue; const [bx, by, bw, bd, bz] = t; for (const [gx, gy] of [[bx + 0.1, by + bd - 0.1], [bx + bw - 0.1, by + bd - 0.1], [bx + bw - 0.1, by + 0.1]]) brazier(gx, gy, bz, 0.8); }
+    // the iron fence round the precinct, its gate at the stair, witch-lamps, mist, wisps and ravens
+    const fx = x + w - 0.06, fy = y + d - 0.06, gm = 0.42;
+    A.ironFence([[x + 0.08, fy], [cx - gm, fy]], 8); A.ironFence([[cx + gm, fy], [fx, fy], [fx, cy + gm]], 8); A.ironFence([[fx, cy - gm], [fx, y + 0.08]], 8);
+    A.witchLamp(cx - gm, fy + 0.02, 0, 14); A.witchLamp(cx + gm, fy + 0.02, 0, 14); A.witchLamp(fx + 0.02, cy - gm, 0, 14);
+    fog(cx + 0.8, cy + 1.6, 1.2, 0.26); if (L >= 6) fog(cx - 0.4, cy + 0.6, 1.3, 0.2);
+    if (L >= 6) ravensCircle(tcx, tcy, top - 20, 3 + (L >= 10 ? 3 : 0), 30 + L * 2);
+    if (L >= 10) for (const t of T) wisp(t[0] + t[2] * 0.5, t[1] + t[3] + 0.05, t[4] + 8);
+    return { top, hit: hits };
+  });
 })();

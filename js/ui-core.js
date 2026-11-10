@@ -570,6 +570,7 @@ const renderCity = city => {
           ${costHtml(st.cost, city)}
           <div class="row"><button class="${st.ok ? 'primary' : ''}" data-act="build" data-b="${t}" ${st.ok ? '' : 'disabled'}>${L || city.buildQueue.some(q => q.type === t) ? 'Upgrade to ' + st.level : 'Build'}</button>
           <span class="muted" style="font-size:12px">⏱ ${fmtTime(realSecs(st.time))}</span>
+          ${st.poor && typeof buyRestBtn === 'function' ? buyRestBtn('build', city, st.cost, 1, { b: t }) : ''}
           ${!st.ok ? `<span class="${st.poor ? 'muted' : 'warn'}" style="font-size:12px">${st.reason}</span>` : ''}
           <span class="spacer"></span>${toggle}</div>`}
       </div>`;
@@ -629,6 +630,7 @@ const renderMilitary = city => {
             <input type="number" min="1" data-k="${key}" value="${esc(UI.form[key] || 1)}">
             <button class="small" data-act="maxTrain" data-u="${u}" data-k="${key}">max ${st.max}</button>
             <button class="primary" data-act="train" data-u="${u}" data-k="${key}" ${st.max < 1 ? 'disabled' : ''}>Train</button>
+            ${(() => { const n = Math.max(1, parseInt(UI.form[key] || 1, 10) || 1); return typeof buyRestBtn === 'function' && n <= st.byPop && n > G.maxAffordable(S, city, st.cost) ? buyRestBtn('train', city, st.cost, n, { u, k: key }) : ''; })()}
             <span class="muted" style="font-size:12px">⏱ ${fmtTime(realSecs(st.time))} each</span></div>`}
         </div>`;
       }).join('')}</div></div>`);

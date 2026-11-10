@@ -266,6 +266,29 @@ const withSeason=(s,i,fn)=>{ const len=7200*PT(s); s.time=Math.floor(s.time/(len
   ok('the price slow hook costs under 1 ms', per<1, per.toFixed(3)+' ms per tick, sample '+smp.toFixed(3)+' ms, '+n+' cities; marketRates '+(mr*1000).toFixed(1)+' µs');
 }
 
+{ // "Buy the rest": the shortfall is priced at the market and bought exactly
+  const s=fresh(), c=G.capital(s,'p'); c.buildings.market=5; c.buildings.warehouse=12;
+  c.res.timber=10; c.res.stone=10; s.empires.p.gold=50000;
+  const cost={timber:300,stone:200,gold:50};
+  const f=G.shortfall(s,c,cost,2);
+  ok('shortfall lists what is missing', f.ok && f.short.length===2 && f.short.find(x=>x[0]==='timber')[1]===590, JSON.stringify(f.short));
+  ok('shortfall price matches the market quote', Math.abs(f.price-(G.priceQuote(s,c,'timber',590,'buy').total+G.priceQuote(s,c,'stone',390,'buy').total))<2, f.price);
+  const g0=s.empires.p.gold; ok('buying the rest makes it affordable', G.buyShortfall(s,c,cost,2)===null && G.canAfford(s,c,cost,2) && g0-s.empires.p.gold>0, Math.round(g0-s.empires.p.gold)+' gold');
+  ok('nothing missing: nothing to buy', !G.shortfall(s,c,cost,2).short.length);
+  s.empires.p.gold=5; c.res.timber=0; ok('too little gold is refused', !G.shortfall(s,c,cost,1).ok && /gold/.test(G.shortfall(s,c,cost,1).reason));
+  c.buildings.market=0; s.empires.p.gold=50000; ok('no market is refused', /Market/.test(G.shortfall(s,c,cost,1).reason||''));
+}
+{ // automation buys the rest for a research queue stuck on goods
+  const s=fresh(), c=G.capital(s,'p'); c.buildings.market=5; c.buildings.academy=3; c.buildings.warehouse=12;
+  const id=G.techList(s,'p').find(k=>G.techStatus(s,c.id,k).ok||G.techStatus(s,c.id,k).poor);
+  for(const g of Object.keys(G.techCost(id,1))) if(g!=='gold') c.res[g]=0;
+  s.empires.p.gold=1e6; G.research(s,'p').queue=[id];
+  const A=G.automation(s); A.d.economy.buyRest=false; A.d.research.on=false;
+  const R=G.research(s,'p'); const before=R.studies.length;
+  A.d.economy.buyRest=true; A.next.economy=0; G.advance(s,60,5);
+  ok('stewards buy the rest and start the stuck study', R.studies.some(x=>x.id===id) || (G.research(s,'p').done||{})[id], 'studies '+before+' -> '+R.studies.length);
+}
+
 console.log(fails?fails+' FAILED':'ALL PASS');
 if(fails) process.exitCode=1;
 `);

@@ -731,3 +731,33 @@
   G.priceUI.install = install;
   if (typeof window !== 'undefined' && typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded', install);
 })();
+
+// ---------------------------------------------------------------------
+// "Buy the rest": the goods a work (building, troops, study, …) still lacks, priced at the market
+// with impact, so the player can pay the difference in gold and start it now.
+//   G.shortfall(s, city, cost, mult) -> { short: [[good, n]], price, gold, ok, reason }
+//   G.buyShortfall(s, city, cost, mult) -> error string or null (the missing goods are now in the city)
+// ---------------------------------------------------------------------
+G.shortfall = (s, city, cost, mult = 1) => {
+  const emp = s.empires[city.owner], short = [];
+  let price = 0, reason = null;
+  for (const [g, v] of Object.entries(cost || {})) {
+    if (g === 'gold') continue;
+    const n = Math.ceil(v * mult - G.have(s, city, g) - 1e-9);
+    if (n <= 0) continue;
+    if (!DATA.goods[g]) { reason = reason || `${g} can't be bought at the market`; continue; }
+    short.push([g, n]);
+    price += G.priceQuote ? G.priceQuote(s, city, g, n, 'buy').total : n * G.marketRates(s, city, g).buy;
+  }
+  const gold = price + (cost && cost.gold || 0) * mult;
+  if (!reason && short.length && G.lvl(city, 'market') < 1) reason = 'Build a Market to buy what is missing';
+  if (!reason && short.some(([g, n]) => (city.res[g] || 0) + n > G.storageCap(s, city))) reason = 'The Warehouse is too small to hold what is missing';
+  if (!reason && emp.gold < gold - 1e-6) reason = `Needs ${Math.ceil(gold)} gold (you have ${Math.floor(emp.gold)})`;
+  return { short, price: Math.ceil(price), gold: Math.ceil(gold), ok: !reason && short.length > 0, reason };
+};
+G.buyShortfall = (s, city, cost, mult = 1) => {
+  const f = G.shortfall(s, city, cost, mult);
+  if (!f.ok) return f.reason || 'Nothing is missing';
+  for (const [g, n] of f.short) { const e = G.trade(s, city.id, g, n, 'buy'); if (e) return e; }
+  return null;
+};

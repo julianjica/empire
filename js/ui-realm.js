@@ -69,7 +69,7 @@ const renderResearch = city => {
         <div class="head"><span class="ico">${t.icon}</span><div><b>${t.name}</b><div class="muted" style="font-size:12px">Academy ${t.ac}${t.req ? ' · after ' + DATA.techs[t.req].name : ''}</div></div><span class="lv">${st.done ? '✅' : ''}</span></div>
         <div class="desc">${t.desc}</div>
         ${st.done ? '<div class="good">Researched</div>' : st.active ? '<div class="good">Studying…</div>' : `${costHtml(st.cost, city)}
-          <div class="row"><button class="${st.ok ? 'primary' : ''}" data-act="research" data-t="${id}" ${st.ok ? '' : 'disabled'}>Research</button><span class="muted" style="font-size:12px">⏱ ${fmtTime(realSecs(st.time))}</span>
+          <div class="row"><button class="${st.ok ? 'primary' : ''}" data-act="research" data-t="${id}" ${st.ok ? '' : 'disabled'}>Research</button>${st.poor && typeof buyRestBtn === 'function' ? buyRestBtn('research', city, st.cost, 1, { t: id }) : ''}<span class="muted" style="font-size:12px">⏱ ${fmtTime(realSecs(st.time))}</span>
           ${!st.ok ? `<span class="${st.poor ? 'muted' : 'warn'}" style="font-size:12px">${st.reason}</span>` : ''}</div>`}
       </div>`;
     }).join('');

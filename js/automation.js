@@ -67,9 +67,9 @@
     magi: { icon: '🧙', name: 'Magi', every: 60, desc: 'Recruits magi within a budget and posts idle ones (court in the best tower city, study otherwise).',
       sw: { on: 'Recruit & post magi' },
       pol: [['budget', 'Max per recruit', [['200', '200 gold'], ['400', '400 gold'], ['800', '800 gold'], ['1600', '1600 gold']]]] },
-    economy: { icon: '⚖️', name: 'Economy', every: 30, desc: 'Puts governors on new cities, keeps supply lines running and trades surplus at market above the gold reserve.',
-      sw: { govNew: 'Governors on new cities', supply: 'Supply lines', market: 'Sell surplus / buy shortages' },
-      pol: [['focus', 'Governor focus', [['balanced', 'Balanced']]]] },
+    economy: { icon: '⚖️', name: 'Economy', every: 30, desc: 'Puts governors on new cities, keeps supply lines running, trades surplus at market above the gold reserve, and buys the goods the research queue is stuck on (governors already buy for idle builders).',
+      sw: { govNew: 'Governors on new cities', supply: 'Supply lines', market: 'Sell surplus / buy shortages', buyRest: 'Buy the rest so work never stalls' },
+      pol: [['focus', 'Governor focus', [['balanced', 'Balanced']]], ['buyCap', 'Spend per purchase', [['25', '¼ of spare gold'], ['50', '½ of spare gold'], ['100', 'All spare gold']]]] },
     settle: { icon: '🏕️', name: 'Settlement', every: 30, desc: 'Trains settlers when renown allows another city, picks a safe site that fills what the realm lacks, and escorts the settlers when hostiles are near.',
       sw: { on: 'Found new cities' },
       pol: [['prefer', 'Prefer', [['gaps', 'What the realm lacks'], ['fit', 'Land our people love'], ['near', 'Close to home']]]] },
@@ -88,7 +88,7 @@
     military: { garrison: false, balance: false, camps: false, forge: false, defend: 'off' },
     hero: { points: false, adventure: false, generals: false, build: 'balanced' },
     magi: { on: false, budget: '400' },
-    economy: { govNew: false, supply: false, market: false, focus: 'balanced' },
+    economy: { govNew: false, supply: false, market: false, buyRest: false, focus: 'balanced', buyCap: '25' },
     settle: { on: false, prefer: 'gaps' },
     faith: { preach: false, shrines: false },
     events: { on: false, temper: 'balanced', grace: '90' },
@@ -100,7 +100,7 @@
     delegate: { name: 'Delegate', icon: '🤖', desc: 'Your stewards run the realm; you decide war, treaties, succession and crises.',
       set: { research: { on: true }, grimoire: { on: true, ench: true, buffs: true, forks: 'auto' }, traditions: { on: true, cer: true, forks: 'auto' },
         military: { garrison: true, balance: true, camps: true, forge: true, defend: 'act' }, hero: { points: true, adventure: true, generals: true },
-        magi: { on: true }, economy: { govNew: true, supply: true, market: true }, settle: { on: true }, faith: { preach: true, shrines: true }, events: { on: true } } },
+        magi: { on: true }, economy: { govNew: true, supply: true, market: true, buyRest: true }, settle: { on: true }, faith: { preach: true, shrines: true }, events: { on: true } } },
   };
   // decisions the stewards may answer, and those that always wait for the player
   const MINOR = { event: 1, season: 1, storylet: 1, unrest: 1 };
@@ -704,6 +704,7 @@
 
   RUN.economy = (s, A) => {
     const P = A.d.economy;
+    unstall(s, A);
     for (const c of G.citiesOf(s, 'p')) {
       if (A.known[c.id]) continue;
       A.known[c.id] = 1;
@@ -799,17 +800,37 @@
     return plan;
   };
   // buy what a city lacks for one cost at its market, above the gold reserve
-  const buyFor = (s, A, c, cost) => {
-    if (!G.lvl(c, 'market')) return false;
-    const short = Object.entries(cost).filter(([g, v]) => g !== 'gold' && DATA.goods[g] && G.have(s, c, g) < v).map(([g, v]) => [g, Math.ceil(v - G.have(s, c, g))]);
-    if (!short.length) return true;
-    const price = short.reduce((a, [g, n]) => a + (G.priceQuote ? G.priceQuote(s, c, g, n, 'buy').total : n * G.marketRates(s, c, g).buy), 0);
-    if (price + (cost.gold || 0) > goldFree(s, A)) return false;
-    if (short.some(([g, n]) => (c.res[g] || 0) + n > G.storageCap(s, c))) return false;
+  const buyFor = (s, A, c, cost) => buyRest(s, A, c, cost, 1, 'settle', 'the settlers', 1);
+  // "Buy the rest" (G.shortfall in prices.js): buy what one cost still lacks at the city's market, above the gold
+  // reserve and within a share of the spare gold; true when the cost is now affordable
+  const buyRest = (s, A, c, cost, mult, d, what, share) => {
+    if (G.canAfford(s, c, cost, mult)) return true;
+    if (!G.shortfall) return false;
+    const f = G.shortfall(s, c, cost, mult);
+    if (!f.ok || f.gold > goldFree(s, A) * (share || 1)) return false;
     const emp = s.empires.p, gold0 = emp.gold;
-    for (const [g, n] of short) G.trade(s, c.id, g, n, 'buy');
-    alog(s, 'settle', `Bought ${short.map(([g, n]) => n + ' ' + gname(g)).join(', ')} in ${c.name} for the settlers (${Math.round(gold0 - emp.gold)} gold)`);
-    return G.canAfford(s, c, cost);
+    if (G.buyShortfall(s, c, cost, mult)) return false;
+    alog(s, d, `Bought ${f.short.map(([g, n]) => n + ' ' + gname(g)).join(', ')} in ${c.name} for ${what} (${Math.round(gold0 - emp.gold)} gold)`);
+    return G.canAfford(s, c, cost, mult);
+  };
+  G.autoBuyRest = (s, c, cost, mult, d, what) => { const A = G.automation(s); return !!A.d.economy.buyRest && buyRest(s, A, c, cost, mult || 1, d || 'economy', what || 'a stalled work', (+A.d.economy.buyCap || 25) / 100); };
+  // stalled work the stewards unblock: the research queue's head waiting on goods
+  const unstall = (s, A) => {
+    if (!A.d.economy.buyRest) return;
+    const share = (+A.d.economy.buyCap || 25) / 100;
+    if (G.research && G.researchSlots) {
+      const R = G.research(s, 'p'), sl = G.researchSlots(s, 'p');
+      for (const id of (R.queue || []).slice(0, Math.max(0, sl.free))) {
+        const t = DATA.techs[id]; if (!t) continue;
+        const c = G.researchCityFor(s, 'p', id, null); if (!c) continue;
+        const st = G.techStatus(s, c.id, id);
+        if (!st.poor) continue;
+        if (buyRest(s, A, c, st.cost, 1, 'research', `${t.icon} ${t.name}`, share) && G.startResearch(s, c.id, id) === null) {
+          alog(s, 'research', `Started ${t.icon} ${t.name} in ${c.name} with goods bought at market`);
+          return;
+        }
+      }
+    }
   };
   const settleStep = (s, A) => {
     if (!G.canFoundCity(s, 'p')) return;

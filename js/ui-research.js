@@ -538,6 +538,7 @@
       out.push(`<button class="small" data-act="cancelResearch" data-t="${id}" title="Stop this study: 50% of its goods come back">Cancel</button>`);
     } else if (!(compact && st.locked)) {
       out.push(`<button class="small ${st.ok ? 'primary' : ''}" data-act="research" data-t="${id}" ${st.ok ? '' : 'disabled'} title="${esc(st.ok ? `Start now${c ? ' at ' + c.name : ''}` : st.reason || '')}">${compact ? 'Start' : 'Research now'}</button>`);
+      if (st.poor && c && typeof buyRestBtn === 'function') out.push(buyRestBtn('research', c, st.cost, 1, { t: id }, compact));
     }
     const planN = G.techPath(S, 'p', id).filter(k => k !== id && !q.includes(k)).length;
     if (t.repeat) {

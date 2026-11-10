@@ -254,5 +254,40 @@ const txt=r=>(r.out||[]).join('\\n')+(r.err?'\\nERR '+r.err:'');
   ok('a completed line runs', X(s,full,ctx).ok, full);
 }
 
+// ---- engine: G.demolish and G.moveBuild (the console's demolish and queue move go through them) ----
+{ const s=fresh(); const c=G.capital(s,'p'); rich(c); s.empires.p.gold=1e5; c.buildQueue=[];
+  c.buildings.farm=4; c.res.timber=0; c.res.stone=0; const ep=G._epoch;
+  const cost=G.buildCost('farm',4);
+  ok('G.demolish lowers a building one level', G.demolish(s,c.id,'farm')===null && G.lvl(c,'farm')===3);
+  ok('it salvages a share of that level\\'s goods (no gold)', c.res.timber===Math.floor((cost.timber||0)*G.DEMOLISH_REFUND) && G.DEMOLISH_REFUND>0 && G.DEMOLISH_REFUND<1, c.res.timber+' of '+cost.timber);
+  ok('and bumps the epoch', G._epoch>ep);
+  ok('the Town Hall is refused', /Town Hall/.test(G.demolish(s,c.id,'townhall')||'') && G.lvl(c,'townhall')>=1);
+  rich(c); G.queueBuild(s,c.id,'farm');
+  ok('a building with queued works is refused', /queued/.test(G.demolish(s,c.id,'farm')||'') && G.lvl(c,'farm')===3);
+  ok('a building the city lacks is refused', !!G.demolish(s,c.id,'magetower'));
+  c.buildings.academy=1; G.demolish(s,c.id,'academy');
+  ok('the last level removes it', !c.buildings.academy && G.lvl(c,'academy')===0);
+  c.buildQueue=[]; for(const t of ['farm','lumber','quarry','lumber']) G.queueBuild(s,c.id,t);
+  const order=()=>c.buildQueue.map(q=>q.type).join();
+  ok('G.moveBuild reorders works not yet started', G.moveBuild(s,c.id,2,1)===null && order()==='farm,quarry,lumber,lumber', order());
+  ok('and recomputes their times like cancelBuild', c.buildQueue.every((q,i)=>i===0||Math.abs(q.start-c.buildQueue[i-1].end)<1e-6) && c.buildQueue.every(q=>Math.abs(q.end-q.start-q.dur)<1e-6));
+  ok('the work under way cannot be moved', /under way/.test(G.moveBuild(s,c.id,0,2)||'') && /under way/.test(G.moveBuild(s,c.id,2,0)||''));
+  ok('levels of one building stay in order', /order/.test(G.moveBuild(s,c.id,3,2)||'') && order()==='farm,quarry,lumber,lumber');
+  ok('levels stay numbered from the built level', c.buildQueue.filter(q=>q.type==='lumber').map(q=>q.level).join()===[G.lvl(c,'lumber')+1,G.lvl(c,'lumber')+2].join());
+  ok('a bad index is refused', !!G.moveBuild(s,c.id,9,1));
+  const ctx={}; let r=X(s,'queue move 3 up',ctx);
+  ok('queue move goes through G.moveBuild', r.ok && order()==='farm,lumber,quarry,lumber', txt(r));
+  c.buildQueue=[]; c.buildings.lumber=3; c.res.timber=0;
+  r=X(s,'demolish lumber',ctx); ok('demolish asks, and says goods are salvaged', r.confirm && /salvaged/.test(txt(r)), txt(r));
+  r=X(s,'y',ctx); ok('then tears down through G.demolish (salvage included)', r.ok && G.lvl(c,'lumber')===2 && c.res.timber>0, txt(r));
+}
+
+// ---- 'inbox' is the decisions inbox, not an alias of reports ----
+{ const s=fresh(); const rep=G.cli.commands.find(c=>c.name==='reports');
+  ok('reports no longer answers to inbox', !(rep.aliases||[]).includes('inbox'));
+  const r=X(s,'inbox',{});
+  ok('inbox opens the decisions inbox', r.ok && !/No reports yet/.test(txt(r)) && r.nav && r.nav.tab==='automation', txt(r));
+}
+
 console.log(fails?fails+' FAILED':'all passed');
 `);

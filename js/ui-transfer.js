@@ -67,8 +67,11 @@
         <td>${here ? '<span class="muted">here</span>' : `<button class="small" data-act="mvDest" data-c="${esc(c.id)}">Send here</button> <button class="small" data-act="mvGo" data-c="${esc(c.id)}" title="Open ${esc(c.name)}">Open</button>`}</td></tr>`;
     }).join('');
     const onRoad = rs.length ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${rs.length} reinforcement column${rs.length > 1 ? 's' : ''} on the road.</p>` : '';
+    // troops the stewards lent to a threatened city march home once it has been quiet a while (automation.js)
+    const lent = S.automation && S.automation.lent ? Object.values(S.automation.lent).filter(r => S.cities[r.to] && S.cities[r.from]) : [];
+    const lentNote = lent.length ? `<p class="muted" style="font-size:12px;margin:6px 0 0">🤖 ${lent.map(r => `${fmt(G.unitsCount(r.units))} soldiers lent to ${esc(S.cities[r.to].name)} go home to ${esc(S.cities[r.from].name)}`).join(' · ')} once ${lent.length > 1 ? 'those cities have' : 'it has'} been safe ${G.AUTO ? G.AUTO.returnCalm : 10} min.</p>` : '';
     return `<div class="card mv-over"><h3 style="margin-top:0">🗺️ Garrisons of the realm</h3>
-      <div style="overflow-x:auto"><table class="mv-table"><tr class="muted"><td>City</td><td>Troops</td>${G.defPower ? '<td>Defence</td>' : ''}<td>Coming</td><td></td></tr>${rows}</table></div>${onRoad}</div>`;
+      <div style="overflow-x:auto"><table class="mv-table"><tr class="muted"><td>City</td><td>Troops</td>${G.defPower ? '<td>Defence</td>' : ''}<td>Coming</td><td></td></tr>${rows}</table></div>${onRoad}${lentNote}</div>`;
   };
 
   MILITARY_EXTRAS.push(city => card(city) + overview(city));

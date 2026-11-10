@@ -55,7 +55,7 @@
       desc: 'Pit heads on the hill: stone and ore from this tile, a deposit worked fully; Mine and Quarry may rise 2 levels higher.',
       fits: (s, t) => t.deposit === 'stone' || t.deposit === 'ore' || t.terrain === 'hills' || t.terrain === 'mountain', dep: ['stone', 'ore'] },
     docks: { name: 'Docks', icon: '⚓', fish: true, max: { harbor: 1 },
-      desc: 'Piers on the shore: fishing boats (more with open water and a Harbor), and the Harbor may rise 2 levels higher.',
+      desc: 'Piers on the shore: fishing boats (more with open water and a Harbor), and the Harbor may rise 2 levels higher. An inland city counts its docks as its shore: it may build a Harbor and launch ships from them.',
       fits: (s, t) => G.coastal(s, t.x, t.y) },
     mill: { name: 'Mill quarter', icon: '⚙️', refine: 0.08,
       desc: 'Water wheels on the river drive the workshops: +8% from every smelter, forge and workshop.',
@@ -429,6 +429,45 @@
     b.max += bonus;
     try { return baseStatus(s, city, type); } finally { b.max -= bonus; }
   };
+  // ---- docks as the city's shore ------------------------------------------------
+  // A city whose core is inland but which has docks counts as coastal (Harbor and other coastal buildings, the
+  // sea at its door for naval plans), and its ships put out from the docks tile.
+  const baseCoastal = G.coastal;
+  const docksOf = (s, x, y) => {
+    const t = G.tileAt(s, x, y);
+    const c = t && t.city ? s.cities[t.city] : null;
+    if (!c || !c.quarters || !c.quarters.length) return null;
+    for (const q of c.quarters) if (q.type === 'docks' && live(s, q)) return q;
+    return null;
+  };
+  G.qtrDocksOf = (s, city) => docksOf(s, city.x, city.y);
+  // an inland core that sails from its docks: the docks quarter, else null (a coastal core sails from itself)
+  const sailFrom = (s, p) => (baseCoastal(s, p.x, p.y) ? null : docksOf(s, p.x, p.y));
+  G.qtrSailFrom = (s, city) => sailFrom(s, city);
+  G.coastal = (s, x, y) => baseCoastal(s, x, y) || !!docksOf(s, x, y);
+  const baseSeas = G.seasOf;
+  G.seasOf = (s, x, y) => {
+    const r = baseSeas(s, x, y);
+    if (r.length) return r;
+    const q = docksOf(s, x, y);
+    return q ? baseSeas(s, q.x, q.y) : r;
+  };
+  const basePlanM = G.planMarch;
+  G.planMarch = (s, owner, from, to, units) => {
+    let ships = false;
+    if (units) for (const u in units) if (units[u] > 0 && DATA.units[u] && DATA.units[u].type === 'ship') { ships = true; break; }
+    const df = ships && from ? sailFrom(s, from) : null, dt = ships && to ? sailFrom(s, to) : null;
+    if (!df && !dt) return basePlanM(s, owner, from, to, units);
+    const r = basePlanM(s, owner, df ? { x: df.x, y: df.y } : from, dt ? { x: dt.x, y: dt.y } : to, units);
+    if (!r.ok || !r.naval) return r;
+    // walk from the core to the piers (and up from the far piers): a short way on land
+    const path = (r.path || []).slice();
+    let extra = 0;
+    if (df) { path.unshift([from.x, from.y]); extra += Math.hypot(df.x - from.x, df.y - from.y); }
+    if (dt) { path.push([to.x, to.y]); extra += Math.hypot(dt.x - to.x, dt.y - to.y); }
+    return { ...r, path, dur: r.dur + Math.round(extra * 30 * G.pace(s).travel), docks: true };
+  };
+
   // ley: an arcane quarter on a node taps it at full strength, and claims it from any nearer core
   const arcaneNode = (s, n) => {
     const t = G.tileAt(s, n.x, n.y);

@@ -93,7 +93,7 @@
       ${on ? `<label title="The governor never spends gold below this">keep 🪙 <input type="number" min="0" step="100" data-k="gov_res_${c.id}" value="${g.reserve || 0}"></label>` : ''}
       ${on && g.focus === 'military' ? `<label title="Defenders to keep trained here (0 = build only)">garrison <input type="number" min="0" step="5" data-k="gov_troops_${c.id}" value="${g.troops || 0}"></label>` : ''}
       ${realmToggle(c, g)}
-      ${on && G.lvl(c, 'market') ? `<label title="Sell goods that would spill over; buy what the next building lacks (above the reserve)"><input type="checkbox" data-k="gov_mkt_${c.id}" ${g.market === false ? '' : 'checked'}> market</label>` : ''}
+      ${on && G.lvl(c, 'market') ? `<label title="Sell goods that would spill over and buy upkeep goods that run short; when the builders would stand idle, buy the goods a work lacks, only from gold well above the reserve"><input type="checkbox" data-k="gov_mkt_${c.id}" ${g.market === false ? '' : 'checked'}> market</label>` : ''}
       ${on && g.log && g.log.length ? `<button class="small" data-act="cnLog" data-c="${c.id}">${open ? 'Hide log' : 'Log'}</button>` : ''}
       <div class="cn-status">${govStatus(c, g)}</div>
       ${open && g && g.log ? `<ul class="cn-log">${g.log.map(l => `<li>${esc(l.text)} <span class="muted">· ${ago(l.t)}</span></li>`).join('')}</ul>` : ''}

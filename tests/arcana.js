@@ -348,7 +348,9 @@ const near=(s,c,lo,hi)=>G.freeTile(s,x=>G.dist(x,c)>=lo&&G.dist(x,c)<=hi&&G.land
   const adept=ais.filter(e=>G.towerLevel(s,e.id)>=5), enchd=adept.filter(e=>G.citiesOf(s,e.id).some(c=>(c.ench||[]).length)||G.enchantmentsKnown(s,e.id).length);   // learned (placing one then depends on the mana flow)
   const line=ais.map(e=>e.race+' t'+G.towerLevel(s,e.id)+' e'+G.citiesOf(s,e.id).reduce((a,c)=>a+(c.ench||[]).length,0)+' o'+A(s,e.id).opened.length+' m'+Math.round(G.manaOf(s,e.id))+'/'+G.manaCapOf(s,e.id)).join(', ');
   console.log('  8h world ('+((Date.now()-t0)/1000).toFixed(1)+'s): '+line);
-  ok('by hour 8 AIs with tower 5+ learn or keep enchantments (checked with 2+ such realms)', adept.length<2 || enchd.length>=Math.ceil(adept.length/2), enchd.length+'/'+adept.length);
+  const kept=adept.filter(e=>G.citiesOf(s,e.id).some(c=>(c.ench||[]).length));
+  ok('by hour 8 AIs with tower 5+ learn or keep enchantments', enchd.length>=Math.ceil(adept.length/2), enchd.length+'/'+adept.length);
+  ok('by hour 8 AIs with tower 5+ keep enchantments (at least half of them)', adept.length>=1 && kept.length>=Math.ceil(adept.length/2), kept.length+'/'+adept.length);
   ok('by hour 8 every AI realm\\'s mana sits within its cap', ais.every(e=>G.manaOf(s,e.id)<=G.manaCapOf(s,e.id)*1.02));
 }
 

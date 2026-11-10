@@ -506,14 +506,10 @@
         let j = how === 'up' ? i - 1 : how === 'down' ? i + 1 : how === 'top' || how === 'first' ? 0 : how === 'bottom' || how === 'last' ? q.length - 1 : parseInt(how, 10) - 1;
         if (!(j >= 0)) fail('Move it where? up, down, top, bottom or a position.');
         j = Math.min(q.length - 1, j);
-        const firstFree = q[0] && q[0].start <= s.time ? 1 : 0;
-        if (i < firstFree || j < firstFree) fail('The work under way cannot be moved.');
         if (i === j) return ['Nothing to move.'];
-        const it = q[i], lo = Math.min(i, j), hi = Math.max(i, j);
-        if (q.slice(lo, hi + 1).some((x, k) => x !== it && x.type === it.type)) fail(`Levels of ${DATA.buildings[it.type].name} must stay in order.`);
-        q.splice(i, 1); q.splice(j, 0, it);
-        let tt = s.time;
-        q.forEach((x, k) => { if (k === 0 && x.start <= s.time) { tt = x.end; return; } x.start = tt; x.end = tt + x.dur; tt = x.end; });
+        const it = q[i];
+        const e = G.moveBuild(s, c.id, i, j);
+        if (e) fail(e + '.');
         return [`Moved ${DATA.buildings[it.type].name} ${it.level} to #${j + 1}.`, ...queueLines(s, c)];
       }
       if (sub) fail("queue: use 'queue', 'queue cancel <n>' or 'queue move <n> up|down|top'.");
@@ -527,7 +523,7 @@
     if (c.forge) out.push(`  ⚒ ${DATA.units[c.forge.unit].name} ${c.forge.kind === 'a' ? 'weapons' : 'armour'} → ${c.forge.level}, ${real(s, c.forge.end - s.time)}`);
     return out;
   };
-  def({ name: 'demolish', aliases: ['raze', 'tear'], group: 'Economy', usage: 'demolish <building> [in city]', help: 'Tear down one level of a building (no refund; asks first).', args: [['building'], ['in', 'myCity']],
+  def({ name: 'demolish', aliases: ['raze', 'tear'], group: 'Economy', usage: 'demolish <building> [in city]', help: 'Tear down one level of a building (a quarter of its goods salvaged; asks first).', args: [['building'], ['in', 'myCity']],
     run(s, owner, a, ctx) {
       const sg = segs(a.tokens, kwCity), c = myCity(s, owner, ctx, sg.in);
       if (!sg.head) fail('Demolish what? e.g. demolish farm');
@@ -536,12 +532,10 @@
       if (!L) fail(`${c.name} has no ${b.name}.`);
       if (b.id === 'townhall') fail('The Town Hall cannot be torn down.');
       if (c.buildQueue.some(x => x.type === b.id)) fail(`${b.name} has works queued in ${c.name}; cancel them first (queue cancel <n>).`);
-      return confirm(ctx, `Tear down ${b.name} ${L} → ${L - 1} in ${c.name}? Nothing is refunded.`, () => {
+      return confirm(ctx, `Tear down ${b.name} ${L} → ${L - 1} in ${c.name}? A quarter of its goods is salvaged.`, () => {
         if (G.lvl(c, b.id) !== L || c.owner !== owner) return ['Things changed; nothing torn down.'];
-        if (L <= 1) delete c.buildings[b.id]; else c.buildings[b.id] = L - 1;
-        if (G.bumpEpoch) G.bumpEpoch();
-        if (G.councilDirty) G.councilDirty(s);
-        G.log(s, owner, `🏚️ ${b.name} in ${c.name} was torn down to level ${L - 1}.`, 'info');
+        const e = G.demolish(s, c.id, b.id);
+        if (e) fail(e + '.');
         return [`🏚️ ${b.name} in ${c.name} is now level ${L - 1}.`];
       });
     } });
@@ -1108,7 +1102,7 @@
       return { out: [`Speed ${v}×.`], nav: { speed: v } };
     } });
   def({ name: 'save', group: 'Game', usage: 'save', help: 'Save now.', run(s) { return [G.save(s) ? 'Saved.' : 'Could not save.']; } });
-  def({ name: 'reports', aliases: ['inbox', 'rep'], group: 'Game', usage: 'reports [n]', help: 'Latest battle and scouting reports, numbered.', args: [['n']], tab: 'reports',
+  def({ name: 'reports', aliases: ['rep'], group: 'Game', usage: 'reports [n]', help: 'Latest battle and scouting reports, numbered.', args: [['n']], tab: 'reports',
     run(s, owner, a, ctx) {
       const n = Math.max(1, Math.min(50, parseInt(a.rest, 10) || 10));
       const list = s.reports.slice(0, n);

@@ -147,10 +147,23 @@ if (typeof TILE_EXTRAS !== 'undefined' && G.qtrSlots) {
     if (!S || !t || !t.quarter || t.city) return '';
     const h = G.qtrAt(S, t.x, t.y);
     if (!h) return '';
-    const q = h.q, d = TY[q.type], host = h.city || h.minor;
+    // a rival's quarter out of sight reads as the map draws it: as last seen (worldmap.js S.qtrMemo
+    // [host, hx, hy, type, state, owner, race, era, side, seen at]); one raised unseen is not shown at all
+    let fogTxt = '', fogType = null;
+    if (!(h.city && h.city.owner === 'p') && S.qtrMemo && S.qtrMemo._v) {
+      const i = t.y * S.map + t.x;
+      if (!G.visibleSet(S)[i]) {
+        const mm = S.qtrMemo[i];
+        if (!mm) return '';
+        const ago = Math.max(0, Math.round((S.time - (mm[9] || 0)) / 60));
+        fogType = mm[3];
+        fogTxt = `${mm[4] === 'b' ? 'being built · ' : mm[4] === 'x' ? '🔥 burnt · ' : ''}last seen ${ago < 1 ? 'just now' : ago < 120 ? ago + ' min ago' : Math.round(ago / 60) + ' h ago'}`;
+      }
+    }
+    const q = h.q, d = TY[fogType || q.type], host = h.city || h.minor;
     const head = `<h3>${d ? d.icon + ' ' + d.name : 'Quarter'} of ${esc(host.name)}</h3><div class="muted" style="font-size:12.5px">(${t.x}, ${t.y}) · ${esc(tileLabel(t))} · ${G.dist(city, t).toFixed(1)} tiles from ${esc(city.name)}</div>`;
     if (h.minor) return head + `<p>Outskirts of the free city of ${esc(host.name)}. Its quarters strengthen its defences; it is no place to found a city.</p>`;
-    const qc = h.city, stt = statusTxt(qc, q);
+    const qc = h.city, stt = fogTxt || statusTxt(qc, q);
     if (qc.owner === 'p') {
       const e = G.econ(S, qc);
       return head + `<p style="margin:6px 0">${esc(effects(qc, q, e).join(' · '))}</p>${stt ? `<div class="${q.burnt > S.time ? 'bad' : 'muted'}">${stt}</div>` : ''}
@@ -205,4 +218,42 @@ if (typeof TILE_EXTRAS !== 'undefined' && G.qtrSlots) {
       <p>Quarters are your land: rival settlers and outlaws cannot take the tile, and a road links each one to the core. Raiders can <b>burn</b> an outer quarter without storming the city (only part of the garrison guards it); it then yields nothing for ${QT.burnMins} minutes unless repaired, and the city's loyalty falls. The Wall covers the core; <b>outer walls</b> (Wall ${QT.outer.wall}) extend it round the quarters. Rival realms and free cities grow quarters by the same rules, and a governor can claim them for you.</p>` });
   }
   if (typeof HELP_GLOSSARY !== 'undefined') HELP_GLOSSARY.push(['Quarter', 'A tile a grown city has claimed: farmland, lumber yard, mining quarter, docks, mill, arcane quarter, homes or a fort. It works that one tile.', 'quarters']);
+}
+
+// ---- 🏚️ Demolish: a small button on each built building's card (City tab), through G.demolish ----
+// ui-core's building cards have no extension point, so a mount hook adds the button after each render.
+if (typeof MOUNT_HOOKS !== 'undefined' && G.demolish) {
+  const pctBack = () => Math.round((G.DEMOLISH_REFUND || 0.25) * 100);
+  MOUNT_HOOKS.push(tab => {
+    if (tab !== 'city' || !S) return;
+    const city = curCity();
+    if (!city || city.owner !== 'p') return;
+    for (const el of document.querySelectorAll('.card.bld[id^="bld-"]')) {
+      if (el.querySelector('[data-act="demolishBld"]')) continue;
+      const t = el.id.slice(4), L = G.lvl(city, t);
+      if (!L || t === 'townhall' || !DATA.buildings[t]) continue;
+      const queued = city.buildQueue.some(q => q.type === t);
+      const btn = document.createElement('button');
+      btn.className = 'small qt-demo';
+      btn.dataset.act = 'demolishBld'; btn.dataset.b = t;
+      btn.textContent = '🏚️ Demolish';
+      btn.title = queued ? 'Works are queued for this building: cancel them first' : `Tear down one level (${L} → ${L - 1}); ${pctBack()}% of that level's goods are salvaged`;
+      btn.setAttribute('aria-label', `Demolish one level of ${DATA.buildings[t].name}`);
+      if (queued) btn.disabled = true;
+      let row = el.querySelector(':scope > .row');
+      if (!row) { row = document.createElement('div'); row.className = 'row'; el.appendChild(row); }
+      row.appendChild(btn);
+    }
+  });
+  Object.assign(act, {
+    demolishBld: d => {
+      const city = curCity(), b = DATA.buildings[d.b];
+      if (!city || !b) return;
+      const L = G.lvl(city, d.b);
+      if (!confirm(`Tear down ${b.name} ${L} → ${L - 1} in ${city.name}? ${pctBack()}% of that level's goods are salvaged.`)) return;
+      const err = G.demolish(S, city.id, d.b);
+      toast(err || `🏚️ ${b.name} in ${city.name} is now level ${L - 1}`);
+      render(true);
+    },
+  });
 }

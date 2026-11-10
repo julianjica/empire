@@ -5,6 +5,21 @@ const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
 const QUICK=process.argv.includes('--quick');
 const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/cli.js','js/dynasty.js','js/portraits.js','js/portrait-people.js','js/portrait-gear.js'].filter(f=>fs.existsSync(f));
+// a child process boots ui-core + ui-automation with a stub DOM, chooses Delegate on the start screen and begins
+const START_HOOK_TAIL=[
+  "UI.start.automation='delegate';",
+  "const seen=[]; window.START_HOOKS.push(o=>seen.push(...Object.keys(o).filter(k=>k==='automation')));",
+  "const wrapped=/autoPreset/.test(act.begin.toString());",
+  "try{ act.begin(); }catch(e){}",
+  "console.log('preset='+(S&&S.automation?S.automation.preset:'none')+' wrapped='+wrapped+' opts='+seen.join(','));"].join('\n');
+const START_HOOK_TEST=[
+  "const fs=require('fs');",
+  "global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};",
+  "const fakeEl=()=>({ value:'', style:{}, dataset:{}, classList:{add(){},remove(){},toggle(){},contains:()=>false}, setAttribute(){}, appendChild(){}, addEventListener(){}, querySelector:()=>null, querySelectorAll:()=>[], remove(){} });",
+  "global.document={ getElementById:fakeEl, querySelector:()=>null, querySelectorAll:()=>[], addEventListener(){}, body:fakeEl(), head:fakeEl(), documentElement:fakeEl(), createElement:fakeEl };",
+  "global.window={ scrollY:0, scrollTo(){}, addEventListener(){}, matchMedia:()=>({matches:false,addEventListener(){}}) };",
+  "const files="+JSON.stringify(files.concat(['js/ui-core.js','js/ui-automation.js']))+";",
+  "eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\\n')+'\\n'+"+JSON.stringify(START_HOOK_TAIL)+");"].join('\n');
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra!==undefined?' '+extra:'')); };
@@ -31,6 +46,19 @@ const unit0=s=>DATA.races[s.empires.p.race].units[0];
   ok('old save keeps its supply lines as they were', A.d.economy.supply===(t.logistics&&t.logistics.p?t.logistics.p.on!==false:true));
   rich(t); G.capital(t,'p').buildings.academy=2; run(t,3);
   ok('Hands-on queues no research by itself', !(G.research(t,'p').queue||[]).length && !G.research(t,'p').studies.length);
+}
+
+// ---- a partial s.automation (hand-built games, domains added later) loads without throwing ----
+{ const s=fresh(); G.autoPreset(s,'delegate'); const raw=JSON.parse(G.serialize(s));
+  delete raw.automation.d.settle; delete raw.automation.d.military.defend; delete raw.automation.d.grimoire; delete raw.automation.lent; delete raw.automation.aforkPref; delete raw.automation.res.mana; delete raw.automation.stats;
+  let t=null, err=null;
+  try{ t=G.deserialize(JSON.stringify(raw)); G.autoTick(t); for(const d of G.AUTO.ORDER){ G.autoDomainOn(t,d); G.autoRun(t,d); } G.autoInbox(t); G.cli.exec(t,'p','auto',{}); }catch(e){ err=e.message; }
+  const A=t&&G.automation(t);
+  ok('a save missing some domains and fields loads and runs', !err && !!A, err||'');
+  ok('missing domains and switches come back with their defaults', !!A && A.d.settle.on===false && A.d.military.defend==='off' && A.d.grimoire.forks==='ask' && A.res.mana===60 && typeof A.lent==='object' && typeof A.stats==='object');
+  ok('what the save had is kept', !!A && A.preset==='delegate' && A.d.research.on===true && A.d.military.camps===true);
+  const u=fresh(); u.automation={v:1}; let e2=null; try{ G.autoTick(u); G.autoInbox(u); G.autoDomainOn(u,'settle'); }catch(e){ e2=e.message; }
+  ok('even a bare { v: 1 } loads', !e2 && G.automation(u).d.settle.prefer==='gaps', e2||'');
 }
 
 // ---- presets ----
@@ -106,6 +134,35 @@ const unit0=s=>DATA.races[s.empires.p.race].units[0];
   ok('a city switched off in its header is left alone', ok8);
 }
 
+// ---- grimoire forks: the inbox, a policy, and the chosen side ----
+{ const mk=cfg=>{ const s=fresh(); const c=rich(s); c.buildings.magetower=10; c.res.mana=20000; G.techEra=()=>9; only(s,'grimoire',cfg);
+    // every plain node known, so the forks behind them open up
+    const Ar=s.empires.p.arcana; Ar.known=(DATA.arcanaOrder||Object.keys(DATA.arcana)).filter(id=>!DATA.arcana[id].excl); Ar.active=null; Ar.queue=[]; return s; };
+  const era=G.techEra;
+  const s=mk({on:true}); const forks=G.autoArcForks(s);
+  ok('open Grimoire forks are found', forks.length>0, forks.map(f=>f.join('/')).join(' '));
+  const items=G.autoInbox(s).filter(i=>i.kind==='afork');
+  ok('Grimoire forks appear in the inbox ("Ask me")', items.length===forks.length && items.every(i=>i.fork.length===2 && /fork in the Grimoire/.test(i.text)), items.map(i=>i.text).join(' | '));
+  for(let i=0;i<6;i++){ s.empires.p.arcana.active=null; G.automation(s).studyAt=0; G.autoRun(s,'grimoire'); const a=s.empires.p.arcana.active; if(a){ s.empires.p.arcana.known.push(a.id); s.empires.p.arcana.active=null; } }
+  ok('"Ask me": the stewards study neither side', s.empires.p.arcana.known.every(id=>!DATA.arcana[id].excl));
+  const it=items[0], [a,b]=it.fork;
+  ok('a fork needs a side', !!G.autoInboxDo(s,it.id) && !!G.autoInboxDo(s,it.id,'nonsense'));
+  ok('one click picks a side', G.autoInboxDo(s,it.id,b)===null && G.automation(s).aforkPref[b]===1 && !G.autoInbox(s).some(i=>i.id===it.id));
+  let got=false; for(let i=0;i<40&&!got;i++){ s.empires.p.arcana.active=null; G.automation(s).studyAt=0; G.autoRun(s,'grimoire'); const x=s.empires.p.arcana.active; if(x){ s.empires.p.arcana.known.push(x.id); s.empires.p.arcana.active=null; if(x.id===b) got=true; } }
+  ok('the chosen side is studied, the other never', got && !s.empires.p.arcana.known.includes(a), logHas(s,'grimoire',/side of the fork you chose|at your word/)?'':JSON.stringify(G.autoLogOf(s,'grimoire').slice(0,3)));
+  const t=mk({on:true}); G.autoRegisterCli(); const n=G.autoInbox(t).findIndex(i=>i.kind==='afork')+1; const f0=G.autoInbox(t)[n-1].fork;
+  const r=G.cli.exec(t,'p','inbox',{}); ok('the console lists a fork with its two sides', r.out.some(l=>l.includes('<'+f0.join('|')+'>')));
+  ok('inbox resolve <n> <side> picks it from the console', G.cli.exec(t,'p','inbox resolve '+n+' '+f0[0],{}).ok && G.automation(t).aforkPref[f0[0]]===1);
+  const u=mk({on:true}); G.autoSet(u,'grimoire','forks','auto');
+  ok('"Choose for me": no fork waits in the inbox', !G.autoInbox(u).some(i=>i.kind==='afork'));
+  for(let i=0;i<40;i++){ u.empires.p.arcana.active=null; G.automation(u).studyAt=0; G.autoRun(u,'grimoire'); const x=u.empires.p.arcana.active; if(x){ u.empires.p.arcana.known.push(x.id); u.empires.p.arcana.active=null; } }
+  const kn=u.empires.p.arcana.known;
+  ok('"Choose for me": the stewards take one side of a fork, never both', kn.some(id=>DATA.arcana[id].excl) && kn.every(id=>!DATA.arcana[id].excl||!kn.includes(DATA.arcana[id].excl)), kn.filter(id=>DATA.arcana[id].excl).join(','));
+  const d=fresh(); G.autoPreset(d,'delegate'); const e=fresh(); G.autoPreset(e,'assisted');
+  ok('Delegate chooses forks for you, Assisted asks', G.automation(d).d.grimoire.forks==='auto' && G.automation(e).d.grimoire.forks==='ask');
+  G.techEra=era;
+}
+
 // ---- traditions ----
 { const mk=cfg=>{ const s=fresh(); rich(s); s.empires.p.culture=5000; only(s,'traditions',cfg); return s; };
   const s=mk({on:true}); run(s,2);
@@ -175,6 +232,38 @@ const unit0=s=>DATA.races[s.empires.p.race].units[0];
   const rf=s.moves.find(m=>m.owner==='p'&&m.type==='reinforce'&&m.x===c2.x&&m.y===c2.y);
   ok('balance: troops reinforce a threatened city', !!rf, G.autoLogOf(s).map(e=>e.text).join(' | '));
   ok('and leave the minimum garrison at home', G.soldiers ? (cap.units[basic(s)]||0)>=G.automation(s).res.garrison : true, cap.units[basic(s)]);
+  // reinforcements return: tracked, held while threatened, sent home once it has been calm a while
+  { const lent=G.autoLent(s); ok('the lent troops are tracked', !!lent[rf.id] && lent[rf.id].from===cap.id && lent[rf.id].to===c2.id);
+    const sent=G.unitsCount(rf.units);
+    const T=s.moves.find(m=>m.owner===ai); rf.arrive=s.time+1; T.arrive=s.time+1e6; G.advance(s,2,4);
+    ok('they arrive and join the garrison', !s.moves.includes(rf) && G.unitsCount(c2.units)>=sent);
+    s.time+=20*MIN(s); G.autoRun(s,'military');
+    ok('while the threat stands they stay', !s.moves.some(m=>m.owner==='p'&&m.type==='reinforce'&&m.x===cap.x&&m.y===cap.y) && !!lent[rf.id]);
+    s.moves.splice(s.moves.indexOf(T),1); G.autoRun(s,'military');
+    s.time+=(G.AUTO.returnCalm-1)*MIN(s); G.autoRun(s,'military');
+    ok('not before the city has been calm for '+G.AUTO.returnCalm+' minutes', !s.moves.some(m=>m.owner==='p'&&m.type==='reinforce'&&m.x===cap.x&&m.y===cap.y));
+    s.time+=2*MIN(s); G.autoRun(s,'military');
+    const back=s.moves.find(m=>m.owner==='p'&&m.type==='reinforce'&&m.from===c2.id&&m.x===cap.x&&m.y===cap.y);
+    ok('then they march home', !!back && G.unitsCount(back.units)>0 && G.unitsCount(back.units)<=sent && logHas(s,'military',/march home/) && !lent[rf.id], G.autoLogOf(s,'military').slice(0,2).map(e=>e.text).join(' | '));
+    ok('the reinforced city keeps its minimum garrison', G.unitsCount(c2.units)>=Math.min(G.automation(s).res.garrison, sent)); }
+  // …unless the player moved them on
+  { const s=fresh(); const cap=rich(s); cap.units[basic(s)]=200;
+    const t=near(s,cap,4,6); const c2=G.foundCity(s,'p',t.x,t.y,'Second'); c2.units={};
+    const ai=Object.keys(s.empires).find(id=>id!=='p'); const ac=G.capital(s,ai); G.rel(s,ai).status='war';
+    s.moves.push({id:G.newId(s,'m'),owner:ai,type:'attack',from:ac.id,fx:ac.x,fy:ac.y,x:c2.x,y:c2.y,path:G.path(s,ac,c2),units:{[DATA.races[s.empires[ai].race].units[0]]:80},cargo:{},depart:s.time,arrive:s.time+30*MIN(s)});
+    G.autoPreset(s,'handsOn'); G.autoSet(s,'military','balance',true); G.autoRun(s,'military');
+    const rf=s.moves.find(m=>m.owner==='p'&&m.type==='reinforce'); rf.arrive=s.time+1; s.moves=s.moves.filter(m=>m.owner==='p'); G.advance(s,2,4);
+    G.autoRun(s,'military'); c2.units={};             // the player marched them elsewhere
+    s.time+=(G.AUTO.returnCalm+1)*MIN(s); G.autoRun(s,'military');
+    ok('troops the player moved on are not chased home', !s.moves.some(m=>m.owner==='p'&&m.type==='reinforce'&&m.from===c2.id) && !Object.keys(G.autoLent(s)).length);
+    // and a recalled column is forgotten
+    const s2=fresh(); const cap2=rich(s2); cap2.units[basic(s2)]=200; const t2=near(s2,cap2,4,6); const d2=G.foundCity(s2,'p',t2.x,t2.y,'Third'); d2.units={};
+    const ai2=Object.keys(s2.empires).find(id=>id!=='p'); const ac2=G.capital(s2,ai2); G.rel(s2,ai2).status='war';
+    s2.moves.push({id:G.newId(s2,'m'),owner:ai2,type:'attack',from:ac2.id,fx:ac2.x,fy:ac2.y,x:d2.x,y:d2.y,path:G.path(s2,ac2,d2),units:{[DATA.races[s2.empires[ai2].race].units[0]]:80},cargo:{},depart:s2.time,arrive:s2.time+30*MIN(s2)});
+    G.autoPreset(s2,'handsOn'); G.autoSet(s2,'military','balance',true); G.autoRun(s2,'military');
+    const rf2=s2.moves.find(m=>m.owner==='p'&&m.type==='reinforce');
+    if(rf2&&G.recallMove){ s2.time+=5; G.recallMove(s2,rf2.id); G.autoRun(s2,'military'); ok('a column the player recalls is no longer tracked', !G.autoLent(s2)[rf2.id]); }
+  }
   // garrisons through governors
   const g=fresh(); G.setGovernor(g,G.capital(g,'p').id,{focus:'balanced'}); G.autoPreset(g,'handsOn'); G.autoReserve(g,'garrison',20); G.autoSet(g,'military','garrison',true);
   ok('garrison: the governor is told to keep the minimum garrison', g.council.gov[G.capital(g,'p').id].troops===20);
@@ -278,6 +367,69 @@ const unit0=s=>DATA.races[s.empires.p.race].units[0];
     else ok('a tale could be forced for the test', false, err); }
 }
 
+// ---- settlement: settlers when renown allows, a safe site that fills the realm's gaps, an escort near danger ----
+{ const ready=s=>{ const c=rich(s); c.buildings.townhall=Math.max(6,c.buildings.townhall||1); c.buildings.market=Math.max(1,c.buildings.market||0); c.pop=Math.max(c.pop,60);
+    s.empires.p.renownBonus=Math.max(0,G.nextCityRenown(s,'p')-G.renown(s,'p')); return c; };
+  ok('the Settlement domain is on in Delegate, off in Assisted and Hands-on', (()=>{ const a=fresh(),b=fresh(),c=fresh(); G.autoPreset(a,'delegate'); G.autoPreset(b,'assisted'); G.autoPreset(c,'handsOn'); return G.automation(a).d.settle.on && !G.automation(b).d.settle.on && !G.automation(c).d.settle.on; })());
+  const s=fresh(); const c=ready(s); only(s,'settle',{on:true}); G.autoRun(s,'settle');
+  ok('renown allows a city: settlers are trained', (c.train.townhall||[]).some(q=>q.unit==='settlers') && logHas(s,'settle',/Training settlers in/), G.autoLogOf(s).map(e=>e.text).join(' | '));
+  G.autoRun(s,'settle');
+  ok('only one batch at a time', (c.train.townhall||[]).filter(q=>q.unit==='settlers').reduce((a,q)=>a+q.left,0)===1);
+  c.train.townhall=[]; c.units.settlers=1; G.autoRun(s,'settle');
+  const m=s.moves.find(m=>m.owner==='p'&&m.type==='settle');
+  ok('settlers at hand set out for a site, and the log says why', !!m && logHas(s,'settle',/Settlers set out from .* for \\(\\d+, \\d+\\): \\S/), G.autoLogOf(s,'settle').slice(0,1).map(e=>e.text).join(''));
+  if(m){ const t=G.tileAt(s,m.x,m.y);
+    ok('the site is free land, three or more tiles from any city', !t.city && !t.quarter && !G.isWater(t) && Object.values(s.cities).every(o=>G.dist(o,t)>=2.8));
+    ok('and is no worse than the site the survey rates average for our people', G.siteFit(G.siteYield(s,t.x,t.y),'hearth')>-0.5); }
+  ok('a sent column takes the city slot (no second batch)', !G.canFoundCity(s,'p') && (G.autoRun(s,'settle'), !(c.train.townhall||[]).length));
+  if(m){ m.arrive=s.time+1; G.advance(s,2,4); ok('they found the city', G.citiesOf(s,'p').length===2); }
+  // the realm's shortages steer the choice: with ore lacking the pick is at least as rich in ore as without
+  { const s=fresh(); const c=ready(s); only(s,'settle',{on:true}); c.units.settlers=1; const lack=G.realmLack;
+    G.realmLack=()=>({grain:0,timber:0,stone:0,ore:0}); const p0=G.autoSettlePlan(s,true);
+    G.realmLack=()=>({grain:0,timber:0,stone:0,ore:1.2}); const p1=G.autoSettlePlan(s,true);
+    G.realmLack=lack;
+    const o0=p0&&G.siteYield(s,p0.t.x,p0.t.y).ore, o1=p1&&G.siteYield(s,p1.t.x,p1.t.y).ore;
+    ok('when the realm lacks ore, the site leans to ore (and says so when it is rich in it)', !!p1 && o1>=o0 && (o1<=1.05 || /ore/.test(p1.why)), o0&&o0.toFixed(2)+' -> '+(o1&&o1.toFixed(2))+' '+(p1&&p1.why)); }
+  // never into danger; an escort when hostiles are near
+  { const s=fresh(); const c=ready(s); only(s,'settle',{on:true}); c.units.settlers=1; c.units[basic(s)]=60;
+    const p0=G.autoSettlePlan(s,true);
+    const id=G.newId(s,'k'); const kt=G.freeTile(s,x=>G.dist(x,p0.t)<=1.5&&G.dist(x,p0.t)>0&&!x.city&&!G.isWater(x)); s.camps[id]={id,x:kt.x,y:kt.y,tier:1,units:{brigand:5},loot:{}}; kt.camp=id;
+    const p1=G.autoSettlePlan(s,true);
+    ok('a site with brigands next door is passed over', !!p1 && (p1.t.x!==p0.t.x||p1.t.y!==p0.t.y) && Object.values(s.camps).every(k=>G.dist(k,p1.t)>G.AUTO.settleSafe));
+    // hostiles a few tiles off: the settlers go with an escort
+    const id2=G.newId(s,'k'); const k2=G.freeTile(s,x=>{ const d=G.dist(x,p1.t); return d>G.AUTO.settleSafe+0.5&&d<=G.AUTO.settleEscort&&!x.city&&!x.quarter&&!G.isWater(x)&&G.dist(x,kt)>1; });
+    if(k2){ s.camps[id2]={id:id2,x:k2.x,y:k2.y,tier:1,units:{brigand:5},loot:{}}; k2.camp=id2; }
+    const p2=G.autoSettlePlan(s,true);
+    G.autoRun(s,'settle'); const m=s.moves.find(m=>m.owner==='p'&&m.type==='settle');
+    ok('with hostiles near, soldiers escort the settlers (above the minimum garrison)', !!m && (!p2.danger || (G.unitsCount(m.units)>1 && /escort/.test(G.autoLogOf(s,'settle')[0].text))) && (c.units[basic(s)]||0)>=G.automation(s).res.garrison, (p2&&p2.danger)+' '+G.autoLogOf(s,'settle').slice(0,1).map(e=>e.text));
+    ok('the plan near danger names it', !k2 || !!p2.danger); }
+  // no escort to spare: the settlers wait
+  { const s=fresh(); const c=ready(s); only(s,'settle',{on:true}); c.units={settlers:1}; G.AUTO.settleEscort=40;
+    const ai=Object.keys(s.empires).find(id=>id!=='p'); G.rel(s,ai).status='war';
+    try{ G.autoRun(s,'settle'); } finally{ G.AUTO.settleEscort=6; }
+    ok('danger near and nobody to escort: the settlers wait', !s.moves.some(m=>m.type==='settle') && logHas(s,'settle',/wait/)); }
+  // reserves
+  { const s=fresh(); const c=ready(s); only(s,'settle',{on:true}); G.autoReserve(s,'gold',s.empires.p.gold); G.autoRun(s,'settle');
+    ok('gold reserve: no settlers that would spend below it', !(c.train.townhall||[]).length); }
+  { const s=fresh(); const c=ready(s); only(s,'settle',{on:true}); s.empires.p.renownBonus=0; G.autoRun(s,'settle');
+    ok('no settlers before renown allows another city', !G.canFoundCity(s,'p') && !(c.train.townhall||[]).length); }
+  // the domain off: the inbox says a site is ready, and one click acts
+  { const s=fresh(); const c=ready(s); G.autoPreset(s,'handsOn');
+    const it=G.autoInbox(s).find(i=>i.kind==='settle');
+    ok('domain off: "A site is ready for a new city" in the inbox', !!it && /A site is ready for a new city/.test(it.text) && it.act && it.jump.tab==='world', it&&it.text);
+    ok('one click trains the settlers', G.autoInboxDo(s,'settle')===null && (c.train.townhall||[]).some(q=>q.unit==='settlers'));
+    c.train.townhall=[]; c.units.settlers=1;
+    ok('and then sends them', G.autoInbox(s).find(i=>i.kind==='settle').act.label==='Send settlers' && G.autoInboxDo(s,'settle')===null && s.moves.some(m=>m.type==='settle'));
+    const s2=fresh(); ready(s2); G.autoPreset(s2,'delegate');
+    ok('domain on: no inbox item (the stewards will see to it)', !G.autoInbox(s2).some(i=>i.kind==='settle')); }
+  // a passive Delegate player founds a second city within 4 game-hours
+  { let a=7; const r=Math.random; Math.random=()=>{ a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+    try{ const s=G.newGame({name:'T',race:'hearth'}); G.aiPressure=basePressure; G.autoPreset(s,'delegate'); let at=null;
+      for(let h=0;h<16&&G.citiesOf(s,'p').length<2;h++){ G.advance(s,900,1500); if(G.citiesOf(s,'p').length>=2) at=(h+1)/4; }
+      ok('a passive Delegate realm founds a new city within 4 game-hours', G.citiesOf(s,'p').length>=2 && logHas(s,'settle',/Settlers set out/), at!==null?'(after '+at+' h)':G.autoLogOf(s,'settle').slice(0,3).map(e=>e.text).join(' | ')); }
+    finally{ Math.random=r; G.aiPressure=()=>0; } }
+}
+
 // ---- the inbox ----
 { const s=fresh(); G.autoPreset(s,'handsOn'); const cap=G.capital(s,'p'); cap.buildQueue=[];
   let items=G.autoInbox(s);
@@ -347,6 +499,12 @@ if(!QUICK){
   const avg=(k,f)=>Math.round(res[k].reduce((a,x)=>a+x[f],0)/res[k].length);
   for(const k of Object.keys(res)) console.log('  '+k.padEnd(9)+' renown '+avg(k,'renown')+' · pop '+avg(k,'pop')+' · building levels '+avg(k,'lv')+' · techs '+avg(k,'techs')+' · traditions '+avg(k,'trads')+' · cities '+avg(k,'cities')+' · automated actions '+avg(k,'acts'));
   ok('a passive Delegate realm clearly outgrows a passive Hands-on one', avg('delegate','renown')>=avg('handsOn','renown')*1.5 && avg('delegate','pop')>avg('handsOn','pop'));
+}
+
+// ---- the start screen: act.begin passes the chosen preset through START_OPTS (no wrapper around act.begin) ----
+{ const out=require('child_process').spawnSync(process.execPath,['-e',START_HOOK_TEST],{encoding:'utf8',cwd:process.cwd()});
+  const line=(out.stdout||'').trim().split('\\n').pop()||'';
+  ok('the start screen passes the Delegate preset to G.newGame', /^preset=delegate wrapped=false opts=automation$/.test(line), line+' '+(out.stderr||'').slice(0,300));
 }
 
 console.log(fails?fails+' FAILED':'ALL PASS');

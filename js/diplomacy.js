@@ -78,6 +78,7 @@ const TR = G.TREATY = {
   aiPactWar: 0.35,               // a non-aggression pact or truce between AI realms cuts their odds of war to this share (and war breaks it)
   aiBreak: 240,                  // mean game minutes (× pace) for an aggressive, much stronger AI to tear up a pact
   aiCede: 0.35, aiVassal: 0.25,  // when an AI war ends with a crushing war score: chance the loser cedes a city / kneels
+  aiCedeAim: 0.6,                // a war of conquest won on the field (score 40+): chance the loser yields the city it was fought for
   joinWar: 25,                   // mean game minutes (× pace) before an ally answers a call to arms
   pendingMins: 6,                // game minutes (× pace) a proposal waits for the player's answer
   vassalBase: 25, vassalPer: 15, // vassal tribute, gold per game hour: base + per vassal city (× pace prod)
@@ -419,13 +420,16 @@ const neighbours = (s, a, b) => G.citiesOf(s, a).some(c => G.citiesOf(s, b).some
 // ---------------------------------------------------------------------
 // AI <-> AI: wars, peace terms, treaties
 // ---------------------------------------------------------------------
-// a winning aggressor bent on conquest keeps fighting until its aim is met (js/warplan.js), for up to twice the usual span
+// an aggressor bent on conquest that is not losing keeps fighting until its aim is met (js/warplan.js), for up to
+// twice the usual span; three times while its objective is wavering (loyalty already lowered by heralds or burnings)
 const conquestPending = (s, a, b, age, pace) => {
-  if (!G.warPlanOf || !G.warGoalMet || age > 4800 * pace) return false;
+  if (!G.warPlanOf || !G.warGoalMet || age > 7200 * pace) return false;
   const w = dip(s).wars[pk(a, b)], by = w && w.by;
   if (!by || by === 'p') return false;
   const foe = by === a ? b : a, P = G.warPlanOf(s, by), W = P && P.wars && P.wars[foe];
-  return !!(W && W.goal === 'conquer' && !G.warGoalMet(s, by, foe) && G.warScore(s, by, foe) > 0);
+  if (!W || W.goal !== 'conquer' || G.warGoalMet(s, by, foe) || G.warScore(s, by, foe) < 0) return false;
+  const c = W.city && s.cities[W.city];
+  return age <= 4800 * pace || !!(c && c.owner === foe && (c.loyalty ?? 100) < 90);
 };
 const aiSettle = (s, A, B, say) => {
   // the war ends; a crushed loser may cede a city or kneel
@@ -436,7 +440,12 @@ const aiSettle = (s, A, B, say) => {
   const lc = G.citiesOf(s, L.id);
   setPair(s, A.id, B.id, 'peace');
   let terms = '';
-  if (ws >= 55 && pW / pL >= 3 && !G.liegeOf(s, L.id) && !G.vassalsOf(s, L.id).length && !G.liegeOf(s, W.id) && Math.random() < TR.aiVassal) {
+  // a war of conquest won on the field: the loser gives up the city the war was fought for (js/warplan.js aims)
+  const aimP = G.warPlanOf ? G.warPlanOf(s, W.id) : null, aim = aimP && aimP.wars && aimP.wars[L.id];
+  const prize = aim && aim.goal === 'conquer' && aim.city && s.cities[aim.city];
+  if (prize && prize.owner === L.id && ws >= 40 && lc.length >= 2 && G.capital(s, L.id) !== prize && Math.random() < TR.aiCedeAim && !G.cedeCity(s, prize, W.id, { loyalty: 40 })) {
+    terms = ` The ${L.name} yield ${prize.name}, the prize of the war.`;
+  } else if (ws >= 55 && pW / pL >= 3 && !G.liegeOf(s, L.id) && !G.vassalsOf(s, L.id).length && !G.liegeOf(s, W.id) && Math.random() < TR.aiVassal) {
     G.signTreaty(s, 'vassal', L.id, W.id, { by: W.id, quiet: true });
     terms = ` The ${L.name} kneel as vassals of the ${W.name}.`;
   } else if (ws >= 55 && lc.length >= 3 && Math.random() < TR.aiCede) {

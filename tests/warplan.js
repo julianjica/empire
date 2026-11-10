@@ -17,7 +17,7 @@ const spot=(s,c,lo,hi)=>G.freeTile(s,x=>G.dist(x,c)>=lo&&G.dist(x,c)<=hi&&G.land
 const rich=(s,c)=>{ const cp=G.storageCap(s,c); for(const g of Object.keys(DATA.goods)) c.res[g]=Math.max(c.res[g]||0,cp*0.9); s.empires[c.owner].gold=Math.max(s.empires[c.owner].gold,1e5); c.pop=Math.max(c.pop,400); };
 const hostileSends=[];
 { const base=G.sendArmy; G.sendArmy=(s,f,x,y,type,u,c)=>{ const city=s.cities[f]; const r=base(s,f,x,y,type,u,c);
-    if(!r&&city&&city.owner!=='p'&&['raid','attack','conquer'].includes(type)){ const t=G.tileAt(s,x,y), tc=t&&t.city&&s.cities[t.city]; if(tc&&tc.owner!==city.owner&&s.empires[tc.owner]) hostileSends.push({s,from:city.owner,to:tc.owner,st:G.statusOf(s,city.owner,tc.owner),t:s.time,type}); }
+    if(!r&&city&&city.owner!=='p'&&['raid','attack','conquer','burn'].includes(type)){ const tc=G.cityAtTile(s,x,y); if(tc&&tc.owner!==city.owner&&s.empires[tc.owner]) hostileSends.push({s,from:city.owner,to:tc.owner,st:G.statusOf(s,city.owner,tc.owner),t:s.time,type}); }
     return r; }; }
 // a small world: the player and two AI realms; a1 gets three cities in a cluster and a2 a city nearby
 const world=(o={})=>{
@@ -213,6 +213,89 @@ let saved=null;
   for(let i=0;i<20;i++) for(const ai of ais){ const P=G.warPlanOf(s,ai); const I=P.intent; withRandom(0.99,()=>G.warEvaluate(s,ai)); P.intent=I; }
   const per2=Number(process.hrtime.bigint()-t2)/1e6/20/ais.length;
   ok('a war evaluation costs well under 3 ms per realm', per2<3, per2.toFixed(3)+' ms');
+}
+
+// ---- 10. burn raids: a quick strike on a rich outer quarter when the assault is not yet within reach ----
+{ const { s, A, A2, A3, T } = world({ seed: 31 });
+  const u=offU('ash');
+  for(const c of [A,A2,A3]) if(c) c.units={};
+  // the target: a walled garrison (no assault yet), and an outer farm quarter (its guard is 40% of the garrison, no walls)
+  T.units={ [defU('delver')]: 30 }; T.buildings.wall=20;
+  const opt=G.qtrOptions(s,T).find(o=>o.types.length); const q={ x:opt.x, y:opt.y, type:opt.types[0], built:true };
+  T.quarters=[q]; G.qtrSync(s);
+  ok('no burn raid outside war', !G.warBurnRaid(s,'a1',A,[T]) && !s.moves.some(m=>m.owner==='a1'&&m.type==='burn'));
+  G.warStartWar(s,'a1','a2','raid',T.id);
+  G.warCampaignStep(s,'a1');
+  { const C=G.warPlanOf(s,'a1').camp, st=C&&s.cities[C.staging]; if(st) st.units={ [u]: 60 }; }
+  const cdT=G.cityDefense(s,T), Dt=G.defPower(s,'a2',T.units)*cdT.mult+cdT.flat, gq=G.qtrDefenders(s,T,q), Dq=G.defPower(s,'a2',gq.units)+gq.flat, At=G.atkPower(s,'a1',{ [u]: 60 });
+  console.log('  burn test: army attack', Math.round(At), 'city defence', Math.round(Dt), 'quarter guard', Math.round(Dq));
+  let burn=null;
+  for(let i=0;i<80&&!burn;i++){ G.warCampaignStep(s,'a1'); burn=s.moves.find(m=>m.owner==='a1'&&m.type==='burn'); if(!burn) G.advance(s,30,3); }
+  ok('at war, an AI campaign that cannot storm the city yet raids an outer quarter (mission burn)', !!burn, burn?('at '+burn.x+','+burn.y):'none');
+  ok('...the raid goes for the quarter, not the city core', !!burn && burn.x===q.x && burn.y===q.y);
+  ok('...a detachment: the campaign keeps most of its army', !!burn && G.unitsCount(burn.units) < 54, burn&&G.unitsCount(burn.units)+' of 60');
+  ok('...it belongs to the campaign', !!burn && burn.campaign==='a1' && burn.wp==='burn');
+  const loy0=T.loyalty??100;
+  for(let i=0;i<60&&s.moves.some(m=>m===burn);i++) G.advance(s,30,3);
+  ok('the quarter burns (or the guard holds); a burned quarter costs loyalty', (q.burnt>0 && (T.loyalty??100)<loy0+1e-9) || !(q.burnt>0), 'burnt '+(q.burnt>0)+' loyalty '+Math.round(loy0)+' -> '+Math.round(T.loyalty??100));
+  ok('burn raids are counted', (G.warStats(s).burns||0)>=1, G.warStats(s).burns);
+  // the player: no burn raid without war either
+  const P0=G.capital(s,'p'); const po=G.qtrOptions(s,P0).find(o=>o.types.length);
+  if(po){ P0.quarters=[{ x:po.x, y:po.y, type:po.types[0], built:true }]; G.qtrSync(s); ok('no burn raid on a neutral player', !G.warBurnRaid(s,'a1',A,[P0])); }
+}
+
+// ---- 11. a sea-borne campaign: an island city of the foe, struck from a harbour by ship ----
+{ Math.random=mulberry(777);
+  const s=G.newGame({name:'T',race:'hearth',rivals:2,rivalRaces:['tide','delver']}); noCamps(s); full(s); s.settings.hostility=0;
+  const A=G.capital(s,'a1');
+  const free=t=>!t.city&&!t.camp&&!t.oasis&&!t.ruin&&!t.quarter&&!DATA.terrain[t.terrain].impassable&&!G.isWater(t)&&G.coastal(s,t.x,t.y);
+  const homes=s.tiles.filter(t=>free(t)&&G.landReachable(s,A,t)&&G.dist(t,A)>=3), isl=s.tiles.filter(t=>free(t)&&!G.landReachable(s,A,t));
+  let pair=null;
+  for(const a of homes){ const sa=G.seasOf(s,a.x,a.y); for(const b of isl){ const d=G.dist(a,b); if(d>=4&&d<=14&&G.seasOf(s,b.x,b.y).some(w=>sa.includes(w))&&Object.values(s.cities).every(c=>G.dist(c,b)>=3&&G.dist(c,a)>=3)){ pair={a,b}; break; } } if(pair) break; }
+  ok('the naval test world has a harbour site and an island across the water', !!pair);
+  if(pair){
+    const Port=G.foundCity(s,'a1',pair.a.x,pair.a.y,'Port'), Isle=G.foundCity(s,'a2',pair.b.x,pair.b.y,'Isle');
+    rich(s,Port); rich(s,A); Port.buildings.harbor=5; Port.buildings.townhall=Math.max(8,Port.buildings.townhall||0); Port.buildings.barracks=5;
+    const u=offU('tide'); Port.units={ [u]: 80, transport: 3 }; Isle.units={ [defU('delver')]: 4 };
+    G.warStartWar(s,'a1','a2','raid',Isle.id);
+    G.warCampaignStep(s,'a1');
+    const C=G.warPlanOf(s,'a1').camp;
+    ok('the campaign stages at the harbour and sails', !!C && C.staging===Port.id && C.naval, C?JSON.stringify({staging:s.cities[C.staging].name,naval:C.naval}):'none');
+    let sea=null;
+    for(let i=0;i<120&&!sea;i++){ G.warCampaignStep(s,'a1'); sea=s.moves.find(m=>m.owner==='a1'&&m.naval&&m.wp==='strike'); if(!sea) G.advance(s,30,3); }
+    ok('a sea-borne strike leaves the harbour on its ships (aiStrike naval path)', !!sea && (sea.units.transport||0)>0, sea?JSON.stringify(sea.units):'none');
+    ok('naval campaigns and strikes are counted', (G.warStats(s).navalCamps||0)>=1 && (!sea || (G.warStats(s).naval||0)>=1), JSON.stringify(G.warStats(s)));
+  }
+}
+
+// ---- 12. heralds: a war of conquest on an AI realm brings two, the player is spared the second ----
+{ const { s, A, A2, A3, T } = world({ seed: 55 });
+  const u=offU('ash');
+  for(const c of [A,A2,A3]) if(c){ c.units={ [u]: 200 }; c.buildings.townhall=10; }
+  A2.units.herald=2; A3&&(A3.units.herald=1);
+  T.units={ [defU('delver')]: 6 };
+  G.warStartWar(s,'a1','a2','conquer',T.id);
+  let strike=null;
+  for(let i=0;i<120&&!strike;i++){ G.warCampaignStep(s,'a1'); strike=s.moves.find(m=>m.owner==='a1'&&m.wp==='strike'); if(!strike) G.advance(s,30,3); }
+  ok('a war of conquest on an AI realm marches with two heralds', !!strike && strike.type==='conquer' && strike.units.herald===2, strike?strike.type+' heralds '+(strike.units.herald||0):'none');
+}
+
+// ---- 13. AI-AI conquest: empires rise and fall (informational, loose), the player is not dog-piled ----
+{ let conq=0, maxOnP=0, worlds=0; const per=[];
+  const t0=Date.now();
+  for(const seed of [11,13]){
+    Math.random=mulberry(seed*7919+13);
+    const s=G.newGame({name:'C',race:'hearth',rivals:7,pace:'standard',difficulty:'normal'});
+    const own={}; for(const c of Object.values(s.cities)) own[c.id]=c.owner;
+    let n=0;
+    for(let m=0;m<54;m++){ G.advance(s,600,40);
+      maxOnP=Math.max(maxOnP, Object.keys(s.empires).filter(id=>id!=='p'&&!s.empires[id].dead&&G.statusOf(s,id,'p')==='war').length);
+      for(const c of Object.values(s.cities)){ const o=own[c.id]; if(o&&o!==c.owner&&o!=='p'&&c.owner!=='p'&&s.empires[o]) n++; own[c.id]=c.owner; } }
+    per.push(n); conq+=n; worlds++;
+  }
+  console.log('  AI-AI conquests per 9-hour world (7 rivals):', per.join(', '), '(before this tuning about 0.5 per 12-hour world, before war plans about 6); most AI realms at war with the player at once:', maxOnP, (Date.now()-t0)+'ms');
+  ok('AI realms conquer one another now and then (over 2 seeded worlds)', conq>=1, conq);
+  ok('the player is not dog-piled (at most 2 realms at war with them at once at normal hostility)', maxOnP<=2, maxOnP);
 }
 
 console.log(fails?fails+' FAILED':'ALL PASS');

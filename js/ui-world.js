@@ -103,7 +103,7 @@ const renderTilePanel = (city, t, vis) => {
     modes = ['adventure', 'raid', 'scout'];
   } else {
     const ren = G.renown(S, 'p'), need = G.nextCityRenown(S, 'p');
-    info = `<p>Open land. Settlers can found a new city here.<br><span class="${ren >= need ? 'good' : 'muted'}">Renown ${ren} / ${need === Infinity ? '—' : need} needed for your next city.</span></p>
+    info = `<p>${t.quarter ? 'Land claimed by a city\'s outskirts — settlers cannot found a city here.' : 'Open land. Settlers can found a new city here.'}<br><span class="${ren >= need ? 'good' : 'muted'}">Renown ${ren} / ${need === Infinity ? '—' : need} needed for your next city.</span></p>
       <div class="muted" style="font-size:12px;margin-bottom:2px">Site survey — what a city here would yield, from the land within 2 tiles:</div>${siteHtml(G.siteYield(S, t.x, t.y))}`;
     modes = ['settle', 'scout'];
   }

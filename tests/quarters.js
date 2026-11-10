@@ -67,7 +67,8 @@ const build=(s,c,dx,dy,type)=>{ const e=G.foundQuarter(s,c.id,c.x+dx,c.y+dy,type
 
 // ---- tile rules ----
 { const s=fresh(); const c=grown(s,G.capital(s,'p'));
-  ok('a tile three away is too far', /within/.test(G.qtrStatus(s,c,c.x+3,c.y,'homes').reason||''));
+  { const dx=c.x+3<s.map?3:-3, t3=at(s,c,dx,0); t3.terrain='plains'; t3.city=null; t3.camp=null; t3.oasis=null; t3.ruin=null; t3.minor=null; t3.quarter=null; G.clearPaths(s);
+    ok('a tile three away is too far', /within/.test(G.qtrStatus(s,c,c.x+dx,c.y,'homes').reason||'')); }
   ok('a tile two away must touch a quarter', /touch/.test(G.qtrStatus(s,c,c.x+2,c.y,'homes').reason||''));
   build(s,c,1,0,'homes');
   ok('…and may once it does', G.qtrStatus(s,c,c.x+2,c.y,'homes').ok, G.qtrStatus(s,c,c.x+2,c.y,'homes').reason);
@@ -290,6 +291,41 @@ const build=(s,c,dx,dy,type)=>{ const e=G.foundQuarter(s,c.id,c.x+dx,c.y+dy,type
   ok('the small ones get none', cs.filter(c=>G.qtrSlots(s2,c)===0).every(c=>!c.quarters.length));
   ok('free cities too', Object.values(s2.minors||{}).some(mi=>(mi.quarters||[]).length));
   ok('migration runs once', (()=>{ const n=cs.reduce((a,c)=>a+c.quarters.length,0); const s3=G.deserialize(G.serialize(s2)); return Object.values(s3.cities).reduce((a,c)=>a+c.quarters.length,0)===n; })());
+}
+
+// ---- docks on an inland core: the city's shore for a Harbor and for ships ----
+{ const s=fresh(); const c=grown(s,G.capital(s,'p')); const dir=c.x<s.map/2?1:-1;
+  const clear=t=>{ t.deposit=null; t.camp=null; t.oasis=null; t.ruin=null; t.minor=null; t.quarter=null; };
+  // a lake from three tiles out (the core itself stays inland), and a shore beyond it
+  for(let k=3;k<=8;k++) for(let dy=-1;dy<=1;dy++){ const t=at(s,c,dir*k,dy); if(t&&!t.city){ t.terrain='lake'; clear(t); } }
+  const far=at(s,c,dir*9,0); const ok0=far&&!far.city; if(ok0){ far.terrain='plains'; clear(far); }
+  G.clearPaths(s); c.site=null;
+  const port=ok0?G.foundCity(s,'p',far.x,far.y,'Port'):null;
+  const u0=DATA.races[s.empires.p.race].units[0];
+  ok('the test city is inland, its port across the lake is not', ok0 && !G.coastal(s,c.x,c.y) && G.coastal(s,port.x,port.y));
+  ok('an inland city cannot build a Harbor', /coastal/.test(G.buildStatus(s,c,'harbor').reason||''));
+  c.units.transport=1; c.units[u0]=10;
+  const p0=G.planMarch(s,'p',c,port,{transport:1,[u0]:10});
+  ok('nor launch ships', !p0.ok && /coastal/.test(p0.reason||''), p0.reason);
+  ok('docks fit the shore tile two out', G.qtrTypesFor(s,c.x+dir*2,c.y).includes('docks'));
+  const e=build(s,c,dir,0,'homes')||build(s,c,dir*2,0,'docks');
+  ok('docks are built', !e, e);
+  ok('with docks the city counts as coastal', G.coastal(s,c.x,c.y) && G.qtrSailFrom(s,c).x===c.x+dir*2);
+  ok('the open land beside the core does not', !G.coastal(s,c.x-dir,c.y));
+  const hs=G.buildStatus(s,c,'harbor');
+  ok('an inland city with docks may build a Harbor', hs.ok && G.queueBuild(s,c.id,'harbor')===null, hs.reason);
+  c.buildQueue=[]; c.buildings.harbor=1;
+  const p1=G.planMarch(s,'p',c,port,{transport:1,[u0]:10});
+  ok('ships put out from the docks: a naval route from the core', p1.ok && p1.naval && p1.path[0][0]===c.x && p1.path[0][1]===c.y && p1.path[1][0]===c.x+dir*2, p1.reason||JSON.stringify((p1.path||[]).slice(0,3)));
+  const back=G.planMarch(s,'p',port,c,{transport:1,[u0]:10});
+  ok('and ships can sail home to the docks', back.ok && back.naval && back.path[back.path.length-1][0]===c.x);
+  const err=G.sendArmy(s,c.id,port.x,port.y,'reinforce',{transport:1,[u0]:10});
+  const mv=s.moves.find(m=>m.owner==='p'&&m.type==='reinforce'&&m.x===port.x);
+  ok('a naval march leaves through the docks', !err && !!mv && mv.naval, err);
+  ok('the seas the city touches are its docks\\' seas', G.seasOf(s,c.x,c.y).length>0);
+  const q=c.quarters.find(q=>q.type==='docks'); q.burnt=s.time+1e6;
+  ok('burnt docks launch nothing', !G.coastal(s,c.x,c.y) && !G.planMarch(s,'p',c,port,{transport:1}).ok);
+  q.burnt=0;
 }
 
 // ---- speed ----

@@ -45,4 +45,6 @@
   .mapctl { top: 12px; right: 12px; }
   .mapchip { top: 12px; left: 12px; }
   .maplegend .muted { margin-left: 0; }
+  /* a long tip (a tapped quarter, a rival city) wraps inside the map instead of running off it */
+  .maptip { white-space: normal; max-width: calc(100% - 8px); box-sizing: border-box; }
 }

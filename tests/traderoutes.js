@@ -90,7 +90,7 @@ const orig=(s,a,b)=>noTrade(s,()=>G.hostility(s,a,b));
   rel.status='war'; run(s,20);
   ok('war cancels the route without a breach penalty', !G.routeById(s,r.id) && rel.opinion>=29, 'opinion '+rel.opinion.toFixed(1));
   const mv=s.moves.find(m=>m.route===r.id); let n=0; while(s.moves.some(m=>m.route===r.id) && n++<400) run(s,10);
-  ok('caravan in flight turns back home with its cargo', mv && c.res.ore>=2990 , 'ore '+Math.round(c.res.ore));
+  ok('caravan in flight turns back home with its cargo', mv && c.res.ore>=2900 , 'ore '+Math.round(c.res.ore));   // the 300 ore cargo came back (a little ore is used meanwhile)
   if(G.IC) G.IC.aiCaravan=icOld;
   const [, b]=twoCities(s,4); c.res.ore=3000;
   const r2=G.createRoute(s,'p',c.id,b.id,{give:{ore:100}});

@@ -57,13 +57,10 @@
     return `<div class="card st-setup au-start"><h3>🤖 How much do you want to decide yourself?</h3>
       <div class="st-grid">${startSeg('automation', 'Automation', Object.entries(P).map(([k, p]) => [k, `${p.icon} ${p.name}`, esc(p.desc)]), UI.start.automation, 'Change it any time on the 🤖 Automation tab. War, treaties, succession and crises always wait for you.')}</div></div>`;
   });
-  const baseBegin = act.begin;
-  act.begin = (...a) => {
-    baseBegin(...a);
-    if (!S) return;
-    G.autoPreset(S, G.AUTO.PRESETS[UI.start.automation] ? UI.start.automation : 'assisted');
-    G.save(S); render(true);
-  };
+  // act.begin passes UI.start.automation to G.newGame (window.START_OPTS); automation.js's newGame hook applies the preset
+  const startOpts = window.START_OPTS = window.START_OPTS || [];
+  if (!startOpts.includes('automation')) startOpts.push('automation');
+  (window.START_HOOKS = window.START_HOOKS || []).push(opts => { if (!G.AUTO.PRESETS[opts.automation]) opts.automation = 'assisted'; });
 
   // ---- top bar badge ----
   TOP_EXTRAS.push(() => {
@@ -77,7 +74,11 @@
   const itemHtml = it => {
     const btns = [];
     if (it.pending) for (const o of it.pending.options) btns.push(`<button class="small ${o.key === it.pending.def ? '' : 'primary'}" data-act="decide" data-p="${esc(it.pending.id)}" data-k="${esc(o.key)}">${esc(o.label)}</button>`);
-    if (it.fork) for (const k of it.fork) btns.push(`<button class="small" data-act="autoFork" data-t="${esc(k)}" title="Prefer this side: the stewards will adopt it when culture allows">${DATA.traditions[k].icon} ${esc(DATA.traditions[k].name)}</button>`);
+    if (it.fork) {
+      const arc = it.forkOf === 'arcana', T = arc ? DATA.arcana : DATA.traditions;
+      for (const k of it.fork) { const n = T[k] || {}; const tip = (n.lore || n.desc || '') + (arc ? ' · Prefer this side: the stewards will study it when mana and goods allow' : ' · Prefer this side: the stewards will adopt it when culture allows');
+        btns.push(`<button class="small" data-act="autoFork" data-f="${arc ? 'arcana' : 'traditions'}" data-t="${esc(k)}" title="${esc(tip)}">${n.icon || '📖'} ${esc(n.name || k)}</button>`); }
+    }
     if (it.act) btns.push(`<button class="small primary" data-act="autoDo" data-id="${esc(it.id)}">${esc(it.act.label)}</button>`);
     if (it.jump && TABS[it.jump.tab]) btns.push(`<button class="small" data-act="autoJump" data-id="${esc(it.id)}" title="Open it">Open →</button>`);
     return `<div class="au-item ${it.prio >= 80 ? 'p-hi' : ''}"><span class="au-t">${it.icon} ${esc(it.text)}${it.pending ? `<br><span class="muted" style="font-size:11.5px">${esc(it.pending.text)}</span>` : ''}</span><span class="au-b">${btns.join('')}</span></div>`;
@@ -136,13 +137,14 @@
 
   // ---- help ----
   HELP_SECTIONS.push({ id: 'automation', icon: '🤖', title: 'Automation & the Decisions inbox', tabs: ['automation'],
-    words: 'automation automate steward delegate assisted hands-on preset inbox decisions auto research study enchant tradition ceremony garrison intercept camp forge hero magi governor supply market preach temperament reserve',
-    html: '<p>The 🤖 <b>Automation</b> tab hands routine work to stewards, one domain at a time, so you can focus on the big decisions.</p><ul><li><b>Presets:</b> <b>Hands-on</b> (nothing automated), <b>Assisted</b> (research and study keep going, governors take new cities, supplies flow, ceremonies are held, attacks are flagged) and <b>Delegate</b> (almost everything). Changing a switch makes it <b>Custom</b>.</li><li><b>Domains:</b> Research, Grimoire (study, enchantments, routine blessings), Traditions (pillar path; forks wait for you unless you allow it), Military (garrisons, reinforcements, intercepts, camps, forge), Hero &amp; generals, Magi, Economy (governors, supply, market), Faith and minor Decisions (cautious, balanced or bold, after a grace period).</li><li><b>Reserves:</b> the stewards never spend below your gold reserve or mana floor, and never strip a city below the minimum garrison.</li><li><b>Never automated:</b> war declarations and threats, treaty and trade offers, succession, peace terms, crises and the Great Working.</li><li>The <b>📥 Decisions inbox</b> (top bar) lists only what needs you: threats, offers, succession, idle cities, an empty research queue, unspent hero points, waiting decisions and battles you could intercept. Each has a one-click answer or a jump.</li><li>Every automated action is written to the <b>automation log</b>. Console: <code>auto</code>, <code>auto research on</code>, <code>auto preset delegate</code>, <code>inbox</code>, <code>inbox 1</code>.</li></ul>' });
+    words: 'automation automate steward delegate assisted hands-on preset inbox decisions auto research study enchant tradition ceremony garrison intercept camp forge hero magi governor supply market preach temperament reserve settle settlers new city fork grimoire',
+    html: '<p>The 🤖 <b>Automation</b> tab hands routine work to stewards, one domain at a time, so you can focus on the big decisions.</p><ul><li><b>Presets:</b> <b>Hands-on</b> (nothing automated), <b>Assisted</b> (research and study keep going, governors take new cities, supplies flow, ceremonies are held, attacks are flagged) and <b>Delegate</b> (almost everything). Changing a switch makes it <b>Custom</b>.</li><li><b>Domains:</b> Research, Grimoire (study, enchantments, routine blessings; forks wait for you unless you allow it), Traditions (pillar path; forks wait for you unless you allow it), Military (garrisons, reinforcements that march home once the threat has passed, intercepts, camps, forge), Hero &amp; generals, Magi, Economy (governors, supply, market), Settlement (settlers when renown allows a new city, a safe site that fills what the realm lacks, an escort when hostiles are near), Faith and minor Decisions (cautious, balanced or bold, after a grace period).</li><li><b>Reserves:</b> the stewards never spend below your gold reserve or mana floor, and never strip a city below the minimum garrison.</li><li><b>Never automated:</b> war declarations and threats, treaty and trade offers, succession, peace terms, crises and the Great Working.</li><li>The <b>📥 Decisions inbox</b> (top bar) lists only what needs you: threats, offers, succession, idle cities, an empty research queue, unspent hero points, a site ready for a new city, forks in your traditions and the Grimoire, waiting decisions and battles you could intercept. Each has a one-click answer or a jump.</li><li>Every automated action is written to the <b>automation log</b>. Console: <code>auto</code>, <code>auto research on</code>, <code>auto preset delegate</code>, <code>inbox</code>, <code>inbox 1</code>.</li></ul>' });
 
   // ---- actions ----
   const jump = j => {
     if (!j || !TABS[j.tab]) return toast('That tab is not available');
     if (j.city && S.cities[j.city]) UI.city = j.city;
+    if (j.x !== undefined && j.y !== undefined) UI.sel = { x: j.x, y: j.y };
     UI.tab = j.tab; UI.navMore = false; window.scrollTo(0, 0); render(true);
   };
   Object.assign(act, {
@@ -152,7 +154,10 @@
     autoDom: d => { const on = !G.autoDomainOn(S, d.d); const e = G.autoDomain(S, d.d, on); toast(e || `🤖 ${D()[d.d].name}: ${on ? 'on' : 'off'}`); render(true); },
     autoDo: d => { const it = G.autoInbox(S).find(x => x.id === d.id); const e = G.autoInboxDo(S, d.id); toast(e || `🤖 Done: ${it ? it.text : ''}`); render(true); },
     autoJump: d => { const it = G.autoInbox(S).find(x => x.id === d.id); if (!it) { toast('That has passed'); render(true); return; } jump(it.jump); },
-    autoFork: d => { const e = G.autoForkPref(S, d.t); toast(e || `🎭 The stewards will follow ${DATA.traditions[d.t].name}`); render(true); },
+    autoFork: d => {
+      if (d.f === 'arcana') { const e = G.autoArcForkPref(S, d.t); toast(e || `📖 The stewards will study ${DATA.arcana[d.t].name}`); render(true); return; }
+      const e = G.autoForkPref(S, d.t); toast(e || `🎭 The stewards will follow ${DATA.traditions[d.t].name}`); render(true);
+    },
     autoEnch: d => { const a = A(); a.enchOff = a.enchOff || {}; if (a.enchOff[d.c]) delete a.enchOff[d.c]; else a.enchOff[d.c] = 1; render(true); },
   });
   document.addEventListener('change', ev => {

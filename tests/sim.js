@@ -6,9 +6,12 @@
 //   the Circle of Magi (recruit and post), auto-supply, moving troops to a threatened city and
 //   intercepting an attack when clearly stronger.
 //   'prev' is the bot before those (for before/after comparisons on the same seed).
-//   --gov=half|newest|late[:focus[:nomarket[:reserve]]] hands some cities to governors that think for the
-//   realm (half = every second city after the capital). Off by default: over 10 seeds every variant cost
-//   the bot 10-20 points of renown share, as governors wait for goods instead of queuing cheap levels.
+//   --gov=half|newest|late|noncap|all[:focus[:nomarket[:reserve[:noq]]]] hands some cities to governors that think
+//   for the realm (half = every second city after the capital, noncap = all but the capital; noq = no quarters).
+//   Off by default. Over 24 seeds (renown share vs the AI average) governors on every city beat the bot's own
+//   picker by about +17 (12h basic) to +56 (12h army) points, and governors on all but the capital by +10 to +22.
+//   --stats prints per-city diagnostics (idle builders, governors' market gold, what was built, waits) as STATS lines;
+//   --council=key=v,... tunes G.COUNCIL for experiments.
 //   --off=research,arcana,magi,govern,defend leaves parts out; --rs=0.5 paces research (see RES_SHARE).
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
@@ -20,9 +23,19 @@ if(seedArg!==undefined){ let a=+seedArg|0; Math.random=()=>{ a=a+0x6D2B79F5|0; l
 const files=['js/data.js','js/races2.js','js/engine.js',...['js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f)).filter(f=>fs.existsSync(f))];
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const s=G.newGame({name:'Test',race:'hearth',pace});
+// --council=key=v,key=v tunes G.COUNCIL (for governor experiments)
+for(const kv of ((process.argv.find(a=>a.startsWith('--council='))||'').slice(10)).split(',').filter(Boolean)){ const [k,v]=kv.split('='); G.COUNCIL[k]=+v; }
 const t0=Date.now();
 const unit0=DATA.races.hearth.units[0];
 const B={casts:0,faith:'',routes:0};
+// --stats prints per-city diagnostics (idle builders, market gold, what was built, waits) as STATS lines
+const STATS=process.argv.includes('--stats');
+const ST={idle:{gov:0,bot:0},ticks:{gov:0,bot:0},mkt:{buy:0,sell:0},built:{gov:{},bot:{}},waits:{},govOn:false,qGov:0};
+if(STATS){
+  const qb=G.queueBuild; G.queueBuild=(s2,cid,t)=>{ const r=qb(s2,cid,t); if(r===null&&s2.cities[cid].owner==='p'){ const k=ST.govOn?'gov':'bot'; ST.built[k][t]=(ST.built[k][t]||0)+1; } return r; };
+  const tr=G.trade; G.trade=(s2,cid,g,n,dir)=>{ const gold0=s2.empires.p.gold; const r=tr(s2,cid,g,n,dir); if(ST.govOn&&s2.cities[cid]&&s2.cities[cid].owner==='p'){ const d=s2.empires.p.gold-gold0; if(d<0) ST.mkt.buy-=d; else ST.mkt.sell+=d; } return r; };
+  const cg=G.councilGovern; G.councilGovern=s2=>{ ST.govOn=true; try{ return cg(s2); } finally{ ST.govOn=false; } };
+}
 const ECON=new Set(['grain','timber','stone','ore','raw','refine','buildTime','tax','popGrowth','housing']);
 // spells: any city/realm spell whose effects are economic, cast on the most populous city
 const botMagic=()=>{
@@ -149,8 +162,8 @@ const botGovern=()=>{
   const cs=G.citiesOf(s,'p').slice().sort((a,b)=>(a.founded||0)-(b.founded||0));
   const GV=(process.argv.find(a=>a.startsWith('--gov='))||'--gov=none').split('=')[1].split(':');
   cs.forEach((c,i)=>{
-    const want=GV[0]==='half'?(i>0&&i%2===0):GV[0]==='newest'?(cs.length>=3&&i===cs.length-1):GV[0]==='late'?(i>=3):false;
-    if(want && !G.govOf(s,c.id) && G.setGovernor(s,c.id,{focus:GV[1]||'balanced',realm:true,reserve:+(GV[3]||200),market:GV[2]!=='nomarket'})===null) N.govs++;
+    const want=GV[0]==='half'?(i>0&&i%2===0):GV[0]==='newest'?(cs.length>=3&&i===cs.length-1):GV[0]==='late'?(i>=3):GV[0]==='noncap'?(i>0):GV[0]==='all';
+    if(want && !G.govOf(s,c.id) && G.setGovernor(s,c.id,{focus:GV[1]||'balanced',realm:true,reserve:+(GV[3]||200),market:GV[2]!=='nomarket'})===null){ N.govs++; if(GV[4]==='noq') s.council.gov[c.id].quarters=false; }
   });
   if(G.logistics){ const o=G.logistics(s,'p'); if(!o.on) G.setSupplyRealm(s,'p',{on:true,relief:true}); }
 };
@@ -203,6 +216,7 @@ for(let m=0;m<hours*60;m++){
         if(n>=20 && !s.moves.some(m=>m.owner==='p')){ const camp=Object.values(s.camps).filter(k=>G.defPower(s,null,k.units)*1.5<n*15).sort((a,b)=>G.dist(a,c)-G.dist(b,c))[0]; if(camp) G.sendArmy(s,c.id,camp.x,camp.y,'raid',{[unit0]:Math.floor(n*0.6)}); }
       }
     }
+    if(STATS) for(const c of G.citiesOf(s,'p')){ const gv=G.govOf&&G.govOf(s,c.id); const k=gv?'gov':'bot'; ST.ticks[k]++; if(!c.buildQueue.length){ ST.idle[k]++; if(gv&&gv.wait){ const w=gv.wait.text.replace(/ for .*| \d+.*/,'')+(s.time-(c.founded||0)<3600?' (young)':''); ST.waits[w]=(ST.waits[w]||0)+1; } } }
     G.advance(s,10,5);
   }
   if(smart){ botMagic(); botFaith(); botTrade(); }
@@ -223,6 +237,15 @@ for(let m=0;m<hours*60;m++){
         'AI grimoire avg',G.grimoire?Math.round(ais.reduce((a,e)=>a+G.grimoire(s,e.id).known.length,0)/ais.length):0,'AI magi avg',G.magiOf?(ais.reduce((a,e)=>a+G.magiOf(s,e.id).length,0)/ais.length).toFixed(1):0);
     }
   }
+}
+if(STATS){
+  const pc=G.citiesOf(s,'p');
+  console.log('STATS idle gov',(ST.idle.gov/Math.max(1,ST.ticks.gov)).toFixed(3),'bot',(ST.idle.bot/Math.max(1,ST.ticks.bot)).toFixed(3),'| govMarket buy',Math.round(ST.mkt.buy),'sell',Math.round(ST.mkt.sell),'| waits',JSON.stringify(ST.waits));
+  console.log('STATS builtGov',JSON.stringify(ST.built.gov));
+  console.log('STATS builtBot',JSON.stringify(ST.built.bot));
+  for(const c of pc.sort((a,b)=>(a.founded||0)-(b.founded||0))){ const e=G.econ(s,c); const lv=Object.values(c.buildings).reduce((a,b)=>a+b,0);
+    console.log('STATS city',c.name.slice(0,10),'gov',!!(G.govOf&&G.govOf(s,c.id)),'founded',Math.round((c.founded||0)/60),'TH',G.lvl(c,'townhall'),'lv',lv,'wh',G.lvl(c,'warehouse'),'pop',Math.round(c.pop)+'/'+e.civCap,'eff',e.eff.toFixed(2),'q',c.buildQueue.length,'qtr',(c.quarters||[]).length,'grainNet',e.net.grain.toFixed(1)); }
+  console.log('STATS gold',Math.round(s.empires.p.gold),'wins',s.empires.p.wins||0,'conq',s.empires.p.conquests||0,'levels',pc.reduce((a,c)=>a+Object.values(c.buildings).reduce((x,y)=>x+y,0),0),'cities',pc.length,'soldiers',pc.reduce((a,c)=>a+(c.units[unit0]||0),0),'raidsOnP',s.reports.filter(r=>r.owners.includes('p')&&!r.title.includes('brigand')&&r.owners[0]!=='p').length);
 }
 G.save(s); const s2=G.load(); G.advance(s2,600); console.log('save/load ok:', !!s2 && !!s2.special.find(t=>t.oasis), 'special', s2.special.length);
 console.log('sim ms', Date.now()-t0, 'moves', s.moves.length, 'camps', Object.keys(s.camps).length);

@@ -47,6 +47,7 @@
     massing: 7,         // and from the massing army to the declaration
     massingAI: 4,
     reach: 16,          // tiles: realms whose cities lie this close are neighbours
+    reachAI: 20,        // the same between AI realms (empires rise and fall at a longer reach; the player keeps the shorter one)
     pactRare: 0.08,     // a non-aggression pact or truce cuts the odds of war this much
     peaceRare: 0.4,     // a standing peace (without treaty) this much
     intelOld: 20,       // game-minutes (× pace): intel older than this asks for a scout
@@ -62,6 +63,11 @@
     campCool: 8,        // game-minutes (× pace) after a failed campaign
     rest: 6,            // game-minutes (× pace) between a won strike and the follow-up
     restP: 14,          // the same against the player (at Fair hostility)
+    burnEvery: 5,       // game-minutes (× pace) between burn raids on the foe's outer quarters (per realm)
+    burnNeed: 1.6,      // a burn raid's detachment wants this much over the quarter guard's defence
+    seaReach: 6,        // tiles beyond the land reach a campaign may sail to its objective
+    heraldEvery: 3,     // game-minutes (× pace) between attempts to bring heralds to a war of conquest
+    heraldsAI: 2,       // heralds marching with a conquest of an AI realm's city (one against the player)
   };
   const PT = s => G.pace(s).time;
   const MIN = (s, m) => m * 60 * PT(s);
@@ -196,7 +202,30 @@
   };
   const cityValue = c => { let b = 0; for (const t in c.buildings) b += c.buildings[t]; return b + Math.sqrt(Math.max(0, c.pop)) * 2; };
 
-  // the objective: a city of the target the realm can reach overland, worth taking and not too strong
+  // a harbour of ours on a body of water that also touches o's shore
+  const seaLink = (s, c, o) => {
+    if (!G.seasOf || !G.lvl(c, 'harbor')) return false;
+    const a = G.seasOf(s, c.x, c.y);
+    if (!a.length) return false;
+    return G.seasOf(s, o.x, o.y).some(w => a.includes(w));
+  };
+  // where a campaign against o gathers: the nearest city that reaches it overland, else a harbour that can sail to it
+  const reachTo = target => target === 'p' ? WP.reach : WP.reachAI;
+  const stagingFor = (s, ai, o, mine) => {
+    let near = null, nd = 1e9, port = null, pd = 1e9;
+    for (const c of mine || G.citiesOf(s, ai)) {
+      const d = dist(c, o);
+      if (G.landReachable(s, c, o)) { if (d < nd) { nd = d; near = c; } }
+      else if (d < pd && seaLink(s, c, o)) { pd = d; port = c; }
+    }
+    const R = reachTo(o.owner);
+    if (near && nd <= R + 2) return { staging: near, d: nd, naval: false };
+    if (port && pd <= R + WP.seaReach) return { staging: port, d: pd, naval: true };
+    return null;
+  };
+  G.warStagingFor = stagingFor;
+
+  // the objective: a city of the target the realm can reach (overland, or by sea from a harbour), worth taking and not too strong
   const pickObjective = (s, ai, target, goal, avoid) => {
     const mine = G.citiesOf(s, ai);
     if (!mine.length) return null;
@@ -204,14 +233,14 @@
     let best = null;
     for (const o of G.citiesOf(s, target)) {
       if (avoid && avoid[o.id] > s.time) continue;
-      let near = null, nd = 1e9;
-      for (const c of mine) { const d = dist(c, o); if (d < nd && G.landReachable(s, c, o)) { nd = d; near = c; } }
-      if (!near || nd > WP.reach + 2) continue;
+      const st = stagingFor(s, ai, o, mine);
+      if (!st) continue;
+      const nd = st.d;
       const d = estDef(s, ai, o, null);
       const weak = myA / Math.max(50, d);
       const val = cityValue(o) * (goal === 'conquer' && G.capital(s, target) === o ? 0.6 : 1) * (goal === 'raid' ? 1 + Object.values(o.res || {}).reduce((a, v) => a + (v > 0 ? v : 0), 0) / 20000 : 1);
-      const score = val * Math.pow(Math.min(3, weak), 2) / (6 + nd);   // beatable cities first
-      if (!best || score > best.score) best = { city: o, staging: near, score, d: nd, def: d };
+      const score = val * Math.pow(Math.min(3, weak), 2) / (6 + nd) * (st.naval ? 0.6 : 1);   // beatable cities first; a sea-borne war is the harder road
+      if (!best || score > best.score) best = { city: o, staging: st.staging, score, d: nd, def: d, naval: st.naval };
     }
     return best;
   };
@@ -249,7 +278,7 @@
     const pressure = G.aiPressure(s);
     if (pressure < 0.2) return null;
     const gap = nearestGap(s, ai, target);
-    if (gap > WP.reach) return null;
+    if (gap > reachTo(target)) return null;
     const pacted = ts.some(t => t.kind === 'nap' || t.kind === 'truce');
     let app = G.appetite(s, ai, target);
     if (!(app > 0) && pacted) app = target === 'p' ? clamp(1 - (G.rel(s, ai).opinion || 0) / 80, 0.15, 1.6) : 0.6;   // diplomacy reads 0 under a pact
@@ -279,7 +308,9 @@
     const opts = [['raid', 1.2]];
     if (w.revenge) opts.push(['punish', 2]);
     const heralds = G.citiesOf(s, ai).some(c => (c.units.herald || 0) > 0);
-    if (w.ratio >= 1.25 && pressure > 0.45 && myN < G.aiCityCap(s) + 1 && theirN > 1) opts.push(['conquer', 1 + (e.aggr || 0.45) * 2 + (w.ratio - 1.25) + (heralds ? 2 : 0)]);
+    // between AI realms empires rise and fall: conquest is the likelier aim (the player is spared the same appetite)
+    const ai2 = target !== 'p';
+    if (w.ratio >= (ai2 ? 1.15 : 1.25) && pressure > 0.45 && myN < G.aiCityCap(s) + 1 && theirN > 1) opts.push(['conquer', 1 + (e.aggr || 0.45) * 2 + (w.ratio - 1.25) + (heralds ? 2 : 0) + (ai2 ? 1 : 0)]);
     if (w.ratio >= 1.1) opts.push(['tribute', 1]);
     let r = Math.random() * opts.reduce((a, o) => a + o[1], 0);
     for (const [g, k] of opts) { r -= k; if (r <= 0) return g; }
@@ -436,9 +467,17 @@
       // between AI realms: the other side agrees unless it is winning and hungry
       const PO = planOf(s, t), WO = PO.wars[ai];
       const oAgeH = WO ? (s.time - (WO.since || s.time)) / (3600 * PT(s)) : 0;
-      const otherWants = WO && !goalMet(s, t, ai, WO) && warScore(s, t, ai) > -10 && oAgeH < WP.wearyH * (1 + (s.empires[t].aggr || 0.45));
-      if (otherWants && Math.random() > 0.1) continue;
+      const otherWants = WO && !goalMet(s, t, ai, WO) && warScore(s, t, ai) > -10 && oAgeH < WP.wearyH * (1 + (s.empires[t].aggr || 0.45)) * (WO.goal === 'conquer' ? 1.8 : 1);
+      // a conqueror whose objective already wavers (loyalty lowered) does not let go
+      const oc = WO && WO.goal === 'conquer' && WO.city && s.cities[WO.city];
+      const closing = !!(oc && oc.owner === ai && (oc.loyalty ?? 100) < 90 && warScore(s, t, ai) >= 0);
+      if (otherWants && (closing || Math.random() > 0.1)) continue;
       const winner = ws >= 0 ? ai : t, loser = winner === ai ? t : ai;
+      // a war of conquest won on the field: the loser yields the city it was fought for
+      const WW = winner === ai ? W : WO, prize = WW && WW.goal === 'conquer' && WW.city && s.cities[WW.city];
+      if (prize && prize.owner === loser && Math.abs(ws) >= 40 && G.citiesOf(s, loser).length >= 2 && G.capital(s, loser) !== prize && G.cedeCity && Math.random() < 0.6) {
+        if (!G.cedeCity(s, prize, winner, { loyalty: 40 })) stats(s).ceded = (stats(s).ceded || 0) + 1;
+      }
       if (met && W.goal === 'tribute' && winner === ai && G.signTreaty) {
         const n = Math.max(10, Math.round(G.citiesOf(s, loser).length * 12 * G.pace(s).prod));
         G.signTreaty(s, 'tribute', loser, ai, { by: ai, quiet: true, n });
@@ -472,12 +511,12 @@
     if (P.camp && P.camp.target === target && !P.camp.pre) return P.camp;
     const obj = (cityId && s.cities[cityId] && s.cities[cityId].owner === target) ? (() => {
       const o = s.cities[cityId];
-      let st = null, sd = 1e9;
-      for (const c of G.citiesOf(s, ai)) { const d = dist(c, o); if (d < sd && G.landReachable(s, c, o)) { sd = d; st = c; } }
-      return st ? { city: o, staging: st } : null;
-    })() : pickObjective(s, ai, target, goal, P.campAvoid);
+      const st = stagingFor(s, ai, o);
+      return st ? { city: o, staging: st.staging, naval: st.naval } : null;
+    })() || pickObjective(s, ai, target, goal, P.campAvoid) : pickObjective(s, ai, target, goal, P.campAvoid);
     if (!obj) { P.camp = null; return null; }
-    P.camp = { target, city: obj.city.id, staging: obj.staging.id, phase: 'scout', since: s.time, from: [], sent: {}, move: null, wins: 0, losses: 0, pre: !!pre };
+    P.camp = { target, city: obj.city.id, staging: obj.staging.id, phase: 'scout', since: s.time, from: [], sent: {}, move: null, wins: 0, losses: 0, pre: !!pre, naval: !!obj.naval };
+    if (obj.naval) stats(s).navalCamps = (stats(s).navalCamps || 0) + 1;
     return P.camp;
   };
   G.openCampaign = openCampaign;
@@ -493,6 +532,114 @@
     const D = G.espState ? (G.espState(s).dossiers[ai] || {}) : {};
     const t = Math.max(D[city.id] ? D[city.id].t : -1e9, (planOf(s, ai).camp || {}).scouted || -1e9);
     return s.time - t;
+  };
+
+  // ---- burn raids: a detachment puts a rich outer quarter of the foe to the torch (mission 'burn', js/quarters.js):
+  // plunder, a quarter that yields nothing for a while and −5 loyalty (which softens a city before a conquest)
+  const playerRaidOk = (s, ai, o) => {
+    const pressure = G.aiPressure(s), emp = s.empires[ai];
+    if (!(pressure > 0) || !((s.settings.hostility ?? 0.85) > 0)) return false;
+    return s.time - (o.lastRaided || -1e9) >= 1200 * PT(s) / Math.max(0.3, pressure) && s.time - (emp.lastHitP || -1e9) >= 900 * PT(s) / Math.max(0.4, pressure);
+  };
+  const qtrWorth = (s, city, q) => { const y = safe(() => G.qtrYield(s, city, q), {}) || {}; let v = 0; for (const g in y) v += y[g] * ((DATA.goods[g] && DATA.goods[g].value) || 1); return v; };
+  const qtrGuard = (s, city, q) => safe(() => {
+    const d = G.qtrDefenders(s, city, q);
+    return G.defPower(s, city.owner, d.units) * (d.walled || q.type === 'fort' ? d.mult : 1) * G.mod(s, city.owner, null, 'def') + d.flat;
+  }, 1e9);
+  const burnRaid = (s, ai, from, cities, opts = {}) => {
+    if (!G.qtrDefenders || !G.moveHandlers || !G.moveHandlers.burn || !from) return false;
+    const units = spare(s, from, { floor: opts.floor, siege: false });
+    const A = atkOf(s, ai, units);
+    if (A < WP.sendMin) return false;
+    let best = null;
+    for (const o of cities) {
+      if (!o || o.owner === ai || !mayFight(s, ai, o.owner) || !(o.quarters && o.quarters.length)) continue;
+      if (o.owner === 'p' && !playerRaidOk(s, ai, o)) continue;
+      for (const q of o.quarters) {
+        if (!q.built || q.burnt > s.time) continue;
+        const tl = G.tileAt(s, q.x, q.y);
+        if (!tl || tl.city || tl.quarter !== o.id) continue;
+        const qd = dist(from, q);
+        if (qd > WP.reach + 2 || !G.landReachable(s, from, q)) continue;
+        const d = qtrGuard(s, o, q);
+        if (A < d * WP.burnNeed) continue;
+        const v = (qtrWorth(s, o, q) + 2) * (opts.focus === o.id ? 1.6 : 1) / (4 + qd) / Math.sqrt(1 + d / 150);
+        if (!best || v > best.v) best = { o, q, d, v };
+      }
+    }
+    if (!best) return false;
+    // what the raid needs (with a margin), not the whole army
+    const f = clamp(best.d * WP.burnNeed * 1.5 / Math.max(1, A), 0.2, 1);
+    const det = {};
+    for (const [u, n] of Object.entries(units)) { const k = Math.min(n, Math.ceil(n * f)); if (k > 0) det[u] = k; }
+    if (atkOf(s, ai, det) < best.d * WP.burnNeed) return false;
+    if (G.sendArmy(s, from.id, best.q.x, best.q.y, 'burn', det)) return false;
+    tagLast(s, ai, from.id, 'burn');
+    stats(s).burns = (stats(s).burns || 0) + 1;
+    best.o.lastRaided = s.time;
+    if (best.o.owner === 'p') s.empires[ai].lastHitP = s.time;
+    return true;
+  };
+  G.warBurnRaid = burnRaid;
+  // the foe's cities near a city of ours (whose quarters a raid from it may reach)
+  const foeCitiesNear = (s, from, target, r) => G.citiesOf(s, target).filter(o => dist(o, from) <= (r || WP.reach + 4));
+
+  // ---- heralds for a war of conquest: brought from the realm's other cities, else trained (goods sold for the gold)
+  const heraldsWanted = (s, target) => target === 'p' ? 1 : WP.heraldsAI;
+  const raiseGold = (s, city, need) => {
+    const emp = s.empires[city.owner];
+    if (!G.lvl(city, 'market') || !G.trade || !(need > 0)) return;
+    const cap = G.storageCap(s, city);
+    for (const g of Object.keys(DATA.goods)) {
+      if (emp.gold >= need || g === 'mana' || !DATA.goods[g].raw) continue;
+      const extra = Math.floor((city.res[g] || 0) - cap * 0.45);
+      if (extra < 20) continue;
+      const rate = safe(() => G.marketRates(s, city, g).sell, 0);
+      if (!(rate > 0)) continue;
+      safe(() => G.trade(s, city.id, g, Math.min(extra, Math.ceil((need - emp.gold) / rate) + 1), 'sell'));
+    }
+  };
+  const bringHeralds = (s, ai, C, stage) => {
+    const want = heraldsWanted(s, C.target);
+    const coming = s.moves.filter(m => m.owner === ai && m.x === stage.x && m.y === stage.y && m.type === 'reinforce').reduce((a, m) => a + (m.units.herald || 0), 0);
+    let queued = 0;
+    for (const c of G.citiesOf(s, ai)) for (const q of c.train.townhall || []) if (q.unit === 'herald') queued += q.left || 1;
+    let lack = want - (stage.units.herald || 0) - coming - queued;
+    if (lack <= 0) return;
+    for (const c of G.citiesOf(s, ai)) {
+      if (lack <= 0) break;
+      if (c === stage || !(c.units.herald > 0) || !G.landReachable(s, c, stage)) continue;
+      const n = Math.min(lack, c.units.herald);
+      if (!G.sendArmy(s, c.id, stage.x, stage.y, 'reinforce', { herald: n })) { tagLast(s, ai, c.id, 'gather'); lack -= n; }
+    }
+    if (lack <= 0) return;
+    // train one: at the staging city, or at the realm's best town hall from which it can walk there
+    const emp = s.empires[ai];
+    const at = [stage, ...G.citiesOf(s, ai).filter(c => c !== stage && G.landReachable(s, c, stage)).sort((a, b) => G.lvl(b, 'townhall') - G.lvl(a, 'townhall'))]
+      .find(c => G.lvl(c, 'townhall') >= DATA.units.herald.req && !(c.train.townhall || []).length);
+    if (!at) return;
+    const cost = G.unitCost(s, ai, 'herald');
+    if (emp.gold < (cost.gold || 0)) raiseGold(s, at, cost.gold || 0);
+    safe(() => { if (G.trainStatus(s, at, 'herald').ok) G.queueTrain(s, at.id, 'herald', 1); });
+  };
+
+  // ---- a sea-borne strike: the staging harbour's ships carry what they can (engine aiStrike's naval path)
+  const navalStrike = (s, ai, stage, obj, army, D, goal) => {
+    if (!G.aiStrike) return null;
+    const off = {};
+    for (const [u, n] of Object.entries(army)) if (isField(u) && n > 0) off[u] = n;
+    const st = safe(() => G.aiStrike(s, stage, off, { x: obj.x, y: obj.y, type: goal === 'conquer' ? 'conquer' : goal === 'raid' ? 'raid' : 'attack', d: D }, goal === 'conquer' && (stage.units.herald || 0) > 0));
+    return st && (st.naval || st.air) ? st : null;
+  };
+  // ships for a sea-borne campaign: transports enough for the army (up to 3), queued at the staging harbour
+  const shipsFor = (s, ai, stage, army) => {
+    if (!G.lvl(stage, 'harbor') || (stage.train.harbor || []).length) return;
+    let pop = 0;
+    for (const [u, n] of Object.entries(army)) if (isField(u)) pop += n * Math.max(1, G.unitPop(u));
+    const want = Math.min(3, Math.ceil(pop * 0.8 / ((DATA.units.transport && DATA.units.transport.capacity) || 30)));
+    const have = (stage.units.transport || 0) + s.moves.filter(m => m.owner === ai && m.from === stage.id).reduce((a, m) => a + (m.units.transport || 0), 0);
+    if (have >= want) return;
+    safe(() => { if (G.trainStatus(s, stage, 'transport').ok && G.canAfford(s, stage, G.unitCost(s, ai, 'transport'))) G.queueTrain(s, stage.id, 'transport', 1); });
   };
 
   const stepCampaign = (s, ai) => {
@@ -532,7 +679,7 @@
     }
     const walls = G.lvl(obj, 'wall');
     // ---- siege engines when there are walls
-    if (walls >= 1 && C.phase === 'gather' && !C.siegeQ) {
+    if (walls >= 1 && C.phase === 'gather' && !C.siegeQ && !C.naval) {
       const have = Object.entries(stage.units).some(([u, n]) => isSiege(u) && n > 0);
       if (!have) {
         const su = siegeUnitOf(s, ai);
@@ -553,16 +700,16 @@
           if (!C.from.includes(c.id)) C.from.push(c.id);
         }
       }
-      if (goal === 'conquer' && !(stage.units.herald > 0) && !C.heraldQ) {
+      if (goal === 'conquer' && (stage.units.herald || 0) < heraldsWanted(s, target) && (C.heraldQ || -1e9) <= s.time - MIN(s, WP.heraldEvery)) {
         C.heraldQ = s.time;
-        const from = G.citiesOf(s, ai).find(c => c !== stage && (c.units.herald || 0) > 0 && G.landReachable(s, c, stage));
-        if (from) { if (!G.sendArmy(s, from.id, stage.x, stage.y, 'reinforce', { herald: 1 })) tagLast(s, ai, from.id, 'gather'); }
-        else safe(() => { if (G.trainStatus(s, stage, 'herald').ok) G.queueTrain(s, stage.id, 'herald', 1); });
+        safe(() => bringHeralds(s, ai, C, stage));
       }
       if (C.pre || (C.restUntil || 0) > s.time) return;     // massing before a declaration, or resting: no strike yet
       const enRoute = s.moves.some(m => m.owner === ai && m.wp === 'gather' && m.x === stage.x && m.y === stage.y);
       const army = spare(s, stage, { floor: floorOf(s, C, stage) });
-      const siege = Object.fromEntries(Object.entries(army).filter(([u]) => isSiege(u)));
+      const naval = !!C.naval || !G.landReachable(s, stage, obj);
+      if (naval) shipsFor(s, ai, stage, army);
+      const siege = naval ? {} : Object.fromEntries(Object.entries(army).filter(([u]) => isSiege(u)));
       const A = atkOf(s, ai, army);
       let D = estDef(s, ai, obj, siege);
       // within reach on the rough count: the tactical estimate (ground, counters, walls breached by the engines)
@@ -574,14 +721,25 @@
       const ready = A >= D * WP.need && (!enRoute || s.time - C.since > MIN(s, WP.gatherMax / 2)) && (C.from.length > 0 || C.assembled || G.citiesOf(s, ai).length < 2 || s.time - C.since > MIN(s, WP.gatherMax));
       const late = s.time - C.since > MIN(s, WP.gatherMax) && A >= D * 1.1 && !enRoute;
       if (!ready && !late) {
+        // not strong enough for the assault yet: a quick raid on the foe's rich outer quarters plunders and softens it
+        // (−5 loyalty each, which a conquest's heralds then finish)
+        if ((P.burnAt || 0) <= s.time) {
+          P.burnAt = s.time + MIN(s, WP.burnEvery);
+          if (!naval) safe(() => burnRaid(s, ai, stage, [obj, ...foeCitiesNear(s, stage, target)], { floor: floorOf(s, C, stage), focus: obj.id }));
+        }
         if (s.time - C.since > MIN(s, WP.giveUp)) dropCamp(s, P, C);
         return;
       }
-      // wait a little for the target's army to march out
+      // a war of conquest waits (briefly) for its heralds: a strike without one cannot take the city
+      if (goal === 'conquer' && !(stage.units.herald > 0) && !late && s.time - C.since < MIN(s, WP.gatherMax)
+        && s.moves.some(m => m.owner === ai && m.x === stage.x && m.y === stage.y && (m.units.herald || 0) > 0)) return;
+      // wait a little for the target's army to march out (a war of conquest presses on after its first win)
       const out = s.moves.some(m => m.owner === target && m.from === obj.id && HOSTILE[m.type]);
-      if (!out && !C.waitFrom) { C.waitFrom = s.time; return; }
-      if (!out && s.time - C.waitFrom < MIN(s, WP.waitOpp) && !late) return;
-      launch(s, ai, C, stage, obj, army, A, D, goal);
+      if (!(goal === 'conquer' && C.wins > 0)) {
+        if (!out && !C.waitFrom) { C.waitFrom = s.time; return; }
+        if (!out && s.time - C.waitFrom < MIN(s, WP.waitOpp) && !late) return;
+      }
+      launch(s, ai, C, stage, obj, army, A, D, goal, naval);
       return;
     }
     if (C.phase === 'march') {
@@ -604,11 +762,18 @@
     }
   };
 
-  const launch = (s, ai, C, stage, obj, army, A, D, goal) => {
-    const units = { ...army };
+  const launch = (s, ai, C, stage, obj, army, A, D, goal, naval) => {
+    let units = { ...army };
     let type = goal === 'conquer' ? 'attack' : goal === 'punish' ? 'attack' : 'raid';
-    if (goal === 'conquer' && (stage.units.herald || 0) > 0 && A >= D * WP.need) { units.herald = 1; type = 'conquer'; }
-    else if (goal === 'conquer' && !(stage.units.herald > 0)) safe(() => { if (G.trainStatus(s, stage, 'herald').ok) G.queueTrain(s, stage.id, 'herald', 1); });
+    // a conquest of an AI realm's city marches with two heralds when it has them (each lowers loyalty); one against the player
+    if (goal === 'conquer' && (stage.units.herald || 0) > 0 && A >= D * WP.need) { units.herald = Math.min(stage.units.herald, heraldsWanted(s, obj.owner)); type = 'conquer'; }
+    else if (goal === 'conquer' && !(stage.units.herald > 0)) safe(() => bringHeralds(s, ai, C, stage));
+    if (naval) {
+      // across the water: what the staging harbour's ships carry (engine aiStrike), or wait for ships
+      const st = navalStrike(s, ai, stage, obj, army, D, goal);
+      if (!st) { C.waitFrom = 0; if (s.time - C.since > MIN(s, WP.giveUp)) dropCamp(s, planOf(s, ai), C); return; }
+      units = st.units; type = st.type;
+    }
     const ratio = A / Math.max(1, D);
     const orders = { stance: type === 'conquer' ? 'siege' : ratio > 2.5 ? 'aggressive' : type === 'raid' ? 'skirmish' : 'balanced', general: null };
     if (G.generalsAt) { const g = G.generalsAt(s, ai, stage.id).filter(g => g.hp >= 40).sort((a, b) => b.level - a.level)[0]; if (g && !G.generalAvailable(s, ai, g.id, stage.id)) orders.general = g.id; }
@@ -618,6 +783,7 @@
     const m = tagLast(s, ai, stage.id, 'strike');
     C.move = m ? m.id : null; C.phase = 'march'; C.launched = s.time;
     stats(s).strikes++;
+    if (m && m.naval) { stats(s).naval = (stats(s).naval || 0) + 1; const emp = s.empires[ai]; if (emp) emp.seaAt = s.time + MIN(s, 10); }
     obj.lastRaided = s.time;
     if (obj.owner === 'p' && s.empires[ai]) s.empires[ai].lastHitP = s.time;
   };
@@ -657,7 +823,21 @@
       const o = W.city && s.cities[W.city] && s.cities[W.city].owner === t && !(P.campAvoid && P.campAvoid[W.city] > s.time) ? { city: s.cities[W.city], score: 1e6 } : pickObjective(s, ai, t, W.goal, P.campAvoid);
       if (o && (!best || o.score > best.o.score)) best = { t, W, o };
     }
-    if (!best) { P.campCool = s.time + MIN(s, WP.campCool); return; }
+    if (!best) {
+      P.campCool = s.time + MIN(s, WP.campCool);
+      // no city of theirs is within reach of an assault: a quick raid on an outer quarter instead
+      if ((P.burnAt || 0) <= s.time) {
+        P.burnAt = s.time + MIN(s, WP.burnEvery);
+        safe(() => {
+          for (const [t] of wars) {
+            const foes = G.citiesOf(s, t);
+            const mine = G.citiesOf(s, ai).map(c => ({ c, d: Math.min(1e9, ...foes.map(o => dist(o, c))) })).filter(x => x.d <= WP.reach + 4).sort((a, b) => a.d - b.d).slice(0, 2);
+            for (const { c } of mine) if (burnRaid(s, ai, c, foeCitiesNear(s, c, t))) return;
+          }
+        });
+      }
+      return;
+    }
     if (!best.W.city || (P.campAvoid && P.campAvoid[best.W.city] > s.time)) best.W.city = best.o.city.id;
     // a realm that has raised heralds since turns a winning war on another realm into a war of conquest
     if (best.W.goal !== 'conquer' && best.t !== 'p' && G.aiPressure(s) > 0.7 && G.citiesOf(s, ai).some(c => (c.units.herald || 0) > 0)
@@ -734,7 +914,7 @@
     if (m.type === 'intercept') st.intercepts = (st.intercepts || 0) + 1;   // field battles (js/intercept.js) are counted apart
     else if (m.campaign) st.planned++; else st.unplanned++;
     const P = planOf(s, m.owner), W = P.wars[ctx.defOwner];
-    if (W) { if (ctx.r.win) { W.wins++; if (m.type === 'raid') W.raids++; } else W.losses++; }
+    if (W) { if (ctx.r.win) { W.wins++; if (m.type === 'raid') W.raids++; else if (m.type === 'burn') W.raids += 0.5; } else W.losses++; }
     if (m.campaign && P.camp && P.camp.move === m.id) { P.camp.result = ctx.r.win ? 'win' : 'loss'; m.wp = 'done'; }
   });
 

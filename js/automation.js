@@ -6,14 +6,18 @@
 //  Domains (each a few switches and a short policy, all for the player 'p'):
 //    research   auto-queue when the queue is empty, by focus or "recommended" (G.techRecommend)
 //    grimoire   auto-study by focus (the AI study weights), keep enchantments in tower cities,
-//               cast routine economic spells (e.g. Bountiful Rain when grain is short)
+//               cast routine economic spells (e.g. Bountiful Rain when grain is short); forks wait for
+//               the player (inbox) unless allowed or preferred
 //    traditions auto-adopt along a pillar (G.aiTraditionScore), forks wait for the player unless
 //               allowed or preferred; hold ceremonies (seasonal decisions and on-demand customs)
-//    military   garrisons through governors' training, reinforce threatened cities, intercept
+//    military   garrisons through governors' training, reinforce threatened cities (and march the
+//               troops home once the threat has been gone a while), intercept
 //               (or only alert), clear brigand camps when strongly favoured, forge upgrades
 //    hero       spend points by a build, adventure to ruins when idle and healthy, generals ride to the army
 //    magi       recruit within a budget, post idle magi (court in the best tower city, study otherwise)
 //    economy    governors on new cities, supply lines, market sell/buy above the gold reserve
+//    settle     trains settlers when renown allows another city, picks a safe site that fills the realm's
+//               shortages (site survey + homeland seeks), escorts them when hostiles are near, logs why
 //    faith      priests preach where the state faith is weak, shrines when faith is poor
 //    events     resolve minor decisions with a temperament after a grace period. Important ones
 //               (war, treaties, offers, succession, crises) always wait for the player.
@@ -23,10 +27,12 @@
 //  State (lazy, plain JSON; old saves load as Hands-on):
 //    s.automation = { v, preset, d: { domain: { switch: value } }, res: { gold, mana, garrison },
 //                     log: [{ t, d, text }], next: { domain: time }, seen: { pendingId: time },
-//                     known: { cityId: 1 }, alerted: { moveId: 1 }, reinf: { moveId: 1 }, forkPref: { id: 1 }, stats: { domain: n } }
+//                     known: { cityId: 1 }, alerted: { moveId: 1 }, reinf: { moveId: 1 }, forkPref: { id: 1 }, stats: { domain: n },
+//                     aforkPref: { arcanaId: 1 }, lent: { moveId: { from, to, units, at, calm } } }
 //  Runs in a slow hook, one or two domains per tick, staggered; never while the game is over.
 //  Public: G.automation, G.AUTO, G.autoPreset, G.autoSet, G.autoReserve, G.autoRun, G.autoTick,
-//          G.autoInbox, G.autoInboxDo, G.autoLogOf, G.autoRegisterCli, G.autoThreats, G.autoInterceptOptions
+//          G.autoInbox, G.autoInboxDo, G.autoLogOf, G.autoRegisterCli, G.autoThreats, G.autoInterceptOptions,
+//          G.autoArcForks, G.autoArcForkPref, G.autoSettlePlan
 // =====================================================================
 'use strict';
 (() => {
@@ -48,7 +54,7 @@
       pol: [['focus', 'Focus', [['recommended', 'Recommended'], ['balanced', 'Balanced'], ['economy', 'Economy'], ['military', 'Military'], ['magic', 'Magic'], ['faith', 'Faith']]]] },
     grimoire: { icon: '📖', name: 'Grimoire', every: 30, desc: 'Studies the Grimoire, keeps enchantments on your tower cities and casts routine blessings, never below the mana floor.',
       sw: { on: 'Auto-study', ench: 'Keep enchantments', buffs: 'Routine blessings' },
-      pol: [['focus', 'Study focus', [['balanced', 'Balanced'], ['economy', 'Economy'], ['war', 'War'], ['wards', 'Wards & enchantments']]]] },
+      pol: [['focus', 'Study focus', [['balanced', 'Balanced'], ['economy', 'Economy'], ['war', 'War'], ['wards', 'Wards & enchantments']]], ['forks', 'At a fork', [['ask', 'Ask me'], ['auto', 'Choose for me']]]] },
     traditions: { icon: '🎭', name: 'Traditions', every: 30, desc: 'Adopts traditions along a pillar when culture allows, and holds ceremonies.',
       sw: { on: 'Auto-adopt', cer: 'Hold ceremonies' },
       pol: [['pillar', 'Pillar', [['auto', 'Best fit']]], ['forks', 'At a fork', [['ask', 'Ask me'], ['auto', 'Choose for me']]]] },
@@ -64,6 +70,9 @@
     economy: { icon: '⚖️', name: 'Economy', every: 30, desc: 'Puts governors on new cities, keeps supply lines running and trades surplus at market above the gold reserve.',
       sw: { govNew: 'Governors on new cities', supply: 'Supply lines', market: 'Sell surplus / buy shortages' },
       pol: [['focus', 'Governor focus', [['balanced', 'Balanced']]]] },
+    settle: { icon: '🏕️', name: 'Settlement', every: 30, desc: 'Trains settlers when renown allows another city, picks a safe site that fills what the realm lacks, and escorts the settlers when hostiles are near.',
+      sw: { on: 'Found new cities' },
+      pol: [['prefer', 'Prefer', [['gaps', 'What the realm lacks'], ['fit', 'Land our people love'], ['near', 'Close to home']]]] },
     faith: { icon: '⛪', name: 'Faith', every: 60, desc: 'Priests at home preach where your faith is weak; shrines go up when faith runs thin.',
       sw: { preach: 'Priests preach', shrines: 'Build shrines' }, pol: [] },
     events: { icon: '📜', name: 'Decisions', every: 10, desc: 'Answers minor decisions (events, seasons, tales, unrest) after a grace period. War, treaties, offers, succession and crises always wait for you.',
@@ -74,12 +83,13 @@
   const RES = { gold: [0, 100, 300, 600, 1000, 2000], mana: [0, 30, 60, 120, 250], garrison: [0, 5, 10, 20, 40] };
   const BASE = () => ({
     research: { on: false, focus: 'recommended' },
-    grimoire: { on: false, ench: false, buffs: false, focus: 'balanced' },
+    grimoire: { on: false, ench: false, buffs: false, focus: 'balanced', forks: 'ask' },
     traditions: { on: false, cer: false, pillar: 'auto', forks: 'ask' },
     military: { garrison: false, balance: false, camps: false, forge: false, defend: 'off' },
     hero: { points: false, adventure: false, generals: false, build: 'balanced' },
     magi: { on: false, budget: '400' },
     economy: { govNew: false, supply: false, market: false, focus: 'balanced' },
+    settle: { on: false, prefer: 'gaps' },
     faith: { preach: false, shrines: false },
     events: { on: false, temper: 'balanced', grace: '90' },
   });
@@ -88,9 +98,9 @@
     assisted: { name: 'Assisted', icon: '🤝', desc: 'Research and study keep going, governors take new cities, supplies flow, ceremonies are held and you are warned of attacks.',
       set: { research: { on: true }, grimoire: { on: true }, economy: { govNew: true, supply: true }, traditions: { cer: true }, military: { defend: 'alert' } } },
     delegate: { name: 'Delegate', icon: '🤖', desc: 'Your stewards run the realm; you decide war, treaties, succession and crises.',
-      set: { research: { on: true }, grimoire: { on: true, ench: true, buffs: true }, traditions: { on: true, cer: true, forks: 'auto' },
+      set: { research: { on: true }, grimoire: { on: true, ench: true, buffs: true, forks: 'auto' }, traditions: { on: true, cer: true, forks: 'auto' },
         military: { garrison: true, balance: true, camps: true, forge: true, defend: 'act' }, hero: { points: true, adventure: true, generals: true },
-        magi: { on: true }, economy: { govNew: true, supply: true, market: true }, faith: { preach: true, shrines: true }, events: { on: true } } },
+        magi: { on: true }, economy: { govNew: true, supply: true, market: true }, settle: { on: true }, faith: { preach: true, shrines: true }, events: { on: true } } },
   };
   // decisions the stewards may answer, and those that always wait for the player
   const MINOR = { event: 1, season: 1, storylet: 1, unrest: 1 };
@@ -107,7 +117,11 @@
     balanced: { str: 0.25, lead: 0.25, guard: 0.2, econ: 0.15, arcana: 0.15 }, warrior: { str: 0.65, lead: 0.35 }, leader: { lead: 0.6, str: 0.25, guard: 0.15 },
     guardian: { guard: 0.6, str: 0.4 }, steward: { econ: 0.6, guard: 0.4 }, mage: { arcana: 0.6, lead: 0.2, econ: 0.2 },
   };
-  const AUTO = G.AUTO = { DOMAINS, ORDER, PRESETS, RES, MINOR, IMPORTANT, logMax: 80, inRatio: 1.7, campRatio: 2.5, advWin: 0.6, adoptGrace: 0 };
+  // returnCalm: game-minutes (× pace) a reinforced city must be free of threats before lent troops march home
+  // settleRange / settleSafe / settleEscort: how far settlers look, how close danger may come to a site, and within what
+  // distance of the site or the road hostiles call for an escort (share of the spare garrison)
+  const AUTO = G.AUTO = { DOMAINS, ORDER, PRESETS, RES, MINOR, IMPORTANT, logMax: 80, inRatio: 1.7, campRatio: 2.5, advWin: 0.6, adoptGrace: 0,
+    returnCalm: 10, settleRange: 9, settleSafe: 3, settleEscort: 6, escortShare: 0.5 };
 
   // pillar and governor-focus choices come from the tables other modules define
   const fillChoices = () => {
@@ -119,13 +133,29 @@
   // State
   // -------------------------------------------------------------------
   const logOn = s => !!(s.logistics && s.logistics.p ? s.logistics.p.on !== false : true);
-  G.automation = s => {
-    if (s.automation && s.automation.v) return s.automation;
-    fillChoices();
-    const A = s.automation = Object.assign({ v: 1, preset: 'handsOn', d: BASE(), res: { gold: 300, mana: 60, garrison: 10 }, log: [], next: {}, seen: {}, known: {}, alerted: {}, reinf: {}, forkPref: {}, stats: {} }, s.automation || {});
-    A.v = 1;
+  // fill in whatever a partial or older s.automation lacks (domains added later, switches, maps, reserves), keeping
+  // every value it has; checked once per object (a loaded save is a new object, so it is checked again)
+  const FILLED = new WeakSet();
+  const MAPS = ['next', 'seen', 'known', 'alerted', 'reinf', 'forkPref', 'aforkPref', 'lent', 'stats'];
+  const isObj = x => !!x && typeof x === 'object' && !Array.isArray(x);
+  const fill = A => {
     const base = BASE();
-    for (const k of ORDER) A.d[k] = Object.assign(base[k], A.d[k] || {});
+    if (!isObj(A.d)) A.d = {};
+    for (const k of ORDER) A.d[k] = Object.assign(base[k], isObj(A.d[k]) ? A.d[k] : {});
+    A.res = Object.assign({ gold: 300, mana: 60, garrison: 10 }, isObj(A.res) ? A.res : {});
+    for (const k of MAPS) if (!isObj(A[k])) A[k] = {};
+    if (!Array.isArray(A.log)) A.log = [];
+    if (!A.preset) A.preset = 'custom';
+    FILLED.add(A);
+    return A;
+  };
+  G.automation = s => {
+    const A0 = s.automation;
+    if (A0 && A0.v) { if (!FILLED.has(A0)) { fillChoices(); fill(A0); } return A0; }
+    fillChoices();
+    const A = s.automation = Object.assign({ v: 1, preset: 'handsOn' }, isObj(s.automation) ? s.automation : {});
+    A.v = 1;
+    fill(A);
     // an older realm keeps its supply lines as they were
     A.d.economy.supply = logOn(s);
     for (const c of G.citiesOf(s, 'p')) A.known[c.id] = 1;
@@ -168,7 +198,7 @@
       if (P.set[d] && P.set[d].forks) A.d[d].forks = P.set[d].forks;
     }
     // Hands-on leaves supply lines exactly as they are (the base game runs them for the player by default)
-    if (key === 'handsOn') { A.d.military.defend = 'off'; A.d.traditions.forks = 'ask'; A.d.economy.supply = logOn(s); }
+    if (key === 'handsOn') { A.d.military.defend = 'off'; A.d.traditions.forks = 'ask'; A.d.grimoire.forks = 'ask'; A.d.economy.supply = logOn(s); }
     A.preset = key;
     // keep other modules in step only where something changed
     if (prev.economy.supply !== A.d.economy.supply || logOn(s) !== A.d.economy.supply) applySide(s, A, 'economy', 'supply');
@@ -303,12 +333,21 @@
     war: n => (n.spells || []).some(k => DATA.spells[k] && ['strike', 'defend'].includes(DATA.spells[k].ai)) * 2 + Object.keys(n.fx || {}).some(k => /atk|def|wall|raise|summon|travel/.test(k)) * 1.4,
     wards: n => (n.kind === 'ench' ? 2.5 : 0) + (n.spells || []).some(k => DATA.spells[k] && ['ward', 'defend'].includes(DATA.spells[k].ai)) * 1.5 + ((n.add || {}).enchSlots ? 1.5 : 0),
   };
+  // may the stewards study this node? a fork side only when preferred, or when they may choose (its twin not preferred)
+  const arcForkOk = (A, id) => {
+    const n = (DATA.arcana || {})[id];
+    if (!n || !n.excl) return true;
+    const P = A.aforkPref || {};
+    if (P[id]) return true;
+    if (P[n.excl]) return false;
+    return A.d.grimoire.forks === 'auto';
+  };
   const studyPick = (s, A) => {
     const N = DATA.arcana || {}, f = A.d.grimoire.focus;
     const known = new Set(((s.empires.p.arcana || {}).known) || []);
     const ok = id => {
       const n = N[id]; if (!n || known.has(id)) return null;
-      if (n.excl) return null;                             // a fork: the player's call
+      if (!arcForkOk(A, id)) return null;                  // a fork: the player's call
       const st = G.arcanaStatus(s, 'p', id);
       if (!st.ok || (st.cost.gold || 0) > goldFree(s, A) || (st.cost.mana || 0) > manaFree(s, A)) return null;
       return st;
@@ -319,15 +358,49 @@
     let best = null, bs = 0;
     for (const id of DATA.arcanaOrder || []) {
       const n = N[id];
-      if (!n || known.has(id) || n.excl || (n.school && !schools.includes(n.school)) || !(n.pre || []).every(g => g.some(x => known.has(x)))) continue;
+      if (!n || known.has(id) || (n.excl && (known.has(n.excl) || !arcForkOk(A, id))) || (n.school && !schools.includes(n.school)) || !(n.pre || []).every(g => g.some(x => known.has(x)))) continue;
       let w = f === 'balanced' ? (KIND_W[n.kind] || 1) : (NODEW[f] ? NODEW[f](n) : 1);
       if (w <= 0) continue;
+      if (n.excl && (A.aforkPref || {})[id]) w = Math.max(w, 1) * 3;     // the side the player chose comes first
       if (n.school && G.schoolAttuned && G.schoolAttuned(s, 'p', n.school)) w *= 1.3;
       w /= 1 + 0.25 * (n.col || 0);
       if (w <= bs || !ok(id)) continue;
       bs = w; best = id;
     }
     return best;
+  };
+  // Grimoire forks the stewards wait on: both sides open to study (prerequisites, school, tower and era), neither known
+  G.autoArcForks = s => {
+    const A = G.automation(s), N = DATA.arcana || {}, out = [];
+    const Ar = s.empires.p && s.empires.p.arcana;
+    if (!G.arcanaStatus || !Ar) return out;
+    const known = new Set(Ar.known || []), P = A.aforkPref || {}, seen = new Set();
+    const schools = G.schoolsOf ? G.schoolsOf(s, 'p') : null;
+    const open = id => {
+      const n = N[id];
+      if (!n || known.has(id) || (Ar.active && Ar.active.id === id)) return false;
+      if (schools && n.school && !schools.includes(n.school)) return false;
+      if (!(n.pre || []).every(g => g.some(x => known.has(x)))) return false;
+      const st = G.arcanaStatus(s, 'p', id);
+      return !st.locked && !st.forsaken && !st.hidden && !st.known && !st.active;
+    };
+    for (const id of DATA.arcanaOrder || Object.keys(N)) {
+      const n = N[id];
+      if (!n || !n.excl || seen.has(id)) continue;
+      seen.add(id); seen.add(n.excl);
+      if (P[id] || P[n.excl]) continue;
+      if (open(id) && open(n.excl)) out.push([id, n.excl]);
+    }
+    return out;
+  };
+  G.autoArcForkPref = (s, id) => {
+    const A = G.automation(s), n = (DATA.arcana || {})[id];
+    if (!n || !n.excl) return 'Not a fork in the Grimoire';
+    if (((s.empires.p.arcana || {}).known || []).includes(n.excl)) return `Already forsaken for ${DATA.arcana[n.excl].name}`;
+    A.aforkPref[id] = 1; delete A.aforkPref[n.excl];
+    A.studyAt = 0; A.next.grimoire = Math.min(A.next.grimoire || 0, s.time);
+    alog(s, 'grimoire', `${n.icon || '📖'} ${n.name} chosen over ${DATA.arcana[n.excl].name} (at your word)`);
+    return null;
   };
   RUN.grimoire = (s, A) => {
     const P = A.d.grimoire, emp = s.empires.p;
@@ -339,7 +412,7 @@
     if (P.on && Ar && !Ar.active && !(Ar.queue || []).length && (A.studyAt || 0) <= s.time) {
       const id = studyPick(s, A);
       if (!id) A.studyAt = s.time + 90 * PT(s);       // nothing affordable: look again in a while
-      if (id && G.startStudy(s, 'p', id) === null) { const n = DATA.arcana[id]; alog(s, 'grimoire', `Began studying ${n.icon || '📖'} ${n.name} (${P.focus} focus)`); }
+      if (id && G.startStudy(s, 'p', id) === null) { const n = DATA.arcana[id]; alog(s, 'grimoire', `Began studying ${n.icon || '📖'} ${n.name} (${n.excl ? ((A.aforkPref || {})[id] ? 'the side of the fork you chose' : `chose it over ${DATA.arcana[n.excl].name} at a fork`) : P.focus + ' focus'})`); }
     }
     // enchantments where the tower can feed them
     if (P.ench && G.enchantmentsKnown) {
@@ -451,6 +524,31 @@
     }
   };
 
+  // troops sent to reinforce a threatened city: once it has been calm for AUTO.returnCalm minutes they march home,
+  // as many as are still there (the player may have moved some), never below the city's minimum garrison
+  const lentHome = (s, A) => {
+    const L = A.lent;
+    if (!L || !Object.keys(L).length) return;
+    const hot = threatened(s), calmFor = AUTO.returnCalm * 60 * PT(s);
+    for (const [id, r] of Object.entries(L)) {
+      const to = s.cities[r.to], home = s.cities[r.from];
+      if (!to || to.owner !== 'p' || !home || home.owner !== 'p') { delete L[id]; continue; }
+      if (r.at == null) {
+        if (s.moves.some(m => m.id === id)) continue;                     // still on the road
+        if (s.moves.some(m => m.via === id)) { delete L[id]; continue; }  // the player recalled or rerouted them
+        r.at = r.calm = s.time;
+      }
+      if (hot.has(to.id) || hot.has(home.id)) { r.calm = s.time; continue; }
+      if (s.time - r.calm < calmFor) continue;
+      delete L[id];
+      const units = {};
+      let spare = soldiersOf(to.units) - A.res.garrison;
+      for (const [u, n] of Object.entries(r.units)) { const k = Math.min(n, to.units[u] || 0, Math.max(0, spare)); if (k > 0) { units[u] = k; spare -= k; } }
+      if (!G.unitsCount(units)) continue;
+      if (G.sendArmy(s, to.id, home.x, home.y, 'reinforce', units) === null) alog(s, 'military', `${G.unitsCount(units)} soldiers lent to ${to.name} march home to ${home.name} (no threat for ${AUTO.returnCalm} min)`);
+    }
+  };
+  G.autoLent = s => G.automation(s).lent;
   RUN.military = (s, A) => {
     const P = A.d.military;
     const threats = G.autoThreats(s);
@@ -472,6 +570,8 @@
           if (!G.unitsCount(units)) continue;
           if (G.travelTime(s, 'p', c, X, G.slowest(s, 'p', units)) >= left) continue;
           if (G.sendArmy(s, c.id, X.x, X.y, 'reinforce', units)) continue;
+          const lm = s.moves.filter(m => m.owner === 'p' && m.type === 'reinforce' && m.from === c.id && m.x === X.x && m.y === X.y && m.depart === s.time).pop();
+          if (lm) A.lent[lm.id] = { from: c.id, to: X.id, units: { ...lm.units }, at: null, calm: null };
           need -= G.defPower(s, 'p', units);
           alog(s, 'military', `Sent ${G.unitsCount(units)} soldiers from ${c.name} to reinforce ${X.name} (${s.empires[T.owner] ? 'the ' + s.empires[T.owner].name : 'raiders'} are coming)`);
         }
@@ -493,6 +593,8 @@
         }
       }
     }
+    // lent troops march home once the threat has been gone a while
+    if (P.balance) lentHome(s, A);
     // tidy memories of columns that have passed
     for (const k of ['alerted', 'reinf']) for (const id of Object.keys(A[k])) if (!s.moves.some(m => m.id === id)) delete A[k][id];
     // brigand camps near home, when strongly favoured and nothing threatens us
@@ -611,6 +713,138 @@
     }
     if (P.market && s.logistics && s.logistics.p) { const L = s.logistics.p; if (!L.sell || !L.buy || L.reserve !== A.res.gold) G.setSupplyRealm(s, 'p', { sell: true, buy: true, reserve: A.res.gold }); }
   };
+
+  // ---- settlement: new cities when renown allows ----
+  const GOODS4 = ['grain', 'timber', 'stone', 'ore'];
+  const gname = g => (DATA.goods[g] ? DATA.goods[g].name : g).toLowerCase();
+  const atWarWith = (s, owner) => !!owner && owner !== 'p' && !!s.empires[owner] && !s.empires[owner].dead && G.rel(s, owner).status === 'war';
+  // what threatens a spot within r tiles: brigands, monsters, a realm at war, a hostile column (a short phrase) or null
+  const dangerNear = (s, p, r) => {
+    for (const k of Object.values(s.camps || {})) if (G.unitsCount(k.units) > 0 && dist(k, p) <= r) return k.kind ? 'a monster lair' : 'brigands';
+    if (G.monsterList) for (const mon of G.monsterList(s)) { const q = G.monsterPos ? G.monsterPos(s, mon) : mon; if (q && dist(q, p) <= r + 1) return 'monsters'; }
+    for (const c of Object.values(s.cities)) if (atWarWith(s, c.owner) && dist(c, p) <= r + 2) return `the ${s.empires[c.owner].name}`;
+    for (const m of s.moves) {
+      if (m.owner === 'p' || !HOSTILE[m.type] || m.arrive <= s.time) continue;
+      if (dist(m, p) <= r) return 'a hostile column';
+      const q = G.movePos ? G.movePos(s, m) : null;
+      if (q && dist(q, p) <= r) return 'a hostile column';
+    }
+    return null;
+  };
+  const settling = (s, c) => Object.values(c.train || {}).some(l => (l || []).some(q => q.unit === 'settlers' && q.left > 0));
+  // the best safe site within reach of a city with settlers: { t, c, why, danger, value }
+  const pickSite = (s, A, c) => {
+    const emp = s.empires.p, R = AUTO.settleRange, pref = A.d.settle.prefer;
+    const lack = G.realmLack(s, 'p');
+    const RE = G.realmEcon ? safe(G.realmEcon, null)(s, 'p') : null;
+    const short = {};
+    for (const g of GOODS4) short[g] = RE && RE.goods && RE.goods[g] ? Math.max(0, RE.goods[g].short || 0) : 0;
+    const others = [...Object.values(s.cities), ...Object.values(s.minors || {})];
+    const wFit = pref === 'fit' ? 2 : 1, wGap = pref === 'fit' ? 0.4 : pref === 'near' ? 0.8 : 2, wDist = pref === 'near' ? 1 : 0.4;
+    const cands = [];
+    for (let y = Math.max(0, c.y - R); y <= Math.min(s.map - 1, c.y + R); y++) for (let x = Math.max(0, c.x - R); x <= Math.min(s.map - 1, c.x + R); x++) {
+      const t = s.tiles[y * s.map + x];
+      if (t.city || t.camp || t.oasis || t.ruin || t.quarter || t.minor || G.isWater(t) || DATA.terrain[t.terrain].impassable) continue;
+      const d = dist(t, c);
+      if (d < 3 || d > R) continue;
+      if (others.some(o => o && o.x !== undefined && dist(o, t) < 2.8)) continue;
+      const own = G.landOwner ? G.landOwner(s, x, y) : null;
+      if (own && own !== 'p') continue;                       // another realm's land
+      if (!G.landReachable(s, c, t)) continue;
+      const site = G.siteYield(s, x, y);
+      const fit = G.siteFit(site, emp.race);
+      let gap = 0, best = null, bg = 0;
+      // the goods the realm lacks pull toward land richer in them (relative: even in a poor region the better tile wins)
+      for (const g of GOODS4) { const w = lack[g] + 1.5 * short[g], v = w * (site[g] - 1); gap += w * Math.max(-0.4, site[g] - 1); if (v > bg) { bg = v; best = g; } }
+      const value = 2.4 * fit * wFit + 4 * gap * wGap + (site.deposits || []).length * 0.3 + (G.coastal(s, x, y) ? 0.3 : 0) - d * wDist;
+      cands.push({ t, site, value, best, bg, fit });
+    }
+    cands.sort((a, b) => b.value - a.value);
+    for (const k of cands.slice(0, 40)) {
+      if (dangerNear(s, k.t, AUTO.settleSafe)) continue;       // never settle into danger
+      const mid = { x: (c.x + k.t.x) / 2, y: (c.y + k.t.y) / 2 };
+      const danger = dangerNear(s, k.t, AUTO.settleEscort) || dangerNear(s, mid, AUTO.settleEscort * 0.75);
+      const bits = [];
+      if (k.best && k.bg > 0.05) bits.push(`${G.stars(k.site[k.best])}★ ${gname(k.best)}, which the realm ${short[k.best] > 0.2 ? 'is short of' : 'lacks'}`);
+      else if (k.fit > 0) bits.push(`good land for the ${DATA.races[emp.race].name}`);
+      else bits.push('the best free land within reach');
+      if ((k.site.deposits || []).length) bits.push(`${k.site.deposits.map(gname).join(' and ')} deposit${k.site.deposits.length > 1 ? 's' : ''}`);
+      if (k.site.river) bits.push('by a river'); else if (k.site.lake) bits.push('on a lake');
+      return { t: k.t, c, why: bits.join(', '), danger, value: k.value };
+    }
+    return null;
+  };
+  // where the settlers would start from: a city that has some, else the best city able to train them
+  const settleSource = (s, A) => {
+    const cities = G.citiesOf(s, 'p');
+    const has = cities.filter(c => (c.units.settlers || 0) > 0);
+    if (has.length) return { c: has[0], has: true };
+    const req = (DATA.units.settlers || {}).req || 5;
+    const able = cities.filter(c => G.lvl(c, 'townhall') >= req && !threatened(s).has(c.id)).sort((a, b) => b.pop - a.pop);
+    return able.length ? { c: able[0], has: false } : null;
+  };
+  // a plan for the inbox (cached briefly) and for the stewards
+  const PLAN_CACHE = new WeakMap();
+  G.autoSettlePlan = (s, fresh) => {
+    if (!G.canFoundCity(s, 'p')) return null;
+    let settlers = 0;
+    for (const c of G.citiesOf(s, 'p')) settlers += c.units.settlers || 0;
+    const key = Math.floor(s.time / 20) + ':' + G.cityCount(s, 'p') + ':' + s.moves.length + ':' + settlers;
+    const c0 = PLAN_CACHE.get(s);
+    if (!fresh && c0 && c0.key === key) return c0.plan;
+    const A = G.automation(s), src = settleSource(s, A);
+    const site = src ? pickSite(s, A, src.c) : null;
+    const plan = site ? { ...site, has: src.has } : null;
+    PLAN_CACHE.set(s, { key, plan });
+    return plan;
+  };
+  // buy what a city lacks for one cost at its market, above the gold reserve
+  const buyFor = (s, A, c, cost) => {
+    if (!G.lvl(c, 'market')) return false;
+    const short = Object.entries(cost).filter(([g, v]) => g !== 'gold' && DATA.goods[g] && G.have(s, c, g) < v).map(([g, v]) => [g, Math.ceil(v - G.have(s, c, g))]);
+    if (!short.length) return true;
+    const price = short.reduce((a, [g, n]) => a + n * G.marketRates(s, c, g).buy, 0);
+    if (price + (cost.gold || 0) > goldFree(s, A)) return false;
+    if (short.some(([g, n]) => (c.res[g] || 0) + n > G.storageCap(s, c))) return false;
+    for (const [g, n] of short) G.trade(s, c.id, g, n, 'buy');
+    alog(s, 'settle', `Bought ${short.map(([g, n]) => n + ' ' + gname(g)).join(', ')} in ${c.name} for the settlers (${Math.round(price)} gold)`);
+    return G.canAfford(s, c, cost);
+  };
+  const settleStep = (s, A) => {
+    if (!G.canFoundCity(s, 'p')) return;
+    const cities = G.citiesOf(s, 'p');
+    const src = settleSource(s, A);
+    if (!src) return;
+    // settlers at hand: pick a site and send them
+    if (src.has) {
+      const plan = G.autoSettlePlan(s, true);
+      if (!plan) { if ((A.settleWait || 0) <= s.time) { A.settleWait = s.time + 600 * PT(s); alog(s, 'settle', `Settlers wait in ${src.c.name}: no safe free land within reach`); } return; }
+      const c = plan.c, units = { settlers: 1 };
+      let escort = {};
+      if (plan.danger) {
+        escort = surplus(c, A.res.garrison, AUTO.escortShare);
+        if (!G.unitsCount(escort)) { if ((A.settleWait || 0) <= s.time) { A.settleWait = s.time + 300 * PT(s); alog(s, 'settle', `Settlers wait in ${c.name}: ${plan.danger} near the site at (${plan.t.x}, ${plan.t.y}) and no soldiers to spare for an escort`); } return; }
+        Object.assign(units, escort);
+      }
+      const err = G.sendArmy(s, c.id, plan.t.x, plan.t.y, 'settle', units);
+      if (err) { PLAN_CACHE.delete(s); return; }
+      PLAN_CACHE.delete(s);
+      const n = G.unitsCount(escort);
+      alog(s, 'settle', `Settlers set out from ${c.name} for (${plan.t.x}, ${plan.t.y}): ${plan.why}${n ? `; ${n} soldiers escort them (${plan.danger} nearby)` : ''}`);
+      return;
+    }
+    // none yet: train them where the Town Hall allows, within the reserves
+    if (cities.some(c => settling(s, c))) return;
+    const c = src.c, st = G.trainStatus(s, c, 'settlers');
+    if (!st.ok || !(st.byPop >= 1)) return;
+    if ((st.cost.gold || 0) > goldFree(s, A)) return;
+    if (!G.canAfford(s, c, st.cost) && !buyFor(s, A, c, st.cost)) {
+      if ((A.settleWait || 0) <= s.time) { A.settleWait = s.time + 600 * PT(s); alog(s, 'settle', `Gathering goods for settlers in ${c.name} (renown allows city ${cities.length + 1})`); }
+      return;
+    }
+    if (G.queueTrain(s, c.id, 'settlers', 1) === null) alog(s, 'settle', `Training settlers in ${c.name}: renown (${Math.round(G.renown(s, 'p'))}) allows city ${cities.length + 1}`);
+  };
+  RUN.settle = (s, A) => { if (A.d.settle.on) settleStep(s, A); };
 
   RUN.faith = (s, A) => {
     const P = A.d.faith, emp = s.empires.p;
@@ -763,6 +997,12 @@
       if (c.buildQueue.length) continue;
       out.push({ id: 'idle:' + c.id, kind: 'idle', icon: '🏗️', prio: 45, text: `${c.name} builds nothing and has no governor`, act: { label: 'Appoint governor' }, jump: { tab: 'city', city: c.id } });
     }
+    // a new city's site, when the stewards do not settle
+    if (!A.d.settle.on) {
+      const p = G.autoSettlePlan(s);
+      if (p) out.push({ id: 'settle', kind: 'settle', icon: '🏕️', prio: 48, text: `A site is ready for a new city: (${p.t.x}, ${p.t.y}) near ${p.c.name}, ${p.why}${p.danger ? ` (${p.danger} nearby: send an escort)` : ''}`,
+        act: { label: p.has ? 'Send settlers' : 'Train settlers' }, jump: { tab: 'world', x: p.t.x, y: p.t.y } });
+    }
     // research
     if (G.research && !A.d.research.on) {
       const R = G.research(s, 'p'), sl = G.researchSlots(s, 'p');
@@ -774,7 +1014,12 @@
     // tradition forks the stewards wait on
     if (A.d.traditions.on && A.d.traditions.forks !== 'auto') for (const [a, b] of G.autoForks(s)) {
       const ta = DATA.traditions[a], tb = DATA.traditions[b];
-      out.push({ id: 'fork:' + a, kind: 'fork', icon: '🎭', prio: 30, text: `A fork in your traditions: ${ta.icon} ${ta.name} or ${tb.icon} ${tb.name}`, fork: [a, b], jump: { tab: 'culture' } });
+      out.push({ id: 'fork:' + a, kind: 'fork', icon: '🎭', prio: 30, text: `A fork in your traditions: ${ta.icon} ${ta.name} or ${tb.icon} ${tb.name}`, fork: [a, b], forkOf: 'traditions', jump: { tab: 'culture' } });
+    }
+    // Grimoire forks the stewards wait on
+    if (A.d.grimoire.on && A.d.grimoire.forks !== 'auto') for (const [a, b] of G.autoArcForks(s)) {
+      const na = DATA.arcana[a], nb = DATA.arcana[b];
+      out.push({ id: 'afork:' + a, kind: 'afork', icon: '📖', prio: 30, text: `A fork in the Grimoire: ${na.icon || '📖'} ${na.name} or ${nb.icon || '📖'} ${nb.name}`, fork: [a, b], forkOf: 'arcana', jump: { tab: 'magic' } });
     }
     return out.sort((a, b) => b.prio - a.prio);
   };
@@ -810,7 +1055,14 @@
         return err;
       }
       case 'hero': safe(RUN.hero)(s, { ...A, d: { ...A.d, hero: { ...A.d.hero, points: true, adventure: false, generals: false } } }); return null;
-      case 'fork': return key ? G.autoForkPref(s, key) : 'Choose a side';
+      case 'fork': return key ? (it.fork.includes(key) ? G.autoForkPref(s, key) : `Choose ${it.fork.join(' or ')}`) : 'Choose a side';
+      case 'afork': return key ? (it.fork.includes(key) ? G.autoArcForkPref(s, key) : `Choose ${it.fork.join(' or ')}`) : 'Choose a side';
+      case 'settle': {
+        const before = A.log.length;
+        settleStep(s, A);
+        if (A.log.length > before && /^(Settlers set out|Training settlers)/.test(A.log[0].text)) { A.log[0].text += ' (at your word)'; return null; }
+        return A.log.length > before ? A.log[0].text : 'Not possible right now';
+      }
     }
     return 'Open it to decide';
   };
@@ -841,7 +1093,7 @@
       ex: ['inbox', 'inbox resolve 1', 'inbox 2 hold'],
       run(s, owner, a) {
         const items = G.autoInbox(s), t = (a.tokens || []).filter((x, i) => !(i === 0 && /^(resolve|do|r)$/i.test(x)));
-        if (!t.length) return { out: items.length ? items.map((it, i) => `${String(i + 1).padStart(2)}. ${it.icon} ${it.text}${it.act ? `  [inbox resolve ${i + 1}: ${it.act.label}]` : it.pending ? `  [inbox resolve ${i + 1} <${it.pending.options.map(o => o.key).join('|')}>]` : ''}`) : ['Nothing needs you. The realm runs smoothly.'], nav: { tab: 'automation' } };
+        if (!t.length) return { out: items.length ? items.map((it, i) => `${String(i + 1).padStart(2)}. ${it.icon} ${it.text}${it.act ? `  [inbox resolve ${i + 1}: ${it.act.label}]` : it.fork ? `  [inbox resolve ${i + 1} <${it.fork.join('|')}>]` : it.pending ? `  [inbox resolve ${i + 1} <${it.pending.options.map(o => o.key).join('|')}>]` : ''}`) : ['Nothing needs you. The realm runs smoothly.'], nav: { tab: 'automation' } };
         const it = items[(+t[0] || 0) - 1];
         if (!it) return { ok: false, err: `No item ${t[0]} (1-${items.length})` };
         const e = G.autoInboxDo(s, it.id, t[1]);
@@ -850,9 +1102,6 @@
   ];
   G.autoRegisterCli = () => {
     if (!G.cli || !Array.isArray(G.cli.commands)) return false;
-    // 'inbox' means the decisions inbox; the reports command keeps its other names
-    const rep = G.cli.commands.find(x => x.name !== 'inbox' && (x.aliases || []).includes('inbox'));
-    if (rep) rep.aliases = rep.aliases.filter(a => a !== 'inbox');
     for (const c of cliCmds()) if (!G.cli.commands.some(x => x.name === c.name)) G.cli.commands.push(c);
     return true;
   };

@@ -22,7 +22,9 @@
   const SERIF = '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
   let P = 80;              // offscreen pixels per tile — scaled down on big worlds so the baked layer stays under ~16 Mpx (Safari's canvas limit)
   const M = 1.1;           // margin (in tiles) around the map for the border
-  const ZMIN = 0.6, ZMAX = 3;
+  // zoom: the floor is a fixed fraction of the whole-map view; the ceiling is set in screen pixels per tile
+  // (about 76 px), so a phone-width pane on a big world can zoom in as far as a desktop one (zMax() below)
+  const ZMIN = 0.6, ZMAX = 3, TP_MAX = 76;
   const TAU = Math.PI * 2;
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -1278,6 +1280,7 @@
 
   // ---- city development state (refreshed 4x a second, remembered under the fog) ----
   let devMap = new Map(), ownInfo = new Map(), ownEraAt = -1e9, ownS = null;
+  let raidQ = new Set();   // quarter tiles with a burn raid arriving (js/quarters.js 'burn'): smoke rises there
   const MEMO_F = { harbor: 1, temple: 2, mage: 4, capital: 8, building: 16 };
   function refreshOwners(now) {
     const eraDue = ownS !== S || now - ownEraAt > 2000;
@@ -1322,11 +1325,12 @@
     refreshOwners(now);
     const memo = S.cityMemo || (S.cityMemo = {}), N = S.map, next = new Map(), siegeT = 300;
     const hostileAt = new Map();
+    raidQ = new Set();
     for (const m of S.moves) {
       if (!['raid', 'attack', 'conquer', 'burn'].includes(m.type)) continue;
       // a raid on one of a city's quarters (js/quarters.js 'burn') puts the city under siege too
       const t = S.tiles[m.y * N + m.x], cid = t && (t.city || (m.type === 'burn' && t.quarter && S.cities[t.quarter] ? t.quarter : null)); if (!cid) continue;
-      const p = G.movePos(S, m); if (Math.hypot(p.x - m.x, p.y - m.y) < 1.6) hostileAt.set(cid, m.owner);
+      const p = G.movePos(S, m); if (Math.hypot(p.x - m.x, p.y - m.y) < 1.6) { hostileAt.set(cid, m.owner); if (m.type === 'burn' && !t.city) raidQ.add(m.y * N + m.x); }
     }
     for (const city of Object.values(S.cities)) {
       const i = city.y * N + city.x;
@@ -1350,6 +1354,7 @@
     }
     for (const id of Object.keys(memo)) if (!S.cities[id] || S.cities[id].owner === 'p') delete memo[id];
     devMap = next;
+    try { refreshQtrMemo(); } catch (err) { /* never break the map */ }
   }
 
   // ---- city quarters (js/quarters.js): a grown city sprawls over the tiles it has claimed — fields, timber
@@ -1452,6 +1457,69 @@
       strokeL(c, '#1e1610', lw * 1.4, [[-12, 8, -6, -6], [4, 10, 10, -4], [-2, 12, 2, 0]]);
     }
   }
+  // far zoom (a tile under ~34 screen px): one bold silhouette per type, thick ink, no fine lines, on a
+  // patch of the owner's colour, so a phone-width map still tells fields from a pit head from a fort
+  const Q_LOD_K = 34 / 62;
+  function paintQuarterBold(c, d) {
+    const m = qMats(d.race, d.era, d.winter, d.col), lw = 3.4, W = d.winter;
+    const roofed = (x, y, w, h, roof) => { polyP(c, [[x - w, y], [x - w, y - h], [x, y - h - w * 0.9], [x + w, y - h], [x + w, y]], m.wall, lw); polyP(c, [[x - w - 3, y - h + 1], [x, y - h - w * 0.95 - 2], [x + w + 3, y - h + 1]], roof, lw); c.fillStyle = INK; c.fillRect(x - 2.5, y - 9, 5, 9); };
+    c.globalAlpha = 0.28; c.fillStyle = d.col; c.beginPath(); c.ellipse(0, 6, 31, 17, 0, 0, TAU); c.fill(); c.globalAlpha = 1;
+    c.lineWidth = 2; c.strokeStyle = d.col; c.beginPath(); c.ellipse(0, 6, 31, 17, 0, 0, TAU); c.stroke();
+    if (d.state === 'b') c.globalAlpha = 0.6;
+    switch (d.type) {
+      case 'farm':
+        polyP(c, [[-28, 4], [-2, -2], [0, 18], [-26, 22]], W ? '#ece8dc' : '#e2bf4e', lw);
+        polyP(c, [[2, -2], [28, 2], [26, 20], [2, 18]], W ? '#dcd6c6' : '#9fc04e', lw);
+        strokeL(c, 'rgba(70,45,20,.75)', 2.4, [[-25, 11, -1, 6], [5, 9, 27, 11]]);
+        c.fillStyle = W ? '#f3eee2' : '#d8a93c'; c.beginPath(); c.moveTo(-6, 2); c.quadraticCurveTo(0, -24, 6, 2); c.closePath(); c.fill(); c.lineWidth = lw; c.strokeStyle = INK; c.stroke();
+        break;
+      case 'lumber':
+        for (const [x, s] of [[-14, 1.25], [12, 1.4]]) { c.fillStyle = '#5a3b22'; c.fillRect(x - 2.5, 6, 5, 8); polyP(c, [[x - 10 * s, 8], [x, 8 - 26 * s], [x + 10 * s, 8]], W ? '#dfe6e2' : '#3f7a3c', lw); }
+        for (const [x, y] of [[-6, 18], [2, 18], [-2, 12]]) { c.beginPath(); c.arc(x, y, 4.5, 0, TAU); c.fillStyle = '#c08a50'; c.fill(); c.lineWidth = 2.4; c.strokeStyle = INK; c.stroke(); }
+        break;
+      case 'mine':
+        polyP(c, [[-30, 18], [-16, -6], [-2, -10], [12, -4], [28, 18]], W ? '#e6e6e2' : '#8f877c', lw);
+        c.fillStyle = '#1b140f'; c.beginPath(); c.moveTo(-8, 18); c.lineTo(-8, 8); c.arc(0, 8, 8, Math.PI, 0); c.lineTo(8, 18); c.closePath(); c.fill();
+        strokeL(c, '#4a2f18', 4, [[-12, 0, 0, -30], [12, 0, 0, -30]]); c.beginPath(); c.arc(0, -30, 5, 0, TAU); c.lineWidth = 3; c.strokeStyle = INK; c.stroke();
+        break;
+      case 'docks': {
+        const sx = d.side === 'L' ? -1 : 1;
+        polyP(c, [[-24 * sx, 10], [26 * sx, 10], [26 * sx, 17], [-24 * sx, 17]], '#9c6b3c', lw);
+        polyP(c, [[2 * sx, 4], [28 * sx, 4], [22 * sx, 12], [6 * sx, 12]], '#6e4628', lw);
+        strokeL(c, INK, 3, [[15 * sx, 4, 15 * sx, -30]]);
+        polyP(c, [[16 * sx, -28], [30 * sx, -6], [16 * sx, -4]], '#f4ecd6', lw * 0.8);
+        polyP(c, [[15 * sx, -30], [6 * sx, -27], [15 * sx, -24]], d.col, 1.5);
+        roofed(-14 * sx, 8, 9, 10, m.roof);
+        break;
+      }
+      case 'mill':
+        roofed(-12, 14, 10, 14, m.roof);
+        c.beginPath(); c.arc(12, 2, 14, 0, TAU); c.fillStyle = '#a06c3a'; c.fill(); c.lineWidth = lw; c.strokeStyle = INK; c.stroke();
+        strokeL(c, INK, 2.6, [[-2, 2, 26, 2], [12, -12, 12, 16], [2, -8, 22, 12], [2, 12, 22, -8]]);
+        c.strokeStyle = '#3f86c4'; c.lineWidth = 4; c.beginPath(); c.moveTo(-6, 20); c.quadraticCurveTo(10, 26, 30, 18); c.stroke();
+        break;
+      case 'arcane':
+        polyP(c, [[-8, 18], [-6, -20], [6, -20], [8, 18]], m.wallStone, lw);
+        polyP(c, [[-10, -19], [0, -38], [10, -19]], '#6a3fb8', lw);
+        c.fillStyle = '#c9a6ff'; c.beginPath(); c.moveTo(0, -45); c.lineTo(5, -39.5); c.lineTo(0, -34); c.lineTo(-5, -39.5); c.closePath(); c.fill(); c.lineWidth = 2; c.strokeStyle = INK; c.stroke();
+        c.strokeStyle = 'rgba(140,90,220,.95)'; c.lineWidth = 2.6; c.setLineDash([4, 3]); c.beginPath(); c.ellipse(0, 14, 24, 8, 0, 0, TAU); c.stroke(); c.setLineDash([]);
+        c.fillStyle = INK; c.fillRect(-2.5, 8, 5, 10);
+        break;
+      case 'homes':
+        roofed(-13, 10, 11, 13, m.roof); roofed(13, 16, 11, 13, m.roof);
+        break;
+      case 'fort':
+        polyP(c, [[-15, 18], [-15, -14], [15, -14], [15, 18]], m.wallStone, lw);
+        c.fillStyle = m.wallStone; c.lineWidth = lw * 0.8; c.strokeStyle = INK;
+        for (let q = 0; q < 3; q++) { c.beginPath(); c.rect(-16 + q * 12, -21, 8, 7); c.fill(); c.stroke(); }
+        c.fillStyle = INK; c.beginPath(); c.moveTo(-5, 18); c.lineTo(-5, 8); c.arc(0, 8, 5, Math.PI, 0); c.lineTo(5, 18); c.closePath(); c.fill();
+        strokeL(c, INK, 3, [[10, -21, 10, -40]]); polyP(c, [[10, -40], [26, -35], [10, -30]], d.col, 2);
+        break;
+    }
+    c.globalAlpha = 1;
+    if (d.state === 'b') strokeL(c, '#7a5530', 3.2, [[-20, 18, -20, -22], [20, 18, 20, -22], [-20, -22, 20, -22], [-20, -2, 20, -2], [-20, 18, 20, -22]]);
+    else if (d.state === 'x') { c.fillStyle = 'rgba(25,18,12,.6)'; c.beginPath(); c.ellipse(0, 8, 28, 15, 0, 0, TAU); c.fill(); strokeL(c, '#140e09', 4, [[-14, 14, -6, -6], [6, 16, 12, -4]]); }
+  }
   function quarterLook(t, h) {
     const host = h.city || h.minor, owner = h.city ? h.city.owner : null;
     const race = h.city ? ((S.empires[owner] || {}).race || 'hearth') : (h.minor.race || 'hearth');
@@ -1460,30 +1528,77 @@
     const q = h.q, state = !q.built ? 'b' : q.burnt > S.time ? 'x' : '';
     return { type: q.type, race: ARTPAL[race] ? race : 'hearth', era: clamp(era | 0, 0, 3), winter: G.season(S).index === 3, col, state, side: q.type === 'docks' ? (waterSide(t.x, t.y) || 'R') : '', seed: hash(host.id + q.x + ',' + q.y) };
   }
-  function quarterSprite(d, k) {
+  function quarterSprite(d, k, kLod = k) {   // kLod: the tile's own scale (a shrunk quarter keeps its neighbours' look)
     if (qCacheDPR !== DPR || qCachePx > 6e6) { qCache.clear(); qCachePx = 0; qCacheDPR = DPR; }
-    const kb = Math.pow(2, Math.round(Math.log2(Math.max(0.05, k * DPR)) * 2) / 2);
-    const key = [d.type, d.race, d.era, d.winter ? 1 : 0, d.col, d.state, d.side, kb].join('|');
+    const kb = Math.pow(2, Math.round(Math.log2(Math.max(0.05, k * DPR)) * 2) / 2), bold = kLod < Q_LOD_K;
+    const key = [d.type, d.race, d.era, d.winter ? 1 : 0, d.col, d.state, d.side, kb, bold ? 'b' : ''].join('|');
     let e = qCache.get(key);
     if (e) return e;
     const cv = mk(Math.max(1, Math.ceil(Q_HW * 2 * kb)), Math.max(1, Math.ceil((Q_TOP + Q_BOT) * kb)));
     const c = cv.getContext('2d');
     c.scale(kb, kb); c.translate(Q_HW, Q_TOP); c.lineCap = 'round'; c.lineJoin = 'round';
-    try { paintQuarter(c, d); } catch (err) { /* never break the map */ }
+    try { if (bold) paintQuarterBold(c, d); else paintQuarter(c, d); } catch (err) { /* never break the map */ }
     e = { cv, w: Q_HW * 2, h: Q_TOP + Q_BOT };
     qCache.set(key, e); qCachePx += cv.width * cv.height;
     return e;
   }
-  // draw one quarter at the current tile origin (unit space), nudged away from its core so a big city's walls don't hide it
-  function drawQuarter(c, t, k) {
-    if (!G.qtrAt) return;
-    const h = G.qtrAt(S, t.x, t.y);
-    if (!h) return;
-    const host = h.city || h.minor, dx = t.x - host.x, dy = t.y - host.y, far = Math.max(Math.abs(dx), Math.abs(dy)) > 1;
+  // ---- rivals' quarters under the fog: like the city glyphs, a quarter out of sight shows what was last
+  // seen. S.qtrMemo[tile index] = [host id, host x, host y, type, state, owner ('' = free city), race, era, side, seen at].
+  // A quarter raised on land out of sight stays unseen until a scout or army looks again; one that was
+  // razed while out of sight lingers until then. Refreshed with the city memo (4x a second).
+  function qtrMemoOf(look, h) {
+    const host = h.city || h.minor;
+    return [host.id, host.x, host.y, look.type, look.state, h.city ? h.city.owner : '', look.race, look.era, look.side, S.time];
+  }
+  function refreshQtrMemo() {
+    const N = S.map;
+    // an older save (no memory yet): take one look at every explored quarter, as the city memo does
+    const qm = S.qtrMemo || (S.qtrMemo = {});
+    const seed = !qm._v; if (seed) qm._v = 1;
+    const seenNow = new Set();
+    const visit = (h, q) => {
+      const i = q.y * N + q.x, t = S.tiles[i];
+      if (!t || t.city || !S.explored[i]) return;
+      if (!(vis && vis[i]) && !seed) return;
+      const look = quarterLook(t, h);
+      qm[i] = qtrMemoOf(look, h); seenNow.add(String(i));
+    };
+    for (const c of Object.values(S.cities)) if (c.owner !== 'p' && c.quarters && c.quarters.length) for (const q of c.quarters) { const h = { city: c, q }; if (S.tiles[q.y * N + q.x].quarter === c.id) visit(h, q); }
+    if (S.minors) for (const mi of Object.values(S.minors)) if (mi.quarters && mi.quarters.length) for (const q of mi.quarters) { const h = { minor: mi, q }; if (S.tiles[q.y * N + q.x].quarter === mi.id) visit(h, q); }
+    // seen again with nothing (or nothing of a rival's) on it: forget
+    for (const k in qm) { if (k === '_v' || seenNow.has(k)) continue; const i = +k; if (!(i >= 0 && i < N * N) || (vis && vis[i]) || S.tiles[i].city) delete qm[k]; }
+  }
+  // what a quarter tile shows now: { look, hx, hy, tier, fog, seen, h } or null (nothing seen there)
+  function qtrView(t) {
+    const N = S.map, i = t.y * N + t.x, h = t.quarter && G.qtrAt ? G.qtrAt(S, t.x, t.y) : null;
+    if (h && ((h.city && h.city.owner === 'p') || (vis && vis[i]))) {
+      const host = h.city || h.minor, dv = h.city && devMap.get(h.city.id);
+      return { look: quarterLook(t, h), hx: host.x, hy: host.y, tier: dv ? dv.tier : h.city ? tierIdx(G.lvl(h.city, 'townhall')) : 1, fog: false, h };
+    }
+    const mm = S.qtrMemo && S.qtrMemo[i];
+    if (!mm || t.city) return null;
+    const [hid, hx, hy, type, state, owner, race, era, side, seen] = mm;
+    const city = S.cities[hid], mi = !city && S.minors ? S.minors[hid] : null, dv = city && devMap.get(hid);
+    const col = owner ? colorOf(owner) : ((mi && DATA.minorKinds && DATA.minorKinds[mi.kind] && DATA.minorKinds[mi.kind].color) || '#6b6b6b');
+    const look = { type, race: ARTPAL[race] ? race : 'hearth', era: clamp(era | 0, 0, 3), winter: G.season(S).index === 3, col, state, side, seed: hash(hid + t.x + ',' + t.y) };
+    return { look, hx, hy, tier: dv ? dv.tier : 1, fog: true, seen, owner, hid, city, minor: mi };
+  }
+  // where a quarter sits on its tile (unit space): nudged away from its core so the walls don't hide it.
+  // The row behind a core taller than a tile (a Town and up) would vanish behind its towers:
+  //  - the back corners are pushed out past the wall ring, shrunk a little and drawn after the core (late 'over');
+  //  - the tile straight behind keeps its place in depth (a field painted over the spires reads wrong), lifted
+  //    clear of the wall, and after the core a faint see-through copy shows it between the towers (late 'ghost').
+  function qtrPlace(t, v) {
+    const dx = t.x - v.hx, dy = t.y - v.hy, far = Math.max(Math.abs(dx), Math.abs(dy)) > 1;
     const len = Math.hypot(dx, dy) || 1, push = far ? 6 : 18;
-    const e = quarterSprite(quarterLook(t, h), k);
-    const up = dy < 0 && !far ? 12 : 0;   // rows behind the core: lift them clear of the towers
-    c.drawImage(e.cv, -Q_HW + dx / len * push, -Q_TOP + dy / len * push * 0.7 - up, e.w, e.h);
+    const behind = !far && dy < 0, big = behind && v.tier >= 3, b = big ? v.tier - 3 : 0;
+    if (big && dx) return { x: dx / len * push * (1.5 + b * 0.2), y: dy / len * push * 0.7 - 8 - b * 4, s: 0.88 - b * 0.04, late: 'over' };
+    if (big) return { x: 0, y: -push * 0.7 - 16 - b * 6, s: 0.9, late: 'ghost' };
+    return { x: dx / len * push, y: dy / len * push * 0.7 - (behind ? 12 : 0), s: 1, late: '' };
+  }
+  function drawQuarter(c, t, k, v, pl) {
+    const e = quarterSprite(v.look, k * pl.s, k);
+    c.drawImage(e.cv, pl.x - Q_HW * pl.s, pl.y - Q_TOP * pl.s, e.w * pl.s, e.h * pl.s);
   }
 
   // ---- glyph sprite cache ----
@@ -2220,9 +2335,12 @@
   // ------------------------------------------------------------------
   const base = () => Math.min(W, H) / (S.map + 2 * M);
   const tilePx = () => base() * cam.z;
+  const zMax = () => { const b = base(); return b > 0 ? Math.max(ZMAX, TP_MAX / b) : ZMAX; };
+  // the +/− buttons cross the whole range in about eight taps, however deep it is
+  const zStep = () => Math.max(1.4, Math.pow(zMax() / ZMIN, 1 / 8));
   function clampCam() {
     if (!S) return;
-    cam.z = clamp(cam.z, ZMIN, ZMAX);
+    cam.z = clamp(cam.z, ZMIN, zMax());
     const N = S.map, tp = tilePx(), hw = W / 2 / tp, hh = H / 2 / tp, lo = -M, hi = N + M;
     cam.x = hi - lo <= 2 * hw ? N / 2 : clamp(cam.x, lo + hw, hi - hw);
     cam.y = hi - lo <= 2 * hh ? N / 2 : clamp(cam.y, lo + hh, hi - hh);
@@ -2230,13 +2348,13 @@
   const toWorld = (px, py) => { const tp = tilePx(); return { x: cam.x + (px - W / 2) / tp, y: cam.y + (py - H / 2) / tp }; };
   function zoomAt(px, py, nz) {
     const w = toWorld(px, py);
-    cam.z = clamp(nz, ZMIN, ZMAX);
+    cam.z = clamp(nz, ZMIN, zMax());
     const tp = tilePx();
     cam.x = w.x - (px - W / 2) / tp; cam.y = w.y - (py - H / 2) / tp;
     cam.tx = cam.ty = cam.tz = null;
     clampCam();
   }
-  function flyTo(x, y, z) { cam.tx = x + 0.5; cam.ty = y + 0.5; if (z) cam.tz = clamp(z, ZMIN, ZMAX); }
+  function flyTo(x, y, z) { cam.tx = x + 0.5; cam.ty = y + 0.5; if (z) cam.tz = clamp(z, ZMIN, zMax()); }
   function stepCam() {
     let moving = false;
     if (reduceMotion) {   // jump straight to the target instead of easing
@@ -2297,8 +2415,15 @@
   }
   function baseName(t, pos) {
     if (t.city && S.cities[t.city]) return cityTip(S.cities[t.city]) + pos;
-    const qh = t.quarter && G.qtrAt ? G.qtrAt(S, t.x, t.y) : null;
-    if (qh) { const qd = G.QTR.types[qh.q.type], host = qh.city || qh.minor, st = !qh.q.built ? ' (being built)' : qh.q.burnt > S.time ? ' (burnt)' : ''; return `${qd ? qd.icon + ' ' + qd.name : 'Quarter'} of ${host.name}${qh.city && qh.city.owner !== 'p' && S.empires[qh.city.owner] ? ' (' + S.empires[qh.city.owner].name + ')' : ''}${st} · ${DATA.terrain[t.terrain] ? DATA.terrain[t.terrain].name : t.terrain}` + pos; }
+    // a quarter: its type and owner city; rivals' out of sight as last seen (qtrView)
+    const qv = (t.quarter || (S.qtrMemo && S.qtrMemo[t.y * S.map + t.x])) && G.QTR ? qtrView(t) : null;
+    if (qv) {
+      const qd = G.QTR.types[qv.look.type], host = qv.h ? qv.h.city || qv.h.minor : qv.city || qv.minor, owner = qv.h ? qv.h.city && qv.h.city.owner : qv.owner;
+      const st = qv.look.state === 'b' ? ' (being built)' : qv.look.state === 'x' ? ' (burnt)' : '';
+      const ago = qv.fog ? Math.max(0, Math.round((S.time - (qv.seen || 0)) / 60)) : 0;
+      const seen = qv.fog ? ` · last seen ${ago < 1 ? 'just now' : ago < 120 ? ago + ' min ago' : Math.round(ago / 60) + ' h ago'}` : '';
+      return `${qd ? qd.icon + ' ' + qd.name : 'Quarter'} of ${host ? host.name : 'a lost city'}${owner && owner !== 'p' && S.empires[owner] ? ' (' + S.empires[owner].name + ')' : ''}${st} · ${DATA.terrain[t.terrain] ? DATA.terrain[t.terrain].name : t.terrain}${seen}` + pos;
+    }
     if (t.camp) { const cp = S.camps[t.camp]; if (cp && cp.kind === 'crisis') { const cd = DATA.crises && DATA.crises[cp.ck]; return `${cd ? cd.icon + ' ' + cd.srcName + ' · ' + cd.name : 'Crisis source'}` + pos; } if (cp && cp.kind) return ({ wyrm: "The Wyrm's lair", undead: 'Horde of the restless dead', star: 'Crater of a fallen star', rift: 'Demon rift' }[cp.kind] || 'Strange camp') + pos; return `Brigand camp${cp ? ', tier ' + cp.tier : ''}` + pos; }
     if (t.oasis) { const o = t.oasis, oc = o.owner && S.cities[o.owner]; return `Oasis (+25% ${DATA.goods[o.bonus] ? DATA.goods[o.bonus].name : o.bonus})${oc ? ' · held by ' + oc.name : ''}` + pos; }
     if (t.ruin) return `Ruins, tier ${t.ruin.tier}${t.ruin.readyAt > S.time ? ' (plundered)' : ''}` + pos;
@@ -2442,24 +2567,26 @@
       const sx0 = clamp((0 - px0) * k, 0, L), sy0 = clamp((0 - py0) * k, 0, L), sx1 = clamp((W - px0) * k, 0, L), sy1 = clamp((H - py0) * k, 0, L);
       if (sx1 > sx0 && sy1 > sy0) c.drawImage(layer, sx0, sy0, sx1 - sx0, sy1 - sy0, px0 + sx0 / k, py0 + sy0 / k, (sx1 - sx0) / k, (sy1 - sy0) / k);
     }
+    // visible tile range
+    // padded so the widest city glyphs (walls, wonder, harbour) don't pop in at the edges
+    const x0 = Math.max(0, Math.floor(-ox / tp) - 3), x1 = Math.min(N - 1, Math.ceil((W - ox) / tp) + 3);
+    const y0 = Math.max(0, Math.floor(-oy / tp) - 2), y1 = Math.min(N - 1, Math.ceil((H - oy) / tp) + 2);
+    // bridges being built belong to the land: under the out-of-sight dimming, like the finished ones baked into the layer
+    drawBuildingBridges(c, tp, SX, SY, x0, x1, y0, y1);
     // explored but out of sight: desaturate + paper wash
     c.globalCompositeOperation = 'saturation'; c.globalAlpha = 0.4; c.drawImage(dimGrey, SX(0), SY(0), N * tp, N * tp);
     c.globalCompositeOperation = 'source-over'; c.globalAlpha = 0.22; c.drawImage(dimWash, SX(0), SY(0), N * tp, N * tp);
     c.globalAlpha = 1;
 
-    // visible tile range
-    // padded so the widest city glyphs (walls, wonder, harbour) don't pop in at the edges
-    const x0 = Math.max(0, Math.floor(-ox / tp) - 3), x1 = Math.min(N - 1, Math.ceil((W - ox) / tp) + 3);
-    const y0 = Math.max(0, Math.floor(-oy / tp) - 2), y1 = Math.min(N - 1, Math.ceil((H - oy) / tp) + 2);
     const k = tp / 62, lw = Math.max(1.5, 0.9 / k);
-    const lights = [], labels = [], smokes = [];
+    const lights = [], labels = [], smokes = [], lateQ = [];
+    const qm = S.qtrMemo || {};
     glyphBudget = 6;   // new glyph sprites rendered per frame; others use the nearest cached zoom until then
     drawLey(c, t, tp, SX, SY, x0, x1, y0, y1, lights);
-    drawBuildingBridges(c, tp, SX, SY, x0, x1, y0, y1);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = y * N + x, tile = S.tiles[i];
       const fcity = tile.minor && G.minorAt ? G.minorAt(S, tile) : null;
-      if (!S.explored[i] || !(tile.city || tile.camp || tile.oasis || tile.ruin || fcity || tile.quarter)) continue;
+      if (!S.explored[i] || !(tile.city || tile.camp || tile.oasis || tile.ruin || fcity || tile.quarter || qm[i])) continue;
       const cx = SX(x + 0.5), cy = SY(y + 0.5), lp = [];
       c.save(); c.translate(cx, cy); c.scale(k, k); c.lineCap = 'round'; c.lineJoin = 'round';
       if (tile.city && S.cities[tile.city]) {
@@ -2481,11 +2608,22 @@
         if (cam.z >= 0.8 || tp >= 22) { const k = DATA.minorKinds[fcity.kind], lord = fcity.subject || fcity.patron; labels.push({ x: cx, y: cy + tp * 0.5, text: fcity.name, mine: false, cur: false, sub: `${k ? k.icon + ' ' + k.name : 'Free city'}${lord ? ' · ' + (lord === 'p' ? 'yours' : (S.empires[lord] || {}).name) : ''}` }); }
         if (vis[i]) smokes.push([cx, cy, hash(fcity.id) % 100 / 100]);
       }
-      else if (tile.quarter) drawQuarter(c, tile, k);   // a city's quarter (js/quarters.js), in the same back-to-front order as the cities
+      else if (tile.quarter || qm[i]) {   // a city's quarter (js/quarters.js), in the same back-to-front order as the cities
+        const v = qtrView(tile);
+        if (v) {
+          const pl = qtrPlace(tile, v);
+          if (pl.late !== 'over') drawQuarter(c, tile, k, v, pl);
+          if (pl.late) lateQ.push([cx, cy, tile, v, pl]);
+          // burning: smoke over a quarter burnt or being put to the torch, while in sight
+          if (vis[i] && (v.look.state === 'x' || raidQ.has(i))) smokes.push([cx + pl.x * k, cy + (pl.y + 22) * k, hash(tile.x + ',' + tile.y) % 100 / 100, raidQ.has(i) ? 2 : 1]);
+        }
+      }
       if ((tile.oasis || tile.ruin) && !tile.city && !tile.camp) drawHoly(c, tile, lw, t, lp);
       c.restore();
       for (const l of lp) lights.push([cx + l[0] * k, cy + l[1] * k, l[2] || 1, l[3]]);
     }
+    // rows behind a big core, lifted onto its back wall (qtrPlace)
+    for (const [cx, cy, tile, v, pl] of lateQ) { c.save(); c.translate(cx, cy); c.scale(k, k); if (pl.late === 'ghost') c.globalAlpha = 0.42; drawQuarter(c, tile, k, v, pl); c.restore(); }
 
     drawWorkings(c, t, tp, SX, SY, x0, x1, y0, y1, lights);
     // calamities: tinted, dashed regions with an emblem
@@ -2586,12 +2724,17 @@
     c.globalAlpha = 1;
 
     // chimney smoke
+    // (fire smoke from burning quarters: darker, thicker plumes; fire = 2 while the raiders are at work)
     if (tp >= 24) {
-      c.fillStyle = 'rgb(120,112,104)';
-      for (const [cx, cy, sd] of smokes) for (let j = 0; j < 3; j++) {
-        const ph = (t * 0.22 + j / 3 + sd) % 1;
-        c.globalAlpha = (1 - ph) * 0.28 * Math.min(1, ph * 6);
-        c.beginPath(); c.arc(cx + (6 + Math.sin(ph * 5 + sd * 9) * 5 + ph * 8) * k, cy - (26 + ph * 40) * k, (2.5 + ph * 7) * k, 0, TAU); c.fill();
+      for (const [cx, cy, sd, fire] of smokes) {
+        const n = fire ? 3 + fire * 2 : 3, sz = fire ? 1.6 : 1;
+        c.fillStyle = fire ? 'rgb(58,50,46)' : 'rgb(120,112,104)';
+        for (let j = 0; j < n; j++) {
+          const ph = (t * (fire ? 0.3 : 0.22) + j / n + sd) % 1;
+          c.globalAlpha = (1 - ph) * (fire ? 0.42 : 0.28) * Math.min(1, ph * 6);
+          c.beginPath(); c.arc(cx + ((fire ? 0 : 6) + Math.sin(ph * 5 + sd * 9) * 5 + ph * 8) * k, cy - (26 + ph * 40 * sz) * k, (2.5 + ph * 7) * sz * k, 0, TAU); c.fill();
+        }
+        if (fire === 2) { c.globalAlpha = 0.55 + 0.25 * Math.sin(t * 9 + sd * 20); c.fillStyle = '#e8742a'; c.beginPath(); c.ellipse(cx, cy - 14 * k, 7 * k, 4 * k, 0, 0, TAU); c.fill(); }
       }
       c.globalAlpha = 1;
     }
@@ -2772,7 +2915,14 @@
     const p = local(e), w = toWorld(p.x, p.y), x = Math.floor(w.x), y = Math.floor(w.y);
     return x >= 0 && y >= 0 && x < S.map && y < S.map ? { x, y } : null;
   }
-  function hideTip() { if (tip) tip.style.display = 'none'; hover = null; }
+  let tapTipT = 0;
+  function hideTip() { if (tip) tip.style.display = 'none'; hover = null; clearTimeout(tapTipT); }
+  function tapTip(e, tt) {
+    const t = S.tiles[tt.y * S.map + tt.x];
+    if (!tip || !t || t.city || !(t.quarter || (S.qtrMemo && S.qtrMemo[tt.y * S.map + tt.x])) || !qtrView(t)) return;
+    showTip(e); hover = null;
+    clearTimeout(tapTipT); tapTipT = setTimeout(() => { if (tip) tip.style.display = 'none'; }, 2200);
+  }
   function showTip(e) {
     const tt = tileAtClient(e);
     if (!tt) { hideTip(); return; }
@@ -2839,7 +2989,7 @@
       } else if (pts.size >= 2 && pinch) {
         const [a, b] = [...pts.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        cam.z = clamp(pinch.z * d / pinch.d, ZMIN, ZMAX);
+        cam.z = clamp(pinch.z * d / pinch.d, ZMIN, zMax());
         const tp = tilePx(); cam.x = pinch.w.x - (mx - W / 2) / tp; cam.y = pinch.w.y - (my - H / 2) / tp; clampCam();
       }
     });
@@ -2856,6 +3006,8 @@
             // a marching column under the pointer (generous on touch) is selected before the tile (js/ui-intercept.js)
             const lp = local(e), wp = toWorld(lp.x, lp.y), hit = typeof wmPickColumn === 'function' ? wmPickColumn(wp.x, wp.y, (e.pointerType === 'mouse' ? 18 : 34) / tilePx(), vis) : null;
             UI.sel = hit ? { x: tt.x, y: tt.y, move: hit } : tt; lastSelKey = tt.x + ',' + tt.y; UI.holding = false; render(true); if (e.pointerType !== 'mouse') revealPanel();
+            // touch has no hover: a tapped quarter names its type and owner city for a moment
+            if (e.pointerType !== 'mouse' && !hit) tapTip(e, tt);
           }
         }
       } else if (pts.size === 1) {
@@ -2912,8 +3064,8 @@
   };
 
   Object.assign(act, {
-    wmZoomIn: () => { lastInput = performance.now(); cam.tz = clamp((cam.tz || cam.z) * 1.4, ZMIN, ZMAX); start(); },
-    wmZoomOut: () => { lastInput = performance.now(); cam.tz = clamp((cam.tz || cam.z) / 1.4, ZMIN, ZMAX); start(); },
+    wmZoomIn: () => { lastInput = performance.now(); cam.tz = clamp((cam.tz || cam.z) * zStep(), ZMIN, zMax()); start(); },
+    wmZoomOut: () => { lastInput = performance.now(); cam.tz = clamp((cam.tz || cam.z) / zStep(), ZMIN, zMax()); start(); },
     wmCancelSpell: () => cancelTargeting(),
     wmCenter: () => { const c = curCity(); if (c) flyTo(c.x, c.y, Math.max(cam.z, 1.5)); start(); },
   });
@@ -2996,5 +3148,8 @@
     // a city quarter's sprite on a tile (js/quarters.js), as the map draws it: { cv, w, h, ox, oy } in unit space
     quarter: (x, y, kb = 2) => { const t = S && G.tileAt(S, x, y), h = t && t.quarter && G.qtrAt ? G.qtrAt(S, x, y) : null; if (!h) return null; const e = quarterSprite(quarterLook(t, h), kb / DPR); return { cv: e.cv, w: e.w, h: e.h, ox: Q_HW, oy: Q_TOP }; },
     quarterCache: () => ({ entries: qCache.size, px: qCachePx }),
+    // what a quarter tile shows now (rivals' out of sight: the last-seen memory) and where it sits on the tile
+    quarterView: (x, y) => { const t = S && G.tileAt(S, x, y), v = t && qtrView(t); return v ? { type: v.look.type, state: v.look.state, fog: v.fog, seen: v.seen, tier: v.tier, place: qtrPlace(t, v) } : null; },
+    zoomLimits: () => ({ min: ZMIN, max: S ? +zMax().toFixed(3) : ZMAX, tileMax: S ? +(base() * zMax()).toFixed(1) : null, tile: S ? +tilePx().toFixed(1) : null }),
   };
 })();

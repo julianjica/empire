@@ -13,7 +13,10 @@
 //  Military, Faith & Culture, Magic, Balanced) and an optional gold reserve.
 //  They never spend below the reserve, never build what would starve the
 //  city, respect storage, never touch wonders or realm-unique works, and
-//  keep a short log. With "Think for the realm" (on by default) they read a realm snapshot
+//  keep a short log. Builders' time is the scarce good (renown counts building levels, and each level
+//  takes ~1.4x longer than the last), so they favour quick works, never leave the builders idle while
+//  something is affordable, save for a first choice only while works are under way, and buy a work's
+//  missing goods only when the builders would otherwise stand idle and the treasury is rich. With "Think for the realm" (on by default) they read a realm snapshot
 //  (G.realmEcon): a deficit that supply lines or a sister city's surplus covers is not built for,
 //  works for goods the realm lacks go where the land suits them, and the market waits for caravans.
 //
@@ -34,8 +37,10 @@
     snoozeMins: 15,      // game-minutes (× pace) a snooze lasts
     earlyHours: 1,       // the Steward teaches during the first game-hour (× pace)
     logMax: 8,
-    timeWeight: 12,      // how strongly governors prefer quick works
-    waitMins: 4,         // a governor waits this long (× pace) to afford its first choice before settling for another
+    timeWeight: 30,      // how strongly governors prefer quick works (score lost per doubling of build time): builders' time is the scarce good
+    waitMins: 2,         // a governor with works already under way saves this long (× pace) for its first choice; an idle one never waits
+    thFree: 9,
+    buyShare: 0.1,       // idle builders: a governor buys a work's missing goods when they cost at most this share of the gold above its reserve           // past this Town Hall level every building can reach its top level: a bigger Town Hall only builds a little faster
     realmSpec: 30,       // how strongly a realm-minded governor raises works for what the realm lacks where its land is better (and less where worse)
     realmWaitMins: 10,   // a realm-minded governor waits this long (× pace) for a caravan before buying an upkeep good after all
   };
@@ -333,13 +338,13 @@
             const cv = !hungry && covered('grain');
             if (cv) { w += 20 - L; why = rwhy(coverText('grain', cv)); } else { w += 120; why = 'grain is short'; }
           } else w += (city.res.grain || 0) < e.cap * 0.25 ? 45 - L : 32 - L; break;
-        case 'houses': if (city.pop >= e.civCap * 0.9) { w += 70; why = 'homes are full'; } else w += 5; break;
-        case 'warehouse': if (nearCap) { w += 60; why = 'stores are nearly full'; } break;
-        case 'townhall': w += 25 + (L <= 3 ? 20 : 0); break;
+        case 'houses': if (city.pop >= e.civCap * 0.9) { w += 40; why = 'homes are full'; } else w += 5; break;
+        case 'warehouse': if (nearCap) { w += 30; why = 'stores are nearly full'; } break;
+        case 'townhall': w += L >= C.thFree ? 0 : 25 + (L <= 3 ? 20 : 0); break;
         case 'lumber': w += 28 - L + ((city.res.timber || 0) < e.cap * 0.15 && !covered('timber') ? 25 : 0); break;
         case 'quarry': w += 28 - L + ((city.res.stone || 0) < e.cap * 0.15 && !covered('stone') ? 25 : 0); break;
         case 'mine': w += 22 - L + ((city.res.ore || 0) < e.cap * 0.15 && !covered('ore') ? 20 : 0); break;
-        case 'workshop': w += focus === 'military' ? 5 - L * 2 : -30; break;
+        case 'workshop': w += focus === 'military' ? 12 - L : 4 - L; break;
         case 'smelter': w += 22 - L; break;
         case 'smithy': w += (city.res.tools || 0) < 20 && !covered('tools') ? 30 : 5; break;
         case 'armory': w += 22 - L + aggr * 10; break;
@@ -347,15 +352,15 @@
         case 'stable': w += aggr * 12 - L; break;
         case 'wall': w += L >= th + 1 ? -60 : 10 + (1 - aggr) * 12 - L; break;
         case 'market': w += emp.gold > 800 && L < 3 ? 25 : -5; break;
-        case 'academy': w += L < 3 ? 12 : -5; break;
+        case 'academy': w += L < 3 ? 22 : 14 - L; break;
         case 'harbor': w += 18 - L; break;
-        case 'hideout': w += -15 - L; break;
+        case 'hideout': w += 8 - L; break;
         default: w += 18 - L;
       }
       if (e.eff < 0.95 && t === 'houses') { w += 50; why = 'short of workers'; }
       // more mouths would starve — unless caravans feed this city and the realm still grows more grain than it eats
       if (t === 'houses' && e.net.grain < 1 + city.pop * 0.03 && !(covered('grain') && RR.goods.grain.net > 5 + city.pop * 0.03)) w -= 50;
-      if (AMENITY.includes(t) && happy >= 62 && focus !== 'faith') w -= 25;
+      if (AMENITY.includes(t) && happy >= 62 && focus !== 'faith') w -= 10;
       if (AMENITY.includes(t) && happy < 40) { w += 30; why = 'the people are unhappy'; }
       if (t !== 'townhall' && L >= th + 2) w -= 40;
       if (RR) {
@@ -415,8 +420,8 @@
     const top = cands[0];
     const okList = cands.filter(c => govAffords(s, city, c, reserve, e));
     if (okList.length && okList[0] === top) return { t: top.t, why: top.why, level: top.st.level, realm: top.realm };
-    if (opts.patient) {
-      // wait a little for the first choice if the goods are coming in
+    if (opts.patient && city.buildQueue.length > 0) {
+      // with builders already at work, wait a little for the first choice if the goods are coming in (idle builders never wait)
       const waited = opts.waitedSince != null ? s.time - opts.waitedSince : 0;
       if (waited < C.waitMins * 60 * paceT(s)) {
         const short = Object.entries(top.st.cost).filter(([g, v]) => G.have(s, city, g) < v + (g === 'gold' ? reserve : 0));
@@ -424,7 +429,8 @@
         if (soon) return { wait: `saving for ${bname(top.t)} ${top.st.level}`, saving: top.t };
       }
     }
-    const pick = okList.find(c => c.w >= top.w - 40) || (opts.patient ? okList[0] : okList[0]);
+    // a near-equal second choice; failing that, the cheapest level we can pay for now (quick works keep builders busy)
+    const pick = okList.find(c => c.w >= top.w - 40) || okList.slice().sort((a, b) => a.st.time - b.st.time)[0];
     if (pick) return { t: pick.t, why: pick.why, level: pick.st.level, realm: pick.realm };
     if (top.st.reason === 'Queue full') return { wait: 'builders busy' };
     const gold = (top.st.cost.gold || 0) > 0 && s.empires[city.owner].gold - top.st.cost.gold < reserve;
@@ -545,17 +551,35 @@
       if (emp.gold - price < (g.reserve || 0) + 100) continue;
       if (G.trade(s, city.id, gd, n, 'buy') === null) govLog(s, g, `Bought ${n} ${DATA.goods[gd].name.toLowerCase()} for upkeep (${Math.round(price)} gold)`);
     }
-    const want = g.wait && g.wait.saving;
-    if (!want) return;
-    const st = G.buildStatus(s, city, want);
-    if (st.maxed || st.locked || st.reason === 'Queue full') return;
-    const short = Object.entries(st.cost).filter(([gd, v]) => gd !== 'gold' && DATA.goods[gd] && G.have(s, city, gd) < v).map(([gd, v]) => [gd, Math.ceil(v - G.have(s, city, gd))]);
-    if (!short.length) return;
-    const price = short.reduce((a, [gd, n]) => a + n * G.marketRates(s, city, gd).buy, 0);
-    if (emp.gold - price - (st.cost.gold || 0) < (g.reserve || 0) + 100) return;
-    if (short.some(([gd, n]) => (city.res[gd] || 0) + n > e.cap)) return;
-    for (const [gd, n] of short) G.trade(s, city.id, gd, n, 'buy');
-    govLog(s, g, `Bought ${short.map(([gd, n]) => n + ' ' + DATA.goods[gd].name.toLowerCase()).join(', ')} for ${bname(want)} (${Math.round(price)} gold)`);
+  };
+  // idle builders and nothing affordable: buy the missing goods for a good work, but only from a rich treasury.
+  // The market asks up to twice their worth, so a work is bought for only when its goods cost a small share of the
+  // gold above the reserve (C.buyShare); a Town Hall that still raises the level cap, or a warehouse when costs
+  // outgrow storage, may spend down to the reserve. Candidates within 40 of the best, best first.
+  const govBuyFor = (s, city, g, e, R) => {
+    if (g.market === false || G.lvl(city, 'market') < 1 || city.buildQueue.length) return false;
+    const emp = s.empires[city.owner], free = emp.gold - (g.reserve || 0) - 100;
+    if (!(free > 0)) return false;
+    const cands = govCandidates(s, city, g.focus, e, R);
+    if (!cands.length) return false;
+    const floor = grainFloor(s, city, e);
+    for (const c of cands) {
+      if (c.w < cands[0].w - 40) break;
+      const st = c.st;
+      if (st.maxed || st.locked || st.ok) continue;
+      if (Object.keys(st.cost).some(gd => gd !== 'gold' && !DATA.goods[gd])) continue;
+      const need = (gd, v) => v + (gd === 'grain' && !GRAIN_B.includes(c.t) ? floor : 0);
+      const short = Object.entries(st.cost).filter(([gd, v]) => gd !== 'gold' && G.have(s, city, gd) < need(gd, v)).map(([gd, v]) => [gd, Math.ceil(need(gd, v) - G.have(s, city, gd))]);
+      if (!short.length || short.some(([gd, n]) => (city.res[gd] || 0) + n > e.cap)) continue;
+      const price = short.reduce((a, [gd, n]) => a + n * G.marketRates(s, city, gd).buy, 0) + (st.cost.gold || 0);
+      const key = (c.t === 'townhall' && G.lvl(city, 'townhall') < C.thFree) || (c.t === 'warehouse' && /storage/.test(c.why || ''));
+      if (price > (key ? free : free * C.buyShare)) continue;
+      for (const [gd, n] of short) G.trade(s, city.id, gd, n, 'buy');
+      if (!G.buildStatus(s, city, c.t).ok) return false;
+      govNote(s, g, 'buy', `Bought ${short.map(([gd, n]) => n + ' ' + gnm(gd)).join(', ')} for ${bname(c.t)} ${st.level} (${Math.round(price - (st.cost.gold || 0))} gold) rather than leave the builders idle`);
+      return true;
+    }
+    return false;
   };
   const govStep = (s, city, g, R) => {
     const e = (R && R.econ[city.id]) || G.econ(s, city);
@@ -573,6 +597,10 @@
       g.wait = null;
       built++;
       govLog(s, g, `Queued ${bname(pick.t)} ${pick.level}${pick.why ? ' — ' + pick.why : ''}`);
+    }
+    if (!city.buildQueue.length && govBuyFor(s, city, g, e, realm)) {
+      const pick = G.councilPick(s, city, g.focus, { reserve: g.reserve, econ: G.econ(s, city), realm });
+      if (pick.t && G.queueBuild(s, city.id, pick.t) === null) { g.wait = null; govLog(s, g, `Queued ${bname(pick.t)} ${pick.level}${pick.why ? ' — ' + pick.why : ''}`); }
     }
     govTrain(s, city, g, e);
   };

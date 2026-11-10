@@ -839,6 +839,45 @@ G.cancelBuild = (s, cityId, index) => {
   for (const q of city.buildQueue) { base[q.type] = (base[q.type] || G.lvl(city, q.type)) + 1; q.level = base[q.type]; }
 };
 
+// reorder a work that has not started (index → toIndex); levels of one building keep their order. null or a reason
+G.moveBuild = (s, cityId, index, toIndex) => {
+  const city = s.cities[cityId];
+  const q = city && city.buildQueue;
+  if (!q || !q[index]) return 'No such work';
+  const j = Math.max(0, Math.min(q.length - 1, Math.floor(toIndex)));
+  if (!(j >= 0)) return 'Move it where?';
+  const firstFree = q[0] && q[0].start <= s.time ? 1 : 0;
+  if (index < firstFree || j < firstFree) return 'The work under way cannot be moved';
+  if (index === j) return null;
+  const it = q[index], lo = Math.min(index, j), hi = Math.max(index, j);
+  if (q.slice(lo, hi + 1).some(x => x !== it && x.type === it.type)) return `Levels of ${DATA.buildings[it.type].name} must stay in order`;
+  q.splice(index, 1); q.splice(j, 0, it);
+  let t = s.time;
+  q.forEach((x, i) => { if (i === 0 && x.start <= s.time) { t = x.end; return; } x.start = t; x.end = t + x.dur; t = x.end; });
+  const base = {};
+  for (const x of q) { base[x.type] = (base[x.type] || G.lvl(city, x.type)) + 1; x.level = base[x.type]; }
+  return null;
+};
+
+// tear down one level of a building; a quarter of that level's goods is salvaged. null or a reason
+G.DEMOLISH_REFUND = 0.25;
+G.demolish = (s, cityId, type) => {
+  const city = s.cities[cityId], b = DATA.buildings[type];
+  if (!city || !b) return 'No such building';
+  const L = G.lvl(city, type);
+  if (!L) return `${city.name} has no ${b.name}`;
+  if (type === 'townhall') return 'The Town Hall cannot be torn down';
+  if (city.buildQueue.some(q => q.type === type)) return `${b.name} has works queued in ${city.name}; cancel them first`;
+  const back = {};
+  for (const [g, v] of Object.entries(G.buildCost(type, L))) if (g !== 'gold') back[g] = Math.floor(v * G.DEMOLISH_REFUND);
+  if (L <= 1) delete city.buildings[type]; else city.buildings[type] = L - 1;
+  G.gain(s, city, back);
+  G.bumpEpoch();
+  if (G.councilDirty) G.councilDirty(s);
+  G.log(s, city.owner, `🏚️ ${b.name} in ${city.name} was torn down to level ${L - 1}.`, 'info');
+  return null;
+};
+
 // ---------------------------------------------------------------------
 // Training
 // ---------------------------------------------------------------------

@@ -1007,6 +1007,57 @@ const ensureSpyHook = () => {
 // ---------------------------------------------------------------------
 // AI: study, open schools, keep enchantments
 // ---------------------------------------------------------------------
+// The mana an AI realm keeps out of its recruiting (battle mages cost mana, and buying them used to drain the stores
+// that the grimoire and a first enchantment need): while no enchantment stands, the next step on the road to one and
+// its placement; afterwards half an hour of enchantment upkeep. Capped at half the realm's stores; none below an Adept tower (5), where the first enchantments open.
+const RESERVE = new WeakMap();
+G.aiManaReserve = (s, owner) => {
+  if (!owner || owner === 'p' || !s.empires[owner]) return 0;
+  let c = RESERVE.get(s);
+  const tick = Math.floor(s.time / 30);
+  if (!c || c.tick !== tick) { c = { tick, m: {} }; RESERVE.set(s, c); }
+  if (c.m[owner] !== undefined) return c.m[owner];
+  let v = 0;
+  const tower = bestTower(s, owner);
+  if (tower >= 5) {
+    const cities = G.citiesOf(s, owner);
+    const upkeep = cities.reduce((a, x) => a + G.enchantUpkeep(s, x), 0);
+    if (upkeep > 0) v = upkeep * 30;
+    else {
+      const known = G.enchantmentsKnown(s, owner);
+      if (known.length) v = Math.min(...known.map(k => G.enchantCost(s, owner, k).mana)) * 1.5;
+      else {
+        const A = grim(s, owner), era = G.techEra ? G.techEra(s, owner) : 0, schools = G.schoolsOf(s, owner);
+        let best = null;
+        for (const id of DATA.arcanaOrder) {
+          const n = NODES[id], C = DATA.circles[n.circle];
+          if (n.kind !== 'ench' || A.known.includes(id) || C.tower > Math.max(tower, 5) || C.era > era || (n.school && !schools.includes(n.school))) continue;
+          const path = G.arcanaPath(s, owner, id);
+          if (path && path.length && (!best || path.length < best.length)) best = path;
+        }
+        const next = best && best.find(k => !(A.active && A.active.id === k));
+        if (next) v = G.arcanaCost(s, owner, next).mana * 1.1 + G.ARC.enchPlace * 1.5;
+        else if (A.active && NODES[A.active.id] && NODES[A.active.id].kind === 'ench') v = G.ARC.enchPlace * 1.5;
+      }
+    }
+    v = Math.min(v, G.manaCapOf(s, owner) * 0.5);
+  }
+  c.m[owner] = v;
+  return v;
+};
+// AI recruiting leaves that reserve alone (the player decides for themselves)
+{
+  const baseTrainStatus = G.trainStatus;
+  G.trainStatus = (s, city, unit) => {
+    const st = baseTrainStatus(s, city, unit);
+    if (!st.ok || !city || city.owner === 'p' || !st.cost || !(st.cost.mana > 0)) return st;
+    const keep = G.aiManaReserve(s, city.owner);
+    if (!(keep > 0)) return st;
+    const n = Math.floor((G.manaOf(s, city.owner) - keep) / st.cost.mana);
+    if (n < 1) return { ...st, ok: false, poor: true, max: 0, reason: 'Mana kept for the grimoire' };
+    return { ...st, max: Math.min(st.max, n) };
+  };
+}
 const KIND_W = { spell: 1.6, lore: 1.1, ench: 1.8, meta: 0.6 };
 G.aiStudyPick = (s, emp) => {
   const A = grim(s, emp.id);
@@ -1014,6 +1065,7 @@ G.aiStudyPick = (s, emp) => {
   // cheap filters first: circle reachable, school usable, prerequisites known, fork free
   const tower = bestTower(s, emp.id), era = G.techEra ? G.techEra(s, emp.id) : 0, schools = G.schoolsOf(s, emp.id);
   const known = new Set(A.known);
+  let prioNear = false;
   // the first enchantment is worth saving for: once the Adept circle opens, it is the AI's first goal
   const noEnch = !G.enchantmentsKnown(s, emp.id).length;
   const flush = G.manaFill ? G.manaFill(s, emp.id) > 0.6 : false;
@@ -1033,18 +1085,25 @@ G.aiStudyPick = (s, emp) => {
     const n = NODES[id], C = DATA.circles[n.circle];
     if (known.has(id) || C.tower > tower || C.era > era || (n.school && !schools.includes(n.school)) || (n.excl && known.has(n.excl))) continue;
     if (!n.pre.every(g => g.some(x => known.has(x)))) continue;
-    const st = G.arcanaStatus(s, emp.id, id);
-    if (!st.ok) continue;
+    let st = G.arcanaStatus(s, emp.id, id);
     const prio = (n.kind === 'ench' && noEnch) || onPath.has(id);
     // the road to a first enchantment is worth selling mana for, when gold is what is short
-    if (prio && emp.gold < st.cost.gold * 1.05 && G.aiSellMana && G.manaOf(s, emp.id) > st.cost.mana * 2) G.aiSellMana(s, emp.id, st.cost.gold * 1.05 - emp.gold, st.cost.mana * 1.3);
-    if (G.manaOf(s, emp.id) < st.cost.mana * (flush ? 1.05 : 1.4) || emp.gold < st.cost.gold * (prio || flush ? 1.05 : 1.3)) continue;
+    // (also when the gold shortfall is what holds the study back: the status reads 'poor' then)
+    if (prio && (st.ok || st.poor) && st.cost && emp.gold < (st.cost.gold || 0) * 1.05 && G.aiSellMana && G.manaOf(s, emp.id) > st.cost.mana * 2) {
+      G.aiSellMana(s, emp.id, st.cost.gold * 1.05 - emp.gold, st.cost.mana * 1.3);
+      if (!st.ok) st = G.arcanaStatus(s, emp.id, id);
+    }
+    if (prio && tower >= 5 && (st.ok || st.poor)) prioNear = true;
+    if (!st.ok) continue;
+    if (G.manaOf(s, emp.id) < st.cost.mana * (flush || prio ? 1.05 : 1.4) || emp.gold < st.cost.gold * (prio || flush ? 1.05 : 1.3)) continue;
     let w = (KIND_W[n.kind] || 1) / (1 + 0.25 * n.col);
     if (prio) w *= 5;
     if (n.school && G.schoolAttuned(s, emp.id, n.school)) w *= 1.5;
     if (n.kind === 'spell' && n.spells.some(k => DATA.spells[k].ai === 'strike')) w *= 0.6 + (emp.aggr ?? 0.5);
-    opts.push({ id, w });
+    opts.push({ id, w, prio });
   }
+  // with an Adept tower a first enchantment is the goal: study only its road, or save for it
+  if (prioNear) { const p = opts.filter(o => o.prio); opts.length = 0; opts.push(...p); }
   if (!opts.length) return null;
   let r = Math.random() * opts.reduce((a, o) => a + o.w, 0);
   for (const o of opts) { r -= o.w; if (r <= 0) return o.id; }
@@ -1059,10 +1118,13 @@ G.aiHooks.push((s, emp) => {
   if (Math.random() > (tower >= 5 || fill > 0.6 ? 0.4 : 0.2)) return;
   const A = grim(s, emp.id);
   // study (a realm saving for settlers still studies when its mana would otherwise spill)
-  if (!A.active && (!emp.saving || fill > 0.8)) { const id = G.aiStudyPick(s, emp); if (id) G.startStudy(s, emp.id, id); }
+  // (nor does saving hold back the road to a first enchantment once an Adept tower can carry one)
+  if (!A.active && (!emp.saving || fill > 0.8 || (tower >= 5 && !G.enchantmentsKnown(s, emp.id).length))) { const id = G.aiStudyPick(s, emp); if (id) G.startStudy(s, emp.id, id); }
   // open a foreign school: an Adept tower and a way in (a ley enclave, a pact, a captured tower) are reason enough
   const nOpen = G.foreignOpen(s, emp.id).length;
-  if (nOpen < G.schoolCap(s, emp.id) && Math.random() < (!nOpen ? (tower >= 5 ? 0.35 : tower >= 3 ? 0.12 : 0.03) : tower >= 5 ? 0.1 : 0.03)) {
+  // (a second foreign school waits while the realm saves for its first enchantment)
+  const firstEnch = !G.enchantmentsKnown(s, emp.id).length && G.aiManaReserve(s, emp.id) > G.ARC.enchPlace * 1.5 + 1;
+  if (nOpen < G.schoolCap(s, emp.id) && !(firstEnch && nOpen) && Math.random() < (!nOpen ? (tower >= 5 ? 0.35 : tower >= 3 ? 0.12 : 0.03) : tower >= 5 ? 0.1 : 0.03)) {
     const cand = DATA.schoolOrder.filter(k => !G.schoolsOf(s, emp.id).includes(k));
     const mk = fill > 0.6 ? 1.1 : 1.6;
     const k = cand.find(k => { const st = G.openSchoolStatus(s, emp.id, k); return (st.ok || st.poor) && st.routes && st.routes.length && G.manaOf(s, emp.id) > st.fee.mana * mk; });

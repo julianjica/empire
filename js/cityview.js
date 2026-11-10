@@ -350,13 +350,142 @@
     const len = c2 => c2.reduce((a2, p, i) => i ? a2 + Math.hypot(p[0] - c2[i - 1][0], p[1] - c2[i - 1][1]) : 0, 0);
     return out.filter(c2 => len(c2) >= 0.6);
   }
+  // cut a polyline where bad(p) holds (sampled every 0.2 tiles); pieces shorter than minLen are dropped
+  function cutPieces(pts, bad, minLen = 0.6) {
+    const out = []; let cur = [];
+    const add = p => { const q = [round2(p[0]), round2(p[1])]; const l = cur[cur.length - 1]; if (!l || l[0] !== q[0] || l[1] !== q[1]) cur.push(q); };
+    if (!bad(pts[0])) add(pts[0]);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.2));
+      let prev = a;
+      for (let k = 1; k <= n; k++) {
+        const p = k === n ? b : [a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n];
+        if (bad(p)) { if (cur.length) { add(prev); if (cur.length > 1) out.push(cur); cur = []; } }
+        else if (!cur.length || k === n) add(p);
+        prev = p;
+      }
+    }
+    if (cur.length > 1) out.push(cur);
+    const len = c2 => c2.reduce((a2, p, i) => i ? a2 + Math.hypot(p[0] - c2[i - 1][0], p[1] - c2[i - 1][1]) : 0, 0);
+    return out.filter(c2 => len(c2) >= minLen);
+  }
+
+  // ------------------------------------------------------------------
+  // the wonder's great site. A city raising its own people's wonder (stage >= 1, or stage 1 queued) gives it a
+  // dedicated plot of about 4.5 x 4.5 tiles; every other city reserves nothing. The dry outer ring is only ~3.6
+  // tiles deep, so a full site stands astride the town wall on one side (the wall breaks off at it, between two
+  // towers): from the plot edge in to just short of the quarters. Candidates run along the four plot edges,
+  // clear of the gates, corners, quarters, homes, plaza, main roads, the yield buildings, harbour and mill;
+  // scored by size (largest first, down to 3.5 x 3.5 in the outer ring alone, corners included), then the back
+  // edges (N / E: the wonder stands on the skyline instead of hiding the town), headroom on screen and a short way
+  // to a main road. Deterministic (its own seeded tie-break) and cached with the layout.
+  //   result: { r: [gx, gy, w, d], edge 'N'|'E'|'S'|'W' (plot edge it backs onto, as for shores), wallSide
+  //     (the wall side it breaks, or null when it sits in the outer ring alone), gap [lo, hi] (the wall's opening
+  //     along that side), way [[gx, gy], …] (processional way to the nearest main road), wayRects, full (>= 4.5) }
+  // ------------------------------------------------------------------
+  const WONDER_FULL = 4.5, WONDER_MIN = 3.5;
+  const WALL_OF_EDGE = { N: 'W', E: 'N', S: 'E', W: 'S' };   // the plot edge -> the wall side that faces it
+  const wonderKeyOf = city => { const r = (S.empires[city.owner] || {}).race, w = DATA.wonders && DATA.wonders[r]; return w && DATA.buildings[w.key] ? w.key : null; };
+  const wonderSiteWanted = city => { const k = wonderKeyOf(city); return !!k && (G.lvl(city, k) >= 1 || (city.buildQueue || []).some(q => q.type === k)); };
+  function pickWonderSite(city, reg, lay, dbg) {
+    const rngW = mkRng(hashStr(`${city.id}|${city.x},${city.y}|wonder`));
+    const blk = [];
+    const YIELD = ['mine', 'quarry', 'lumber', 'farm'];
+    for (const t in lay.slots) if (!YIELD.includes(t)) blk.push(lay.slots[t]);
+    const yieldBlk = [];   // the outer-ring yield buildings: the last resort moves one of them off the site
+    for (const t of YIELD) { const r = reg.slots[t] || lay.slots[t]; if (r) yieldBlk.push({ t, r: t === 'mine' ? [r[0] - 0.6, r[1] - 0.6, r[2] + 1.0, r[3] + 1.0] : r, slot: r }); }   // the mine with its hill
+    for (const [x, y] of lay.cottages) blk.push([x, y, 1.3, 1.2]);
+    blk.push(lay.drill, [lay.pond[0] - 1.1, lay.pond[1] - 1.1, 2.2, 2.2], [9.4, 9.4, 5.2, 5.2]);
+    const roads = [];
+    for (const m of lay.mains) for (let k = 0; k < m.pts.length - 1; k++) {
+      const a = m.pts[k], b = m.pts[k + 1], hw = (m.wide ? 1.0 : 0.62) / 2;
+      const r = [Math.min(a[0], b[0]) - hw, Math.min(a[1], b[1]) - hw, Math.abs(b[0] - a[0]) + hw * 2, Math.abs(b[1] - a[1]) + hw * 2];
+      blk.push(r); roads.push({ a, b, r });
+    }
+    if (reg.lakes.length) { // the harbour works at the main road's shore (at their widest)
+      let hz = null, bl = -1; for (const z of reg.lakes) { const l = (z.a <= 11 && z.b >= 13 ? 100 : 0) + z.b - z.a; if (l > bl) { bl = l; hz = z; } }
+      const u0 = hz.a <= 11 && hz.b >= 13 ? 12 : (hz.a + hz.b) / 2, sp = 2.8, a = edgePt(hz.e, 0.3, u0 - sp), b = edgePt(hz.e, lakeDepth(hz, u0) + 0.7, u0 + sp + 1.1);
+      blk.push([Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1])]);
+    }
+    if (reg.river && reg.slots.farm) { // the watermill on the bank
+      const rv = reg.river, f = reg.slots.farm; let u = rv.along === 'gx' ? f[0] + f[2] / 2 : f[1] + f[3] / 2;
+      u = clampv(u, 2.5, 21.5); if (Math.abs(u - 12) < 2.2) u = u < 12 ? 9.3 : 14.7;
+      const hc = clampv(riverC(rv, u) + (rv.pos > 12 ? 1 : -1) * 1.4, 0.8, N - 0.8), [mx, my] = rv.along === 'gx' ? [u, hc] : [hc, u];
+      blk.push([mx - 1.0, my - 1.0, 2.0, 2.0]);
+    }
+    const dry = r => { for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) if (inWater(reg, r[0] + r[2] * i / 4, r[1] + r[3] * j / 4, 0.1)) return false; return true; };
+    const rectDist = (r, q) => Math.hypot(Math.max(0, q[0] - (r[0] + r[2]), r[0] - (q[0] + q[2])), Math.max(0, q[1] - (r[1] + r[3]), r[1] - (q[1] + q[3])));
+    const sx = (gx, gy) => OX + (gx - gy) * HW;
+    let best = null, bs = -1e9;
+    // where a yield building could go if the site has to take its plot: a free, dry outer-ring plot, else an inner spare
+    const relocate = (r, moved) => {
+      const taken = Object.values(reg.slots).concat(Object.values(moved));
+      return OUTER_SITES.map(o => o.r).find(q => !taken.includes(q) && !rectWet(reg, q, 0.15) && !overlapR(q, r, 0.15) && !Object.values(moved).some(m => overlapR(m, q, 0.1)) && !yieldBlk.some(y => !moved[y.t] && overlapR(y.r, q, 0.1)) && !blk.some(b => overlapR(b, q, 0.05)))
+        || lay.spare.find(q => !overlapR(q, r, 0.15) && !Object.values(moved).some(m => overlapR(m, q, 0.1)));
+    };
+    for (const allowMove of [false, true]) {
+    if (best) break;
+    const DEPTHS = [[4.5, true], [4.3, true], [4.1, true], [3.5, false]];   // [depth, astride the wall]
+    const LENS = [4.5, 4.3, 4.1, 3.9, 3.7, 3.5];
+    for (const e of ['N', 'E', 'S', 'W']) for (const [D, cross] of DEPTHS) for (const W of LENS) {
+      if (W * D < WONDER_MIN * WONDER_MIN - 1e-6 || Math.abs(W - D) > 1.01) continue;
+      const dd0 = cross ? 0.2 : 0.08, dd1 = dd0 + D;
+      const spans = cross ? [[WALL_A + 0.95, GATE0 - 0.9], [GATE1 + 0.9, WALL_B - 0.95]] : [[0.15, N - 0.15]];
+      for (const [lo, hi] of spans) for (let u0 = lo; u0 + W <= hi + 1e-6; u0 += 0.2) {
+        const a = edgePt(e, dd0, u0), b = edgePt(e, dd1, u0 + W);
+        const r = [round2(Math.min(a[0], b[0])), round2(Math.min(a[1], b[1])), round2(Math.abs(b[0] - a[0])), round2(Math.abs(b[1] - a[1]))];
+        const why = dbg ? (dbg[e] = dbg[e] || { n: 0, best: null }) : null;
+        const no = k => { if (why) why[k] = (why[k] || 0) + 1; };
+        if (r[0] < 0.05 || r[1] < 0.05 || r[0] + r[2] > N - 0.05 || r[1] + r[3] > N - 0.05) { no('bounds'); continue; }
+        const xs = [sx(r[0], r[1] + r[3]), sx(r[0] + r[2], r[1])];
+        if (xs[0] < 15 || xs[1] > LW - 15) { no('offscreen'); continue; }   // the plot's left / right corners fall off the canvas
+        const bi = blk.findIndex(q => overlapR(q, r, 0.15));
+        if (bi >= 0) { no('blk:' + (blk[bi].join ? blk[bi].map(v => +v.toFixed(1)).join(',') : bi)); continue; }
+        const hitY = yieldBlk.filter(y => overlapR(y.r, r, 0.15));
+        if (hitY.length && !allowMove) { no('yield:' + hitY.map(y => y.t).join('+')); continue; }
+        if (!dry(r)) { no('wet'); continue; }
+        let moved = null;
+        if (hitY.length) { moved = {}; for (const y of hitY) { const q = relocate(r, moved); if (!q) { moved = null; break; } moved[y.t] = q; } if (!moved) { no('nomove'); continue; } }
+        const cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2, top = OY + (cx + cy) * HH - 230;
+        let road = 99; for (const rd of roads) road = Math.min(road, rectDist(r, rd.r));
+        const v = W * D + (e === 'N' || e === 'E' ? 3 : 0) - Math.max(0, 12 - top) * 0.025 - Math.min(road, 6) * 0.2 + rngW() * 0.4 - (moved ? 4 * Object.keys(moved).length : 0);
+        if (why) { why.n++; if (!why.best || v > why.best.v) why.best = { v: +v.toFixed(2), r }; }
+        if (v > bs) { bs = v; best = { r, e, D, W, u0, cross, roads, moved }; }
+      }
+    }
+    }
+    if (!best) return null;
+    const { r, e, cross } = best;
+    // the processional way: from the middle of the site's nearest side, straight out to the nearest main road
+    let way = null, wl = 1e9;
+    for (const rd of best.roads) {
+      const { a, b } = rd, alongX = Math.abs(b[1] - a[1]) < 1e-6, lo = alongX ? Math.min(a[0], b[0]) : Math.min(a[1], b[1]), hi = alongX ? Math.max(a[0], b[0]) : Math.max(a[1], b[1]);
+      if (alongX) { // road runs along gx at gy = a[1]
+        const g0 = Math.max(lo, r[0] + 0.6), g1 = Math.min(hi, r[0] + r[2] - 0.6), y0 = a[1] < r[1] ? r[1] : r[1] + r[3];
+        if (g0 > g1 || (a[1] > r[1] && a[1] < r[1] + r[3])) continue;
+        const gx = clampv(r[0] + r[2] / 2, g0, g1);
+        const L = Math.abs(y0 - a[1]); if (L < wl) { wl = L; way = [[round2(gx), y0], [round2(gx), a[1]]]; }
+      } else {
+        const g0 = Math.max(lo, r[1] + 0.6), g1 = Math.min(hi, r[1] + r[3] - 0.6), x0 = a[0] < r[0] ? r[0] : r[0] + r[2];
+        if (g0 > g1 || (a[0] > r[0] && a[0] < r[0] + r[2])) continue;
+        const gy = clampv(r[1] + r[3] / 2, g0, g1);
+        const L = Math.abs(x0 - a[0]); if (L < wl) { wl = L; way = [[x0, round2(gy)], [a[0], round2(gy)]]; }
+      }
+    }
+    if (way && wl > 7) way = null;
+    const wayRects = way ? [[Math.min(way[0][0], way[1][0]) - 0.55, Math.min(way[0][1], way[1][1]) - 0.55, Math.abs(way[1][0] - way[0][0]) + 1.1, Math.abs(way[1][1] - way[0][1]) + 1.1]] : [];
+    const along = e === 'N' || e === 'S' ? [r[1], r[1] + r[3]] : [r[0], r[0] + r[2]];
+    return { r, edge: e, wallSide: cross ? WALL_OF_EDGE[e] : null, gap: cross ? along : null, way, wayRects, full: Math.min(r[2], r[3]) >= WONDER_FULL - 0.01, moved: best.moved || null };
+  }
+
   const LAYCACHE = new Map();
   let LAY = null;
   function computeLayout(city, reg) {
     const race = (S.empires[city.owner] || {}).race || 'hearth', th = G.lvl(city, 'townhall');
     let cap = false; try { const cc = typeof G.capital === 'function' && G.capital(S, city.owner); cap = !!cc && cc.id === city.id; } catch (e) { cap = false; }
     const nMain = clampv(2 + (th >= 6 ? 1 : 0) + (th >= 12 ? 1 : 0) + (cap ? 1 : 0), 2, 4);
-    const ck = `${city.id}:${city.x},${city.y}:${race}:${reg.sig}:${reg.lakes.length}:${nMain}`;
+    const wonderK = wonderSiteWanted(city) ? wonderKeyOf(city) : null;   // a city raising its own wonder gets a great site
+    const ck = `${city.id}:${city.x},${city.y}:${race}:${reg.sig}:${reg.lakes.length}:${nMain}:${wonderK || '-'}`;
     if (LAYCACHE.has(ck)) return LAYCACHE.get(ck);
     const style = PLAN_STYLE[race] || PLAN_STYLE.hearth;
     const rng = mkRng(hashStr(`${city.id}|${city.x},${city.y}|${race}|plan`));
@@ -442,13 +571,14 @@
     deco.perch = [tp('ind', 4.45, 4.45), tp('mil', 19.55, 4.45)];
     deco.trees = (BASE_DECOR.trees[race] || BASE_DECOR.trees.def).map(([d, p]) => tp(d, ...p));
     // --- Gravebound bury their dead in a fenced field outside the walls
-    let cem = null;
+    let cem = null, cemScored = null;
     if (style.cemetery) {
       const used = Object.values(reg.slots);
       const cand = OUTER_SITES.map(o => o.r).filter(r => !used.includes(r) && !rectWet(reg, r, 0.15));
       const scored = cand.map(r => [(['mountain', 'hills', 'forest'].includes(reg.ter[secOf(r[0] + r[2] / 2, r[1] + r[3] / 2)]) ? 2 : 0) + rng(), r]);
       scored.sort((a2, b2) => b2[0] - a2[0]);
       cem = scored.length ? scored[0][1] : null;
+      cemScored = scored;
     }
     const fields = cem ? reg.fields.filter(f => !overlapR(f, cem, 0.15)) : reg.fields;
     const centre = round ? (rng() < 0.5 ? [13.8, 10.2] : [10.2, 13.8]) : (rng() < 0.5 ? [14.0, 10.0] : [10.0, 14.0]);
@@ -459,6 +589,24 @@
       wobble: hashStr(city.id + 'lanes'),
     };
     lay.sig = perm.join('') + indPerm.join('') + (indTr ? 't' : 'f') + (resTr ? 't' : 'f') + an.join(',') + mainSides.join('') + (cem ? cem.join(',') : '-') + centre.join(',');
+    // the wonder's great site — only for a city raising its own wonder, and only after every rng() draw above,
+    // so the rest of the plan is the same as without it; what stood on the site makes way for it
+    if (wonderK) {
+      const site = pickWonderSite(city, reg, lay);
+      if (site) {
+        lay.wonder = site;
+        if (site.moved) lay.moved = site.moved;   // a yield building that gave up its plot to the site
+        const movedR = site.moved ? Object.values(site.moved) : [];
+        const clear = r => !overlapR(r, site.r, 0.15) && !site.wayRects.some(q => overlapR(r, q, 0.1)) && !movedR.some(q => overlapR(r, q, 0.15));
+        if (cem && !clear(cem)) { const alt = (cemScored || []).find(e => clear(e[1])); lay.cem = cem = alt ? alt[1] : null; }
+        lay.fields = (cem ? reg.fields.filter(f => !overlapR(f, cem, 0.15)) : reg.fields).filter(clear);
+        const free = ([gx, gy]) => !(gx > site.r[0] - 0.35 && gy > site.r[1] - 0.35 && gx < site.r[0] + site.r[2] + 0.35 && gy < site.r[1] + site.r[3] + 0.35);
+        for (const k of Object.keys(lay.deco)) lay.deco[k] = lay.deco[k].filter(free);
+        const inSite = p => p[0] > site.r[0] - 0.05 && p[1] > site.r[1] - 0.05 && p[0] < site.r[0] + site.r[2] + 0.05 && p[1] < site.r[1] + site.r[3] + 0.05;
+        lay.lanes = lay.lanes.flatMap(l => cutPieces(l.pts, inSite, 0.4).map(pts => Object.assign({}, l, { pts })));
+        lay.sig += '|W' + site.r.join(',');
+      }
+    }
     LAYCACHE.set(ck, lay);
     return lay;
   }
@@ -467,8 +615,9 @@
     DRILL = lay.drill; POND = lay.pond; INNER_SPARE = lay.spare; COTTAGES = lay.cottages;
     MAIN_ROADS = lay.mains.map(m => m.pts);
     PATHS = [lay.ring, ...MAIN_ROADS, ...lay.lanes.map(l => l.pts)];
+    if (lay.wonder && lay.wonder.way) PATHS.push(lay.wonder.way);
   }
-  const slotOf = t => (REG && REG.slots[t]) || (LAY && LAY.slots[t]) || SLOT[t];
+  const slotOf = t => (LAY && LAY.moved && LAY.moved[t]) || (REG && REG.slots[t]) || (LAY && LAY.slots[t]) || SLOT[t];
 
   // ------------------------------------------------------------------
   // drawing state
@@ -2066,6 +2215,85 @@
     const ww = Math.min(w - 0.3, 1.8), dd = Math.min(d - 0.3, 1.5);
     return hall(x + 0.15, y + 0.15, ww, dd, 13 + band * 2, Math.min(band, 2), { axis: ww >= dd ? 'x' : 'y' });
   };
+  // ---- the stock wonder: a stepped monument that rises with its stage, for any people without its own wonder art ----
+  //  slot = the great site [gx, gy, w, d] (about 4.5 x 4.5), L = stage 1..10: a plinth, then one terrace per stage up
+  //  to five (~120 px at stage 5), a spire from stage 6 (~135 px, already above any town hall) that grows to stage 9,
+  //  and at stage 10 a gilded crown with a beacon (~200 px). Below stage 10 the top terrace is a work floor of cut
+  //  blocks. Lit niches and braziers burn in the night pass. Returns { top, hit } with one box per terrace.
+  BLD.wonder = ([x, y, w, d], L) => {
+    L = clampv(Math.round(L) || 1, 1, 10);
+    const cx = x + w / 2, cy = y + d / 2, hits = [];
+    const stone = mix(STY.stone2, '#efe4c8', 0.2), stoneD = shade(STY.stone2, -0.12), band0 = STY.trim, cap = roofCol(STY.roof);
+    const pl = 0.2, plinth = box(x + pl, y + pl, w - pl * 2, d - pl * 2, 0, 6, stoneD);
+    courses(plinth, 3, shade(stoneD, -0.15)); hits.push([x + pl, y + pl, w - pl * 2, d - pl * 2, 6]);
+    const TH = [26, 24, 22, 21, 20], inset = Math.min(w, d) * 0.075, n = Math.min(5, L);
+    let tw = w - 1.0, td = d - 1.0, z = 6, prevIn = 0.5 - pl;
+    for (let k = 0; k < n; k++) {
+      const bx = cx - tw / 2, by = cy - td / 2, h = TH[k], fresh = k === n - 1 && L < 6;
+      const col = fresh ? mix(stone, '#ffffff', 0.12) : shade(stone, -k * 0.025);
+      const b = box(bx, by, tw, td, z, h, col);
+      courses(b, 5, shade(col, -0.13));
+      // lit niches along both faces we see, leaving the middle for the stair
+      for (const side of ['L', 'R']) {
+        const Lf = side === 'L' ? tw : td, m = Math.max(2, Math.round(Lf / 0.5));
+        for (let i = 0; i < m; i++) { const u = Lf * (i + 0.5) / m; if (Math.abs(u - Lf / 2) < 0.3) continue; win(b, side, u, h * 0.28, 0.12, h * 0.42, shade(col, -0.25)); }
+      }
+      box(bx - 0.05, by - 0.05, tw + 0.1, td + 0.1, z + h, 2.2, band0, { noTop: true });   // cornice
+      poly(quad(bx, by, tw, td, z + h + 2.2), SNOW ? '#eef2f4' : shade(col, 0.1));   // the terrace floor
+      // a stair up the middle of each face we see, from the terrace below
+      const run = Math.max(0.12, prevIn), sw = Math.min(0.55, tw * 0.22), sd2 = Math.min(0.55, td * 0.22);
+      { const fy = by + td, q = [P(cx - sw / 2, fy + run, z), P(cx + sw / 2, fy + run, z), P(cx + sw / 2, fy, z + h), P(cx - sw / 2, fy, z + h)];
+        poly([P(cx + sw / 2, fy + run, z), P(cx + sw / 2, fy, z), P(cx + sw / 2, fy, z + h)], shade(col, -0.3));
+        poly(q, shade(col, 0.08)); for (let st = 1; st < 7; st++) { const t = st / 7; line(lerp2(q[0], q[3], t), lerp2(q[1], q[2], t), shade(col, -0.2), 0.5); } }
+      { const fx = bx + tw, q = [P(fx + run, cy + sd2 / 2, z), P(fx + run, cy - sd2 / 2, z), P(fx, cy - sd2 / 2, z + h), P(fx, cy + sd2 / 2, z + h)];
+        poly([P(fx + run, cy + sd2 / 2, z), P(fx, cy + sd2 / 2, z), P(fx, cy + sd2 / 2, z + h)], shade(col, -0.1));
+        poly(q, shade(col, -0.05)); for (let st = 1; st < 7; st++) { const t = st / 7; line(lerp2(q[0], q[3], t), lerp2(q[1], q[2], t), shade(col, -0.28), 0.5); } }
+      hits.push([bx, by, tw, td, z + h + 2]);
+      z += h + 2.2;
+      // braziers on the terrace corners we see
+      if (L >= 3 && k < n - 1) for (const [gx, gy] of [[bx + tw - 0.12, by + td - 0.12], [bx + 0.12, by + td - 0.12], [bx + tw - 0.12, by + 0.12]]) {
+        const [fx2, fy2] = P(gx, gy, z); circ(fx2, fy2 - 1, 1.8, '#5a4a3a', OUT); lampDot(fx2, fy2 - 2.2, 1.3, '#e8a040', '#ffc060');
+        rec('fires', { x: fx2, y: fy2 - 2, s: 0.35 }); rec('lights', { x: fx2, y: fy2 - 3, r: 14 });
+      }
+      prevIn = inset; tw -= inset * 2; td -= inset * 2;
+    }
+    tw += inset * 2; td += inset * 2;   // the top terrace's own size
+    let top = z;
+    if (L >= 6) { // the spire: a tapering shaft with a lit slit up each face
+      const s0 = Math.max(0.22, Math.min(tw, td) * 0.3), s1 = s0 * 0.58, hs = 14 + (Math.min(L, 9) - 6) * 12;
+      const fl = [P(cx - s0, cy + s0, z), P(cx + s0, cy + s0, z), P(cx + s1, cy + s1, z + hs), P(cx - s1, cy + s1, z + hs)];
+      const fr = [P(cx + s0, cy + s0, z), P(cx + s0, cy - s0, z), P(cx + s1, cy - s1, z + hs), P(cx + s1, cy + s1, z + hs)];
+      poly(fl, stone); poly(fr, shade(stone, -0.2));
+      for (const [f, o] of [[fl, 0], [fr, 1]]) { const m0 = lerp2(f[0], f[1], 0.5), m1 = lerp2(f[3], f[2], 0.5); lamp([lerp2(m0, m1, 0.12).map((v, i) => v + (i ? 0 : -1.1)), lerp2(m0, m1, 0.12).map((v, i) => v + (i ? 0 : 1.1)), lerp2(m0, m1, 0.85).map((v, i) => v + (i ? 0 : 0.7)), lerp2(m0, m1, 0.85).map((v, i) => v + (i ? 0 : -0.7))], o ? '#3a3e48' : '#4a5060', nightGlass()); }
+      poly([P(cx - s1, cy - s1, z + hs), P(cx + s1, cy - s1, z + hs), P(cx + s1, cy + s1, z + hs), P(cx - s1, cy + s1, z + hs)], band0);
+      hits.push([cx - s0, cy - s0, s0 * 2, s0 * 2, z + hs]);
+      z += hs; top = z;
+      if (L >= 10) { // the crown: a gilded cupola, a finial and a beacon that burns all night
+        const zc = dome(cx, cy, s1 * 1.5, z, 13, GOLD, false);
+        line(P(cx, cy, zc), P(cx, cy, zc + 16), '#8a6a2a', 1.4);
+        const [ox, oy] = P(cx, cy, zc + 19); lampDot(ox, oy, 3.2, '#f6d878', '#fff4c0'); circ(ox, oy, 3.2, null, OUT);
+        rec('lights', { x: ox, y: oy, r: 70 }); rec('sparks', { x: ox, y: oy, kind: 'star' });
+        hits.push([cx - s1, cy - s1, s1 * 2, s1 * 2, zc + 22]);
+        top = zc + 22;
+      }
+    }
+    // obelisks on the plinth's corners from stage 4, gilded tips from stage 8
+    if (L >= 4) for (const [gx, gy] of [[x + pl + 0.15, y + pl + 0.15], [x + w - pl - 0.15, y + pl + 0.15], [x + pl + 0.15, y + d - pl - 0.15], [x + w - pl - 0.15, y + d - pl - 0.15]]) {
+      if (gx < cx && gy < cy) continue;   // the back one hides behind the terraces
+      const oh = 18 + Math.min(L, 9) * 2.2, o0 = 0.13, o1 = 0.07;
+      poly([P(gx - o0, gy + o0, 6), P(gx + o0, gy + o0, 6), P(gx + o1, gy + o1, 6 + oh), P(gx - o1, gy + o1, 6 + oh)], stone);
+      poly([P(gx + o0, gy + o0, 6), P(gx + o0, gy - o0, 6), P(gx + o1, gy - o1, 6 + oh), P(gx + o1, gy + o1, 6 + oh)], shade(stone, -0.22));
+      const [tx, ty] = P(gx, gy, 6 + oh); poly([[tx - 2.4, ty + 1.2], [tx + 2.4, ty + 1.2], [tx, ty - 5]], L >= 8 ? GOLD : band0);
+      if (L >= 8) { rec('sparks', { x: tx, y: ty - 3, kind: 'star' }); }
+    }
+    if (L < 10) { // the work floor on the unfinished top: cut blocks and a hoist
+      const bx = cx - tw / 2, by = cy - td / 2;
+      if (L < 6) for (let i = 0; i < 4; i++) { const gx = bx + 0.15 + (i % 2) * (tw - 0.5), gy = by + 0.15 + (i >> 1) * (td - 0.5); box(gx, gy, 0.3, 0.3, z, 4 + (i % 3) * 2, i % 2 ? stoneD : stone); }
+      else { box(bx + 0.12, by + td - 0.42, 0.3, 0.3, top - (L >= 6 ? 14 + (Math.min(L, 9) - 6) * 12 : 0), 5, stone); }
+    }
+    void cap;
+    return { top, hit: hits, noDress: true, noTech: true };
+  };
   // ---- the newer peoples' own buildings ----
   BLD.pearlbeds = ([x, y, w, d], L, band) => { // pearl-diving pools with divers
     let top = 12;
@@ -2969,6 +3197,21 @@
       poly(quad(WALL_A, WALL_A, WALL_B - WALL_A, WALL_B - WALL_A), null, 'rgba(90,60,30,0.45)', 1);
       c.restore();
     }
+    // the wonder's great site: a paved precinct and a processional way to the main road
+    if (LAY.wonder) {
+      const ws = LAY.wonder, [x, y, w, d] = ws.r, built = G.lvl(city, wonderKeyOf(city)) > 0;
+      const wp = SNOW ? '#e6eaec' : mix(pav, '#f4ecd8', 0.25), edge = shade(wp, -0.22);
+      if (ws.way) {
+        const [a, b] = ws.way, x0 = Math.min(a[0], b[0]) - 0.55, y0 = Math.min(a[1], b[1]) - 0.55, x1 = Math.max(a[0], b[0]) + 0.55, y1 = Math.max(a[1], b[1]) + 0.55;
+        poly(quad(x0, y0, x1 - x0, y1 - y0), wp, 'rgba(60,40,20,0.3)');
+        if (!SNOW) { const ax = Math.abs(b[0] - a[0]) > Math.abs(b[1] - a[1]); if (ax) for (let u = x0 + 0.35; u < x1; u += 0.35) line(P(u, y0), P(u, y1), edge, 0.5); else for (let u = y0 + 0.35; u < y1; u += 0.35) line(P(x0, u), P(x1, u), edge, 0.5); }
+      }
+      if (built) {
+        poly(quad(x + 0.04, y + 0.04, w - 0.08, d - 0.08), wp, 'rgba(60,40,20,0.4)', 1);
+        if (!SNOW) { for (let u = x + 0.5; u < x + w - 0.1; u += 0.5) line(P(u, y + 0.04), P(u, y + d - 0.04), edge, 0.5); for (let u = y + 0.5; u < y + d - 0.1; u += 0.5) line(P(x + 0.04, u), P(x + w - 0.04, u), edge, 0.5); }
+        poly(quad(x + 0.04, y + 0.04, w - 0.08, d - 0.08), null, shade(wp, -0.35), 1.4);
+      }
+    }
   }
   function fieldCount(city) {
     const L = G.lvl(city, 'farm');
@@ -3157,6 +3400,82 @@
     line(j, [j[0], j[1] + 16], '#3a2a20', 0.6); box(...[x + w * 0.85 - 0.1, y + d * 0.7 - 0.1], 0.2, 0.2, H + 2, 3, '#a5773f');
   }
 
+  // when the spare plots run out (crowded coastal towns, or the wonder's site took some): a small free plot in the
+  // outer ring, dry and clear of every other plot, field, road and the wonder's site — so no building ever vanishes
+  function extraPlot(GEN, planted, WS) {
+    const taken = Object.values(GEN).concat(['mine', 'quarry', 'lumber', 'farm'].map(slotOf), planted, LAY.cem ? [LAY.cem] : [], WS ? [WS.r, ...WS.wayRects] : [], HARB ? [harborRect(HARB)] : []);
+    const m = slotOf('mine'); taken.push([m[0] - 0.6, m[1] - 0.6, m[2] + 1.0, m[3] + 1.0]);
+    for (const mm of LAY.mains) for (let k = 0; k < mm.pts.length - 1; k++) { const a = mm.pts[k], b = mm.pts[k + 1]; taken.push([Math.min(a[0], b[0]) - 0.5, Math.min(a[1], b[1]) - 0.5, Math.abs(b[0] - a[0]) + 1, Math.abs(b[1] - a[1]) + 1]); }
+    for (const dd of [0.5, 1.9]) for (const e of ['S', 'W', 'N', 'E']) for (let u = 4.4; u <= 18.4; u += 0.5) {
+      const a = edgePt(e, dd, u), b = edgePt(e, dd + 1.4, u + 1.5), r = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])];
+      if (rectWet(REG, r, 0.1) || taken.some(q => overlapR(q, r, 0.1))) continue;
+      return r;
+    }
+    return null;
+  }
+  // a tall builder's crane for the wonder works: lattice mast, jib toward (tx, ty), counter-jib, hook and a load
+  function bigCrane(gx, gy, H, tx, ty) {
+    const col = '#7a5434', b0 = P(gx - 0.08, gy), b1 = P(gx + 0.08, gy), t0 = P(gx - 0.08, gy, H), t1 = P(gx + 0.08, gy, H);
+    line(b0, t0, col, 1.4); line(b1, t1, col, 1.4);
+    for (let z = 0; z < H - 6; z += 8) { line(P(gx - 0.08, gy, z), P(gx + 0.08, gy, z + 8), col, 0.6); line(P(gx + 0.08, gy, z), P(gx - 0.08, gy, z + 8), col, 0.6); }
+    const L = Math.hypot(tx - gx, ty - gy) || 1, ux = (tx - gx) / L, uy = (ty - gy) / L, reach = Math.min(2.2, L * 0.85);
+    const tip = P(gx + ux * reach, gy + uy * reach, H + 2), back = P(gx - ux * 0.7, gy - uy * 0.7, H + 2), apex = P(gx, gy, H + 12);
+    line(back, tip, col, 1.5); line(apex, tip, col, 0.7); line(apex, back, col, 0.7);
+    box(gx - ux * 0.7 - 0.12, gy - uy * 0.7 - 0.12, 0.24, 0.24, H - 3, 5, '#6a6258');   // counterweight
+    const hk = P(gx + ux * reach * 0.8, gy + uy * reach * 0.8, H + 2); line(hk, [hk[0], hk[1] + 26], '#3a2a20', 0.6);
+    box(gx + ux * reach * 0.8 - 0.12, gy + uy * reach * 0.8 - 0.12, 0.24, 0.24, H - 30, 4, '#b8ab94');
+    return H + 12;
+  }
+  // the wonder's ground while stage 1 is queued: a cut pad, the footing course, setting-out stakes and stone stacks
+  function wonderFoundation(x, y, w, d) {
+    poly(quad(x + 0.1, y + 0.1, w - 0.2, d - 0.2), mix(GROUND, SNOW ? '#c8c4bc' : '#8a6a48', 0.55), 'rgba(60,40,20,0.35)');
+    const col = '#a39a8c', k = 0.32;
+    box(x + 0.25, y + 0.25, w - 0.5, k, 0, 5, col); box(x + 0.25, y + 0.25 + k, k, d - 0.5 - k, 0, 5, col);   // back footings
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2 === 0) box(x + 0.9 + i * (w - 1.8) / 2 - 0.2, y + 0.9 + j * (d - 1.8) / 2 - 0.2, 0.4, 0.4, 0, 3, shade(col, -0.08));   // pier bases
+    box(x + 0.25, y + d - 0.25 - k, w - 0.5, k, 0, 5, col); box(x + w - 0.25 - k, y + 0.25, k, d - 0.5 - k, 0, 5, col);   // front footings
+    const st = [[x + 0.12, y + 0.12], [x + w - 0.12, y + 0.12], [x + w - 0.12, y + d - 0.12], [x + 0.12, y + d - 0.12]];
+    for (let i = 0; i < 4; i++) { line(P(st[i][0], st[i][1], 7), P(st[(i + 1) % 4][0], st[(i + 1) % 4][1], 7), '#e8dcb8', 0.6); }
+    for (const [gx, gy] of st) line(P(gx, gy), P(gx, gy, 9), '#7a5a3a', 1.4);
+    for (const [gx, gy, n] of [[x + w * 0.62, y + d - 0.75, 3], [x + w - 0.75, y + d * 0.55, 2]]) for (let i = 0; i < n; i++) box(gx + i * 0.12, gy, 0.34, 0.3, i * 4, 4, i % 2 ? STY.stone : STY.stone2);
+    crate(x + 0.55, y + d - 0.55, 0.26); log(x + 1.1, x + 2.0, y + d - 0.45, 3);
+  }
+  // the wonder on its great site: CITYART[race]['wonder_<race>'](api, site, stage, band, ctx) or BLD.wonder; stage 0
+  // with stage 1 queued is a foundation; while a stage is queued every people gets scaffolding and cranes on top
+  function drawWonderSite(t, WS, push, addHit, q, drawB) {
+    const city = CITY, [x, y, w, d] = WS.r, L = G.lvl(city, t), band = bandOf(L), stages = G.WONDER_STAGES || 10;
+    const active = q.some(e => e.start <= S.time), depth = x + y + (w + d) / 2;
+    if (!L) {
+      push(depth, () => drawB(() => {
+        wonderFoundation(x, y, w, d);
+        scaffold(x + 0.6, y + 0.6, 1.1, 1.1, 30, active); scaffold(x + w - 1.7, y + d - 1.7, 1.1, 1.1, 22, active);
+        bigCrane(x + w - 0.45, y + 0.45, 70, x + w / 2, y + d / 2);
+      }, t));
+      addHit(t, hullBox(x, y, w, d, 34), depth);
+      return;
+    }
+    if (WS.way && L >= 2) { // the processional way: lamp pillars in pairs from the road up to the precinct
+      const [a, b] = WS.way, len = Math.hypot(b[0] - a[0], b[1] - a[1]), ux = (b[0] - a[0]) / (len || 1), uy = (b[1] - a[1]) / (len || 1);
+      for (let u = 0.45; u < len - 0.5; u += 0.9) for (const sg of [-1, 1]) {
+        const gx = a[0] + ux * u - uy * 0.62 * sg, gy = a[1] + uy * u + ux * 0.62 * sg;
+        push(gx + gy, () => drawB(() => { box(gx - 0.08, gy - 0.08, 0.16, 0.16, 0, 3, STY.stone); box(gx - 0.05, gy - 0.05, 0.1, 0.1, 3, 9, STY.stone2); const [lx, ly] = P(gx, gy, 14); lantern(lx, ly, 1.5); }, t));
+      }
+    }
+    const ext = { wonder: true, stage: L, stages, site: { edge: WS.edge, wallSide: WS.wallSide, gap: WS.gap, way: WS.way, full: WS.full } };
+    let top = 0, opt = null;
+    if (q.length) push(depth - 0.01, () => drawB(() => bigCrane(x + w - 0.4, y + 0.4, Math.max(60, top * 0.75 || 110) , x + w / 2, y + d / 2), t));
+    push(depth, () => {
+      const h = drawB(() => { const h0 = artHook(t, WS.r, L, band, mkCtx(t, 0, active, ext)); opt = ARTOPT; if (h0 !== null) return h0; const o = BLD.wonder(WS.r, L, band); opt = o; return o.top; }, t);
+      top = h;
+      if (REC) REC.works.push({ t, x, y, w, d, h, band });
+      if (q.length) drawB(() => { // the next stage going up: a scaffold tower at the front, a second crane over the top
+        const sh = Math.min(Math.max(30, h * 0.7), 150);
+        scaffold(x + w - 1.55, y + d - 1.55, 1.2, 1.2, sh, active);
+        bigCrane(x + 0.45, y + d - 0.45, Math.max(50, Math.min(h + 18, 230)), x + w / 2, y + d / 2);
+      }, t);
+      for (const hb of optHits(opt, WS.r, h)) addHit(t, hb, depth);
+    });
+  }
+
   // ------------------------------------------------------------------
   // CITYART hook (contract in js/cityart.js; API documented at the top of this file)
   // ------------------------------------------------------------------
@@ -3259,14 +3578,18 @@
     const addHit = (type, pts, depth) => { if (REC) hits.push({ type, pts, depth }); };
 
     // buildings this view has no slot for get a spare outer-ring plot, so nothing ever vanishes
-    const planted = LAY.fields.slice(0, fieldCount(city)), usedR = Object.values(REG.slots);
-    const spare = OUTER_SITES.map(o => o.r).filter(r => !usedR.includes(r) && !rectWet(REG, r, 0.1) && !planted.some(f => overlapR(f, r, 0.1)) && !(LAY.cem && overlapR(LAY.cem, r, 0.1))).concat(INNER_SPARE);
+    const planted = LAY.fields.slice(0, fieldCount(city)), usedR = Object.values(REG.slots).concat(LAY.moved ? Object.values(LAY.moved) : []);
+    // a city raising its own wonder: the great site (see pickWonderSite); spare plots under it or its way move elsewhere
+    const WS = LAY.wonder || null, WK = WS ? wonderKeyOf(city) : null;
+    const offSite = r => !WS || (!overlapR(WS.r, r, 0.1) && !WS.wayRects.some(q => overlapR(q, r, 0)));
+    const spare = OUTER_SITES.map(o => o.r).filter(r => !usedR.includes(r) && !rectWet(REG, r, 0.1) && !planted.some(f => overlapR(f, r, 0.1)) && !(LAY.cem && overlapR(LAY.cem, r, 0.1)) && offSite(r)).concat(INNER_SPARE.filter(offSite));
     const GEN = {};
     for (const t of Object.keys(DATA.buildings)) {
       if (SLOT[t] || REG.slots[t] || t === 'wall') continue;      // the wall is drawn round the town, not on a plot
+      if (WS && t === WK) { GEN[t] = WS.r; continue; }          // the wonder on its own great site
       if (t === 'harbor' && (coastal || !harbL)) continue;     // a harbor only ever gets a plot on the shore
       if (G.buildStatus(S, city, t).hidden) continue;          // other peoples' wonders and buildings don't eat spare plots
-      const r = spare.shift(); if (r) GEN[t] = r;
+      const r = spare.shift() || extraPlot(GEN, planted, WS); if (r) GEN[t] = r;
     }
     const types = Object.keys(DATA.buildings).filter(t => SLOT[t] || GEN[t] || (t === 'harbor' && HARB));
     if (!DATA.buildings.magetower && G.lvl(city, 'magetower')) types.push('magetower');
@@ -3287,6 +3610,7 @@
         else { push(hk, () => harborPlot(HARB, q.length > 0, active)); addHit(t, harborHit(HARB), hk); }
         continue;
       }
+      if (WS && t === WK) { drawWonderSite(t, WS, push, addHit, qOf(t), drawB); continue; }
       const s = GEN[t] || slotOf(t), L = G.lvl(city, t), band = bandOf(L), q = qOf(t);
       const active = q.some(e => e.start <= S.time);
       if (t === 'houses') {
@@ -3442,6 +3766,10 @@
       if (hi - lo > 1.2) seaFront = { side, lo, hi, ends: [lo, hi].filter(u => !towers.some(t => Math.abs(t - u) < 1.0) && Math.abs(u - 12) > 1.5) };
     }
     const sideUs = wb >= 1 ? (ws => ws >= 4 ? [7.6, 16.4] : ws >= 2 ? [7.6] : [])(subStep(WL, wallBand(WL))) : [];
+    // the wonder's site stands astride the wall on one side: the wall breaks off at it, between two towers
+    const WGAP = WS && WS.gap ? { side: WS.wallSide, lo: WS.gap[0], hi: WS.gap[1] } : null;
+    if (WGAP) WGAP.ends = wb >= 1 ? [WGAP.lo - 0.45, WGAP.hi + 0.45] : [];
+    const inGap = (side, u, pad = 0) => !!WGAP && WGAP.side === side && u > WGAP.lo - pad && u < WGAP.hi + pad;
     for (const side of sides) {
       // a gatehouse where a high street leaves, a narrow postern where only a track does
       const wide = LAY.mainSides.includes(side), g0 = wide ? GATE0 : 11.62, g1 = wide ? GATE1 : 12.38;
@@ -3451,7 +3779,8 @@
       // and drawn just before it — the tower then stands in front of the wall's end, whatever art draws either
       const feats = [{ lo: wide ? GATE0 - 0.55 : g0 - 0.22, hi: wide ? GATE1 + 0.55 : g1 + 0.22, dep: fixedD + 12 + 0.35 }];
       if (wb >= 2) feats.push({ lo: WALL_A - 0.45, hi: WALL_A + 0.45, dep: fixedD + WALL_A + 0.4 });
-      for (const u of sideUs) feats.push({ lo: u - 0.45, hi: u + 0.45, dep: fixedD + u + 0.4 });
+      for (const u of sideUs) if (!inGap(side, u, 0.95)) feats.push({ lo: u - 0.45, hi: u + 0.45, dep: fixedD + u + 0.4 });
+      if (WGAP && WGAP.side === side) for (const u of WGAP.ends) feats.push({ lo: u - 0.45, hi: u + 0.45, dep: fixedD + u + 0.4 });
       if (seaFront && seaFront.side === side && wb >= 1) for (const u of seaFront.ends) feats.push({ lo: u - 0.45, hi: u + 0.45, dep: fixedD + u + 0.4 });
       // a back shore's harbour (N / E water lies behind the wall on screen): the wall in front of the works drops to a
       // low quay wall between two flanking towers, so the piers, boats and ships show over it
@@ -3475,7 +3804,13 @@
         const b = a + 1;
         const pieces = [];
         if (b <= g0 || a >= g1) pieces.push([a, b]); else { if (a < g0) pieces.push([a, g0]); if (b > g1) pieces.push([g1, b]); }
-        for (const [p0, p1] of pieces) {
+        for (let [p0, p1] of pieces) {
+          if (WGAP && WGAP.side === side) { // no wall across the wonder's site
+            if (p0 >= WGAP.lo - 0.001 && p1 <= WGAP.hi + 0.001) continue;
+            if (p0 < WGAP.lo && p1 > WGAP.lo) p1 = WGAP.lo;
+            else if (p0 < WGAP.hi && p1 > WGAP.hi) p0 = WGAP.hi;
+            if (p1 - p0 < 0.02) continue;
+          }
           if (!sea || p1 <= sea.lo || p0 >= sea.hi) { emit(p0, p1); continue; }
           const cuts = [p0, Math.max(p0, sea.lo), Math.min(p1, sea.hi), p1];
           for (let k = 0; k < 3; k++) if (cuts[k + 1] - cuts[k] > 0.02) emit(cuts[k], cuts[k + 1]);
@@ -3484,10 +3819,11 @@
       const postHide = sea && !wide && g0 >= sea.lo && g1 <= sea.hi;   // the track runs straight onto the quay
       if (wb >= 0 && !postHide) { const m = (GATE0 + GATE1) / 2; const gx = side === 'N' || side === 'S' ? m : side === 'W' ? WALL_A : WALL_B, gy = side === 'N' || side === 'S' ? (side === 'N' ? WALL_A : WALL_B) : m; push(gx + gy + 0.35, () => wide ? gate(side, wb) : postern(side, wb, g0, g1)); }
       if (sea && wb >= 1) for (const u of sea.ends) { const [gx, gy] = side === 'N' ? [u, WALL_A] : [WALL_A, u]; push(gx + gy + 0.4, () => wallTower(gx, gy, Math.min(wb, 2), side)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); }
+      if (WGAP && WGAP.side === side) for (const u of WGAP.ends) { if (sideUs.some(v => Math.abs(v - u) < 0.95 && !inGap(side, v, 0.95)) || (wb >= 2 && (u < WALL_A + 1.0 || u > WALL_B - 1.0))) continue; const [gx, gy] = side === 'N' ? [u, WALL_A] : side === 'S' ? [u, WALL_B] : side === 'W' ? [WALL_A, u] : [WALL_B, u]; push(gx + gy + 0.4, () => wallTower(gx, gy, Math.min(wb, 2), side)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); }
     }
     if (wb >= 2) for (const [gx, gy] of [[WALL_A, WALL_A], [WALL_B, WALL_A], [WALL_A, WALL_B], [WALL_B, WALL_B]]) { push(gx + gy + 0.4, () => wallTower(gx, gy, wb)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); }
     // more towers along the sides as the wall levels up within its band
-    if (wb >= 1) { const ws = subStep(WL, wallBand(WL)), us = ws >= 4 ? [7.6, 16.4] : ws >= 2 ? [7.6] : []; for (const side of sides) for (const u of us) { const [gx, gy] = side === 'N' ? [u, WALL_A] : side === 'S' ? [u, WALL_B] : side === 'W' ? [WALL_A, u] : [WALL_B, u]; push(gx + gy + 0.4, () => wallTower(gx, gy, Math.min(wb, 2), side)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); } }
+    if (wb >= 1) { const ws = subStep(WL, wallBand(WL)), us = ws >= 4 ? [7.6, 16.4] : ws >= 2 ? [7.6] : []; for (const side of sides) for (const u of us) { if (inGap(side, u, 0.95)) continue; const [gx, gy] = side === 'N' ? [u, WALL_A] : side === 'S' ? [u, WALL_B] : side === 'W' ? [WALL_A, u] : [WALL_B, u]; push(gx + gy + 0.4, () => wallTower(gx, gy, Math.min(wb, 2), side)); addHit('wall', hullBox(gx - 0.45, gy - 0.45, 0.9, 0.9, 40 + wb * 7), gx + gy + 0.4); } }
     if (wq) for (const [gx, gy] of [[WALL_A + 1.5, WALL_B], [WALL_B, WALL_A + 1.5]]) push(gx + gy + 0.5, () => scaffold(gx - 0.5, gy - 0.3, 1.0, 0.6, 24, qOf('wall').some(e => e.start <= S.time)));
     const signSide = LAY.mainSides.find(sd => sd === 'S' || sd === 'E') || 'S';
     const signAt = signSide === 'S' ? [13.2, WALL_B + 0.4] : [WALL_B + 0.4, 13.2];
@@ -3502,7 +3838,7 @@
     const DENS = { forest: 1, mountain: 0.5, hills: 0.5, fertile: 0.32, plains: 0.22, lake: 0.2 };
     const raceMul = RACE === 'sylvan' || RACE === 'veil' ? 1.2 : RACE === 'ash' ? 0.65 : RACE === 'grave' || RACE === 'wind' ? 0.85 : 1;
     const nfld = fieldCount(city);
-    const outer = ['mine', 'quarry', 'lumber', 'farm'].map(slotOf).concat(Object.values(GEN), LAY.cem ? [LAY.cem] : []);
+    const outer = ['mine', 'quarry', 'lumber', 'farm'].map(slotOf).concat(Object.values(GEN), LAY.cem ? [LAY.cem] : [], WS ? WS.wayRects : []);
     const blocked = (gx, gy) => {
       if (gx < 0.5 || gy < 0.5 || gx > N - 0.5 || gy > N - 0.5) return true;
       if (gx > 3.3 && gy > 3.3 && gx < 20.7 && gy < 20.7) return true;
@@ -3560,6 +3896,7 @@
     if (city.quarters && city.quarters.length) {
       const occ = Object.keys(city.buildings).filter(t => city.buildings[t] > 0).map(slotOf).filter(Boolean).concat(planted);
       if (LAY.cem) occ.push(LAY.cem);
+      if (WS) occ.push(WS.r, ...WS.wayRects);
       const taken = [];
       for (const q of city.quarters) {
         const th = Math.atan2(q.y - city.y, q.x - city.x), diag = Math.abs(Math.sin(2 * th)) > 0.5;
@@ -3611,7 +3948,7 @@
   cv.className = 'cv-canvas';
   const ctx = cv.getContext('2d');
   const dayC = document.createElement('canvas'), glowC = document.createElement('canvas'), tmpC = document.createElement('canvas');
-  let cssW = 0, cssH = 0, dpr = 1, K = 1, OFFX = 0, OFFY = 0, layoutKey = '', drawnKey = '', recd = null, running = false, rafId = 0;
+  let cssW = 0, cssH = 0, dpr = 1, K = 1, OFFX = 0, OFFY = 0, FRAME_TOP = 0, layoutKey = '', drawnKey = '', recd = null, running = false, rafId = 0;
   let hover = null, mouse = null, lastT = 0, cityId = null;
   let villagers = [], graph = null, lastHostH = 340;
   const perf = { frames: 0, total: 0, last: 0 };
@@ -3675,7 +4012,8 @@
     const se = G.season(S).index;
     REG = computeRegion(city);
     applyLayout(computeLayout(city, REG));
-    return [city.id, emp.race, se, city.terrain, REG.sig, LAY.sig, techOf(city).sig, actSig(activityOf(city)), Object.keys(typeof CITYART !== 'undefined' ? CITYART[emp.race] || {} : {}).length, Object.keys(DATA.buildings).length, 'ley' + leyOf(city), JSON.stringify(city.buildings), (city.quarters || []).map(q => q.type + (q.x - city.x) + (q.y - city.y) + (q.built ? '' : 'b') + (q.burnt > S.time ? 'x' : '')).join(','), (city.buildQueue || []).map(q => q.type + q.level + (q.start <= S.time ? 'a' : 'w')).join(','), city.starving ? 1 : 0, cssW, cssH, dpr].join('|');
+    FRAME_TOP = frameFor(city);
+    return [city.id, emp.race, se, city.terrain, REG.sig, LAY.sig, techOf(city).sig, actSig(activityOf(city)), Object.keys(typeof CITYART !== 'undefined' ? CITYART[emp.race] || {} : {}).length, Object.keys(DATA.buildings).length, 'ley' + leyOf(city), JSON.stringify(city.buildings), (city.quarters || []).map(q => q.type + (q.x - city.x) + (q.y - city.y) + (q.built ? '' : 'b') + (q.burnt > S.time ? 'x' : '')).join(','), (city.buildQueue || []).map(q => q.type + q.level + (q.start <= S.time ? 'a' : 'w')).join(','), city.starving ? 1 : 0, 'f' + FRAME_TOP, cssW, cssH, dpr].join('|');
   }
   function sizeCanvas(host) {
     const w = Math.max(280, Math.floor(host.clientWidth || 600));
@@ -3686,10 +4024,22 @@
     cv.width = dayC.width = glowC.width = tmpC.width = Math.round(w * d);
     cv.height = dayC.height = glowC.height = tmpC.height = Math.round(h * d);
     cv.style.width = w + 'px'; cv.style.height = h + 'px';
-    const s = Math.min(w / LW, h / LH);
-    K = s * d; OFFX = (w - LW * s) / 2 * d; OFFY = (h - LH * s) / 2 * d;
+    applyFrame();
     host.style.height = h + 'px'; lastHostH = h;
     drawnKey = '';
+  }
+  // the view: the logical 1000 x 630 scene fitted to the canvas, opened FRAME_TOP px upward (scaled to fit) when a
+  // tall wonder would otherwise run off the top; FRAME_TOP = 0 is the plain fit
+  function applyFrame() {
+    if (!cssW) return;
+    const s0 = Math.min(cssW / LW, cssH / LH), s = s0 * LH / (LH + FRAME_TOP);
+    K = s * dpr; OFFX = (cssW - LW * s) / 2 * dpr; OFFY = ((cssH - (LH + FRAME_TOP) * s) / 2 + FRAME_TOP * s) * dpr;
+  }
+  // headroom for the wonder: its site's centre on screen less a generous height for its stage (about 230 px at stage 10)
+  function frameFor(city) {
+    const ws = LAY && LAY.wonder; if (!ws) return 0;
+    const L = G.lvl(city, wonderKeyOf(city)), [x, y, w, d] = ws.r, top = OY + (x + w / 2 + y + d / 2) * HH - (L ? 70 + 16 * L : 80);
+    return clampv(Math.ceil((10 - top) / 10) * 10, 0, 200);
   }
   function rebuild() {
     const city = S.cities[cityId]; if (!city) return;
@@ -3698,6 +4048,7 @@
     SEASON = G.season(S).index; SNOW = SEASON === 3; STARVE = !!city.starving;
     REG = computeRegion(city);
     applyLayout(computeLayout(city, REG));
+    FRAME_TOP = frameFor(city); applyFrame();
     GROUND = groundColor(city.terrain);
     LEY = leyOf(city); LEYGEO = LEY > 0 ? leyGeom(city) : null;
     const t0 = performance.now();
@@ -4176,6 +4527,11 @@
     const b = DATA.buildings[type] || { name: type === 'magetower' ? 'Mage Tower' : type }, L = G.lvl(city, type);
     const q = (city.buildQueue || []).filter(e => e.type === type);
     const a = ACT[type], why = a && a.state && a.state !== 'working' ? ` — ${a.reason || (a.state === 'slow' ? 'working slowly' : a.state === 'idle' ? 'idle' : 'stalled')}` : '';
+    if (b.wonder) { // the wonder counts stages, not levels
+      const n = G.WONDER_STAGES || 10;
+      if (L) return `${b.name} · stage ${L}/${n}${L >= n ? ' — complete' : q.length ? ' (raising stage ' + q[q.length - 1].level + ')' : ''}`;
+      if (q.length) return `${b.name} · laying the foundations`;
+    }
     if (L) return `${b.name} · Lv ${L}${q.length ? ' (upgrading to ' + q[q.length - 1].level + ')' : ''}${why}`;
     if (q.length) return `${b.name} · under construction`;
     const st = DATA.buildings[type] ? G.buildStatus(S, city, type) : {};
@@ -4247,6 +4603,6 @@
     } else stop();
   });
   window.EC_CITYVIEW = { perf, get waterhomes() { return WATERHOMES.filter(w => w.used).map(w => w.z.e + w.u.toFixed(1)); }, get light() { return LIGHT && { e: LIGHT.z.e, u: LIGHT.u, dd: LIGHT.dd }; }, get xf() { return [K, OFFX, OFFY]; }, get hits() { return recd && recd.hits; }, rebuild: () => { drawnKey = ''; REGCACHE.clear(); LAYCACHE.clear(); }, layout: () => LAY, region: () => REG, draw: ts => renderFrame(ts == null ? performance.now() : ts), setHover: (type, x, y) => { hover = type ? { type, text: describe(type) } : null; mouse = x == null ? null : { x, y }; },
-    get hover() { return hover; }, get reduceMotion() { return reduceMotion; },
+    snap: () => dayC.toDataURL(), wonderDebug: () => { const dbg = {}; pickWonderSite(CITY, REG, LAY, dbg); return dbg; }, wonderSite: () => LAY && LAY.wonder ? JSON.parse(JSON.stringify(LAY.wonder)) : null, wet: (gx, gy, m = 0) => !!REG && inWater(REG, gx, gy, m), get frame() { return FRAME_TOP; }, get hover() { return hover; }, get reduceMotion() { return reduceMotion; },
     toClient: (x, y) => { const r = cv.getBoundingClientRect(); return { x: r.left + (x * K + OFFX) / dpr, y: r.top + (y * K + OFFY) / dpr }; } };
 })();

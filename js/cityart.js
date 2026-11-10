@@ -44,6 +44,36 @@
 //    colour style), R() seeded random, banner, flagpole, plus the higher-level helpers cityview exposes
 //    (see the API comment at the top of js/cityview.js once it is published).
 //  Drawing happens back-to-front within the slot: draw parts with smaller gx+gy first.
+//
+//  WONDERS — CITYART[race]['wonder_<race>'](api, slot, L, band, ctx)   (wonder_hearth, wonder_delver, … wonder_wind)
+//    Only a city raising its OWN people's wonder (stage >= 1, or stage 1 queued) shows it; it gets a dedicated
+//    great site chosen from the city's layout (cityview pickWonderSite): dry, clear of fields, cemetery, plaza,
+//    quarters and main roads, on one plot edge. Every other city reserves nothing (other peoples' wonders stay hidden).
+//    slot:  the great site [gx, gy, w, d]: normally 4.5 x 4.5 tiles (4.3 / 4.1 deep when a quarter sits close),
+//           never less than 3.5 x 3.5 (outer ring only, cramped coastal / river towns). Read w and d, don't assume.
+//           A site of depth >= 4.1 stands astride the town wall: the wall stops at both sides of it (towers at the
+//           gap ends), so the wonder itself closes the circuit. The site is paved by cityview; a processional way
+//           (paving + lamp pillars from stage 2) runs to the nearest main road.
+//    L:     the stage, 1..10 (G.WONDER_STAGES); band = bandOf(L) as for buildings (0..2), mostly ignore it.
+//    ctx:   the usual ctx plus  wonder: true, stage: L, stages: 10,
+//             building: true while the next stage is being raised (queued and started),
+//             site: { edge 'N'|'E'|'S'|'W' (plot edge it backs onto, like shores: N = gx 0 upper-left, E = gy 0
+//                     upper-right, S = gx 24 lower-right, W = gy 24 lower-left), wallSide (wall side it breaks, or
+//                     null), gap [lo, hi] (the wall opening along that side), way [[gx, gy], [gx, gy]] (from the
+//                     site edge to the road, or null), full (true for a full 4.5 x 4.5) }.
+//    Draw the wonder PARTLY BUILT below stage 10: the silhouette grows with the stage and is complete and crowned
+//    only at 10. It must be the tallest structure in the city from stage 6 (> ~140 px) and about 1.5–2x the town
+//    hall at 10 (~180–230 px). Town hall at band 3 is ~65–140 px tall (hearth ~113, ash / delver ~65–75,
+//    wind / sylvan / grave ~130–140). The view opens upward (zooms out) automatically so up to ~230 px fits.
+//    Return the top z, or { top, hit: [[gx, gy, w, d, h], …] } — give hit boxes per mass (terraces, towers, spire)
+//    so the ground behind stays clickable; dress / tech marks are never drawn on a wonder.
+//    Stage 0 (only queued) is drawn by cityview for every people: a cut pad, footings, stakes, stone, scaffolds and
+//    a crane — the art is NOT called. While ctx.building (any queued stage) cityview adds a scaffold tower at the
+//    front corner and two tall cranes over the site after the art; don't draw your own unless you want more.
+//    Without art the stock BLD.wonder is used: a stepped monument (one terrace per stage to 5, a spire from 6,
+//    gilded crown and beacon at 10). Lights: use lamp / lampDot / win (lit in the night pass) and
+//    rec('lights', {x, y, r}) for beacons; api.nightGlass() is the people's lamp colour.
+//    Preview: EC_CITYVIEW.wonderSite() returns the site; EC_CITYVIEW.frame the extra headroom in px.
 // =====================================================================
 'use strict';
 const CITYART = {};

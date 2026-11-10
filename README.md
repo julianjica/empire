@@ -69,6 +69,7 @@ node tests/world.js               # world sizes, regional biomes and scarcity, d
 node tests/economy.js             # upkeep, shortages, resource breakdowns, building activity
 node tests/research.js            # the technology tree, eras and research queue
 node tests/portraits.js           # procedural portraits
+node tests/wonderview.js          # the city view's wonder site: size, dry land, hits for every building, stages 0-10 (headless canvas)
 node tests/generals.js            # generals, army stances
 node tests/monsters.js            # roaming monsters, migrations, the late crisis
 node tests/logistics.js           # supply lines and the realm ledger

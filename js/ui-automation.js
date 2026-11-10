@@ -30,6 +30,8 @@
   .au-pol{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12.5px}
   .au-pol label{display:inline-flex;gap:4px;align-items:center}
   .au-pol select{max-width:170px}
+  .au-plim{margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)}
+  .au-plim .muted{font-size:11.5px}
   .au-last{font-size:11.5px;margin-top:6px}
   .au-item{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
   .au-item:first-of-type{border-top:0}
@@ -97,8 +99,19 @@
     const pol = def.pol.map(([k, label, opts]) => `<label>${esc(label)} <select data-k="auto_pol_${d}_${k}" aria-label="${esc(def.name)}: ${esc(label)}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(st[k]) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`).join('');
     return `<div class="card au-card ${on ? '' : 'off'}"><h3>${def.icon} ${esc(def.name)}<span class="spacer"></span><button class="small ${on ? 'primary' : ''}" data-act="autoDom" data-d="${d}" aria-pressed="${on}" title="${on ? 'Switch every part off' : 'Switch every part on'}">${on ? 'On' : 'Off'}</button></h3>
       <p class="au-desc muted">${esc(def.desc)}</p>
-      <div class="au-sw">${sw}</div>${pol ? `<div class="au-pol">${pol}</div>` : ''}
+      <div class="au-sw">${sw}</div>${pol ? `<div class="au-pol">${pol}</div>` : ''}${d === 'economy' ? priceLimitsHtml() : ''}
       <div class="au-last muted">${last ? `🤖 ${esc(last.text)} · ${ago(last.t)}` : 'Nothing done yet.'}${A().stats[d] ? ` · ${A().stats[d]} action${A().stats[d] > 1 ? 's' : ''} in all` : ''}</div></div>`;
+  };
+  // the market price limits (js/prices.js) the Economy steward, supply lines and governors trade under
+  const PLIM = { buy: [1, 1.1, 1.2, 1.3, 1.5, 1.75, 2, 2.5, 3], sell: [0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] };
+  const priceLimitsHtml = () => {
+    if (!G.priceLimits || !G.setPriceLimits) return '';
+    const l = G.priceLimits(S);
+    const sel = (k, label, tip) => {
+      const cur = l[k], opts = [...new Set([...PLIM[k], cur])].sort((a, b) => a - b);
+      return `<label title="${esc(tip)}">${label} <select data-k="auto_plim_${k}" aria-label="${esc(label)}">${opts.map(v => `<option value="${v}" ${v === cur ? 'selected' : ''}>×${v.toFixed(2)}</option>`).join('')}</select></label>`;
+    };
+    return `<div class="au-pol au-plim">${sel('buy', 'Buy up to', 'Price ceiling for automatic buying, × the normal rate at the city\'s own price. A city with almost nothing left may still buy dearer.')}${sel('sell', 'Sell above', 'Price floor for automatic selling, × the normal rate. A city about to overflow sells anyway.')}<span class="muted">× normal · also on the ⚖️ Market tab</span></div>`;
   };
   const resSel = (k, label, unit) => {
     const cur = A().res[k], opts = [...new Set([...G.AUTO.RES[k], cur])].sort((a, b) => a - b);
@@ -138,7 +151,7 @@
   // ---- help ----
   HELP_SECTIONS.push({ id: 'automation', icon: '🤖', title: 'Automation & the Decisions inbox', tabs: ['automation'],
     words: 'automation automate steward delegate assisted hands-on preset inbox decisions auto research study enchant tradition ceremony garrison intercept camp forge hero magi governor supply market preach temperament reserve settle settlers new city fork grimoire',
-    html: '<p>The 🤖 <b>Automation</b> tab hands routine work to stewards, one domain at a time, so you can focus on the big decisions.</p><ul><li><b>Presets:</b> <b>Hands-on</b> (nothing automated), <b>Assisted</b> (research and study keep going, governors take new cities, supplies flow, ceremonies are held, attacks are flagged) and <b>Delegate</b> (almost everything). Changing a switch makes it <b>Custom</b>.</li><li><b>Domains:</b> Research, Grimoire (study, enchantments, routine blessings; forks wait for you unless you allow it), Traditions (pillar path; forks wait for you unless you allow it), Military (garrisons, reinforcements that march home once the threat has passed, intercepts, camps, forge), Hero &amp; generals, Magi, Economy (governors, supply, market), Settlement (settlers when renown allows a new city, a safe site that fills what the realm lacks, an escort when hostiles are near), Faith and minor Decisions (cautious, balanced or bold, after a grace period).</li><li><b>Reserves:</b> the stewards never spend below your gold reserve or mana floor, and never strip a city below the minimum garrison.</li><li><b>Never automated:</b> war declarations and threats, treaty and trade offers, succession, peace terms, crises and the Great Working.</li><li>The <b>📥 Decisions inbox</b> (top bar) lists only what needs you: threats, offers, succession, idle cities, an empty research queue, unspent hero points, a site ready for a new city, forks in your traditions and the Grimoire, waiting decisions and battles you could intercept. Each has a one-click answer or a jump.</li><li>Every automated action is written to the <b>automation log</b>. Console: <code>auto</code>, <code>auto research on</code>, <code>auto preset delegate</code>, <code>inbox</code>, <code>inbox 1</code>.</li></ul>' });
+    html: '<p>The 🤖 <b>Automation</b> tab hands routine work to stewards, one domain at a time, so you can focus on the big decisions.</p><ul><li><b>Presets:</b> <b>Hands-on</b> (nothing automated), <b>Assisted</b> (research and study keep going, governors take new cities, supplies flow, ceremonies are held, attacks are flagged) and <b>Delegate</b> (almost everything). Changing a switch makes it <b>Custom</b>.</li><li><b>Domains:</b> Research, Grimoire (study, enchantments, routine blessings; forks wait for you unless you allow it), Traditions (pillar path; forks wait for you unless you allow it), Military (garrisons, reinforcements that march home once the threat has passed, intercepts, camps, forge), Hero &amp; generals, Magi, Economy (governors, supply, market; its card also sets the price ceiling and floor that automatic buying and selling respect), Settlement (settlers when renown allows a new city, a safe site that fills what the realm lacks, an escort when hostiles are near), Faith and minor Decisions (cautious, balanced or bold, after a grace period).</li><li><b>Reserves:</b> the stewards never spend below your gold reserve or mana floor, and never strip a city below the minimum garrison.</li><li><b>Never automated:</b> war declarations and threats, treaty and trade offers, succession, peace terms, crises and the Great Working.</li><li>The <b>📥 Decisions inbox</b> (top bar) lists only what needs you: threats, offers, succession, idle cities, an empty research queue, unspent hero points, a site ready for a new city, forks in your traditions and the Grimoire, waiting decisions and battles you could intercept. Each has a one-click answer or a jump.</li><li>Every automated action is written to the <b>automation log</b>. Console: <code>auto</code>, <code>auto research on</code>, <code>auto preset delegate</code>, <code>inbox</code>, <code>inbox 1</code>.</li></ul>' });
 
   // ---- actions ----
   const jump = j => {
@@ -166,6 +179,10 @@
     let m = k.match(/^auto_pol_([a-z]+)_([a-zA-Z]+)$/), err = null;
     if (m) { err = G.autoSet(S, m[1], m[2], ev.target.value); if (!err) toast(`🤖 ${D()[m[1]].name}: ${(D()[m[1]].pol.find(p => p[0] === m[2]) || [])[1] || m[2]} → ${ev.target.selectedOptions[0].text}`); }
     else if ((m = k.match(/^auto_res_([a-z]+)$/))) { err = G.autoReserve(S, m[1], ev.target.value); if (!err) toast(`🤖 Reserve: ${ev.target.selectedOptions[0].text}`); }
+    else if ((m = k.match(/^auto_plim_(buy|sell)$/)) && G.setPriceLimits) {
+      err = G.setPriceLimits(S, { [m[1]]: +ev.target.value });
+      if (!err) { const l = G.priceLimits(S); toast(`⚖️ Automation buys up to ×${l.buy.toFixed(2)} and sells above ×${l.sell.toFixed(2)}`); }
+    }
     if (err) toast(err);
     delete UI.form[k];
     ev.target.blur(); render(true);

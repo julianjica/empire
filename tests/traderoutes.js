@@ -1,7 +1,7 @@
 // Trade routes: internal and foreign routes, income, opinion, war, ambushes, escorts, AI, save/load.  node tests/traderoutes.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js',...['js/forge.js'].filter(f=>fs.existsSync(f)),'js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/prices.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js',...['js/forge.js'].filter(f=>fs.existsSync(f)),'js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/prices.js','js/patrols.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:'')); };
@@ -66,7 +66,8 @@ const orig=(s,a,b)=>noTrade(s,()=>G.hostility(s,a,b));
   const inc=G.routeIncome(s,c,a);
   ok('AI received the goods', a.res.ore>=aOre+290 || a.res.ore>=G.storageCap(s,a)-1, Math.round(aOre)+' -> '+Math.round(a.res.ore));
   ok('player received the full return leg even from empty stores', bl && bl.cargo.timber===q.take && gotTimber>=q.take*0.99, 'timber +'+Math.round(gotTimber)+' / '+q.take);
-  ok('both realms earned trade income', inc>0 && r.trips===1 && r.income===inc && s.empires.p.tradeIncome===inc && s.empires.a1.tradeIncome>=inc && s.empires.p.gold>pg, 'income '+inc+' route '+r.income+' p '+s.empires.p.tradeIncome+' a1 '+Math.round(s.empires.a1.tradeIncome)+' trips '+r.trips+' p gold '+Math.round(pg)+' -> '+Math.round(s.empires.p.gold));
+  // per-trip income follows market prices (G.routeTripIncome: the distance income × what the goods fetch, within priceMin..priceMax)
+  ok('both realms earned trade income', inc>0 && r.trips===1 && r.income>=Math.floor(inc*T.priceMin) && r.income<=Math.ceil(inc*T.priceMax) && s.empires.p.tradeIncome===r.income && s.empires.a1.tradeIncome>=r.income && s.empires.p.gold>pg, 'income '+inc+' route '+r.income+' p '+s.empires.p.tradeIncome+' a1 '+Math.round(s.empires.a1.tradeIncome)+' trips '+r.trips+' p gold '+Math.round(pg)+' -> '+Math.round(s.empires.p.gold));
   const op0=rel.opinion; const t0=r.trips;
   n=0; while(r.trips<t0+2 && n++<400) run(s,10);
   ok('trips raise opinion', rel.opinion>op0, op0.toFixed(1)+' -> '+rel.opinion.toFixed(1));
@@ -86,12 +87,12 @@ const orig=(s,a,b)=>noTrade(s,()=>G.hostility(s,a,b));
   const rel=G.rel(s,'a1'); rel.status='neutral'; rel.opinion=30;
   const r=G.createRoute(s,'p',c.id,a.id,{give:{ore:300},takeGood:'timber'});
   run(s,15); ok('caravan on the road', s.moves.some(m=>m.route===r.id));
-  const icOld=G.IC&&G.IC.aiCaravan; if(G.IC) G.IC.aiCaravan=1e9;   // keep the rival from intercepting this caravan (intercept.js)
+  const icOld=G.IC&&G.IC.aiCaravan; if(G.IC) G.IC.aiCaravan=1e9; const rates=[T.campRate,T.armyRate]; T.campRate=0; T.armyRate=0;   // no ambush or interception on the way home   // keep the rival from intercepting this caravan (intercept.js)
   rel.status='war'; run(s,20);
   ok('war cancels the route without a breach penalty', !G.routeById(s,r.id) && rel.opinion>=29, 'opinion '+rel.opinion.toFixed(1));
-  const mv=s.moves.find(m=>m.route===r.id); let n=0; while(s.moves.some(m=>m.route===r.id) && n++<400) run(s,10);
-  ok('caravan in flight turns back home with its cargo', mv && c.res.ore>=2900 , 'ore '+Math.round(c.res.ore));   // the 300 ore cargo came back (a little ore is used meanwhile)
-  if(G.IC) G.IC.aiCaravan=icOld;
+  const mv=s.moves.find(m=>m.route===r.id); let n=0, jump=0; while(s.moves.some(m=>m.route===r.id) && n++<400) { const o0=c.res.ore; run(s,10); jump=Math.max(jump,c.res.ore-o0); }
+  ok('caravan in flight turns back home with its cargo', mv && jump>=250 , 'ore back in one arrival '+Math.round(jump));   // the 300 ore cargo came home in one go (ore use meanwhile doesn't matter)
+  if(G.IC) G.IC.aiCaravan=icOld; [T.campRate,T.armyRate]=rates;
   const [, b]=twoCities(s,4); c.res.ore=3000;
   const r2=G.createRoute(s,'p',c.id,b.id,{give:{ore:100}});
   b.owner='a2'; run(s,20); ok('city changing owner cancels the route', !G.routeById(s,r2.id));

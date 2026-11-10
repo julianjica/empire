@@ -22,6 +22,7 @@
     perMarket: 4,                    // route slots per city: 1 + floor(market level / 4)
     // gold per completed foreign trip, paid to BOTH realms: (lin*d + sq*d^2) * (1 + mk*min market) * pace prod
     incomeLin: 2, incomeSq: 0.12, incomeMarket: 0.04,
+    priceMin: 0.5, priceMax: 2,      // ... × what the goods fetch at today's prices (G.routeTripIncome), within these bounds
     // exchange rate for foreign routes: value(give)/value(take) * factor
     rateBase: 0.7, rateSpecialty: 0.15, rateOpinion: 1 / 250, rateMarket: 0.012, rateMin: 0.5, rateMax: 1.2,
     minOpinion: 0,                   // foreign partners must like you at least this much
@@ -88,6 +89,17 @@
     const L = Math.min(G.lvl(a, 'market'), G.lvl(b, 'market'));
     return Math.round((T.incomeLin * d + T.incomeSq * d * d) * (1 + T.incomeMarket * L) * G.pace(s).prod);
   };
+  // gold per completed foreign trip: the distance income above, weighed by what the goods fetch at today's prices
+  // (each side's goods at the receiving city's local price, js/prices.js), within priceMin..priceMax; 1× without prices
+  G.routeTripIncome = (s, r, from, to, cargo) => {
+    const base = G.routeIncome(s, from, to);
+    if (!s.prices || !G.priceValue || !r || !r.goods || !from || !to) return base;
+    const give = cargo && sum(cargo) ? cargo : r.goods.give, take = r.goods.take || {};
+    const plain = valueOf(give) + valueOf(take);
+    if (!(plain > 0)) return base;
+    const f = (G.priceValue(s, to, give) + G.priceValue(s, from, take)) / plain;
+    return Math.round(base * G.clamp(f, T.priceMin, T.priceMax));
+  };
   G.tradeFactor = (s, from, to, take) => {
     const partner = s.empires[to.owner];
     const spec = SPECIALTY[partner.race].includes(take) ? T.rateSpecialty : 0;
@@ -99,7 +111,7 @@
   G.routeQuote = (s, from, to, give, n, take) => {
     const factor = G.tradeFactor(s, from, to, take);
     const amount = Math.floor(n * DATA.goods[give].value / DATA.goods[take].value * factor);
-    return { take: amount, factor, income: G.routeIncome(s, from, to) };
+    return { take: amount, factor, income: G.routeTripIncome(s, { goods: { give: { [give]: n }, take: { [take]: amount } } }, from, to) };
   };
   // goods a partner realm will put on a route: raw goods, iron and its specialties the player can use
   G.routeTakeGoods = (s, owner, partner) => {
@@ -426,7 +438,7 @@
       if (want > 0) back[g] = want;
       to.res[g] = Math.max(0, (to.res[g] || 0) - want);
     }
-    const inc = G.routeIncome(s, from, to);
+    const inc = G.routeTripIncome(s, r, from, to, m.cargo);
     me.gold += inc; partner.gold += inc;
     me.tradeIncome = (me.tradeIncome || 0) + inc;
     partner.tradeIncome = (partner.tradeIncome || 0) + inc;

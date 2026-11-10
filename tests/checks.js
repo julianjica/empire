@@ -1,6 +1,6 @@
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/prices.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/prices.js','js/patrols.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 const ok=(name,cond,extra)=>console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:''));
 let s=G.newGame({name:'T',race:'hearth'}); s.settings.hostility=0;
@@ -22,6 +22,15 @@ const e1=G.sendArmy(s,c.id,oasis.x,oasis.y,'attack',{militia:300});
 G.advance(s,2000,300);
 const after=G.mod(s,'p',c,oasis.oasis.bonus);
 ok('oasis claim (dist '+d.toFixed(1)+')', d>G.cityReach(s,c)+1.5 ? (c.oases.length===0) : (c.oases.length===1 && after>before*1.1), 'send='+e1+' before='+before.toFixed(1)+' after='+after.toFixed(1));
+// an oasis won by troops from a far city goes to a nearer city of the realm that can hold it
+{ const o2=s.special.find(t=>t.oasis&&!t.oasis.owner&&t!==oasis&&G.dist(t,c)>6);
+  if (o2) {
+    const near=G.freeTile(s,x=>!G.isWater(x)&&G.dist(x,o2)>=1&&G.dist(x,o2)<=2);
+    const nc=near&&G.foundCity(s,'p',near.x,near.y,'Nearby');
+    if (nc) { nc.pop=200; o2.oasis.units={beast:1}; c.units.militia=400;
+      const e2=G.sendArmy(s,c.id,o2.x,o2.y,'attack',{militia:300}); G.advance(s,4000,300);
+      ok('an oasis won from a far city is claimed by a nearer city in reach', o2.oasis.owner===nc.id, 'send='+e2+' owner='+o2.oasis.owner); } }
+}
 // caravan + reinforce
 const t=G.freeTile(s,x=>G.dist(x,c)>3&&G.dist(x,c)<6);
 const b=G.foundCity(s,'p',t.x,t.y,'B');

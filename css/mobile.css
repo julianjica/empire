@@ -158,7 +158,9 @@ button, select, .mapctl button { touch-action: manipulation; }   /* no double-ta
   /* tutorial bottom sheet (tutorial.css) sits above the tab bar so tabs it points at stay tappable */
   .tut-coach { bottom: calc(61px + env(safe-area-inset-bottom)); max-height: 40vh; padding-bottom: 10px; }
   .tut-coach.min { bottom: calc(70px + env(safe-area-inset-bottom)); right: 10px; }
-  #ecResPop.sheet { bottom: calc(70px + env(safe-area-inset-bottom)) !important; max-height: 55vh; }
+  #ecResPop.sheet { bottom: calc(70px + env(safe-area-inset-bottom)) !important; max-height: 55vh; }   /* edges: style.css */
+  #ecResPop .hd { flex-wrap: wrap; }
+  #ecResPop td:first-child { overflow-wrap: anywhere; }
 
   /* world map: tile panel goes below the map (single column) */
   .mapwrap { grid-template-columns: minmax(0, 1fr); gap: 10px; }
@@ -175,6 +177,10 @@ button, select, .mapctl button { touch-action: manipulation; }   /* no double-ta
 
   /* forms: let rows wrap and inputs shrink */
   .row > input:not([type=checkbox]):not([type=radio]), .row > select { max-width: 100%; }
+  /* "To <select>" labels (trade routes, caravans): a long option (a far free city's name) must not widen the page */
+  .row > label { max-width: 100%; min-width: 0; }
+  .row > label > select, .row > label > input:not([type=checkbox]):not([type=radio]) { max-width: 100%; min-width: 0; }
+  code { overflow-wrap: anywhere; }
   .start { padding: 18px 12px 40px; }
   .start h1 { font-size: 2rem; }
   .start-form { grid-template-columns: minmax(0, 1fr); }

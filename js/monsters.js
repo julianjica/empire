@@ -442,7 +442,8 @@
     }
     // caravans and ships on the way
     if ((k.behave === 'raider' || k.behave === 'hunter' || (k.behave === 'night' && night(s)) || k.crisis) && s.time >= mon.raidAt) {
-      const m = s.moves.find(m => m.type === 'trade' && !m.ambushed && raidOpen(s, m.owner, mon) && (() => { const q = G.movePos(s, m); return Math.hypot(q.x - p.x, q.y - p.y) <= 1.3; })());
+      const m = s.moves.find(m => m.type === 'trade' && !m.ambushed && raidOpen(s, m.owner, mon) && (() => { const q = G.movePos(s, m); return Math.hypot(q.x - p.x, q.y - p.y) <= 1.3; })()
+        && !(G.patrolShields && G.patrolShields(s, m, mon)));   // a patrol on that road (js/patrols.js) scares the creature off or fights it first
       if (m) { ambush(s, mon, m); return; }
     }
     if (k.behave === 'swim' && s.time >= mon.raidAt) {

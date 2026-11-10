@@ -267,6 +267,8 @@
         g.restore();
       }
     }
+    // patrolled roads (js/ui-patrols.js): a soft band with pennants; the bake key below follows G.patrolsRev
+    if (typeof window.ecPaintPatrols === 'function') { try { window.ecPaintPatrols(g, X, P); } catch (e) { console.error(e); } }
   }
   // bridges as small arched glyphs across the river (wood brown with planks, stone grey); scaffolding while building.
   // Finished bridges are baked (after the glyphs, so a hill or forest glyph on a river tile never covers one);
@@ -2841,7 +2843,7 @@
     // a bake costs 15-40 ms on a 47x47 world: land, cities and seasons rebake within a second, but
     // newly explored tiles alone (scouts and armies uncover a few every few seconds at high speed)
     // wait up to 3 s so the map doesn't hitch every second
-    const sKey = S.map + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0) + '|' + (S.minors ? Object.keys(S.minors).join(',') : '') + '|' + (window.ecPaletteKey || '') + '|r' + (G.roadsRev ? G.roadsRev(S) : 0);
+    const sKey = S.map + '|' + G.season(S).index + '|' + citySig() + '|' + (S.terrainRev || 0) + '|' + (S.ley ? S.ley.nodes.length : 0) + '|' + (S.minors ? Object.keys(S.minors).join(',') : '') + '|' + (window.ecPaletteKey || '') + '|r' + (G.roadsRev ? G.roadsRev(S) : 0) + '|p' + (G.patrolsRev ? G.patrolsRev(S) : 0);
     const key = sKey + '|' + ex;
     if (key !== layerKey && (!layer || force || now - lastBake > (layerKey.startsWith(sKey + '|') ? 3000 : 1000))) { bake(); layerKey = key; lastBake = now; }
     refreshMagic(now);

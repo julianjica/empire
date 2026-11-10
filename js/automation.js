@@ -803,11 +803,12 @@
     if (!G.lvl(c, 'market')) return false;
     const short = Object.entries(cost).filter(([g, v]) => g !== 'gold' && DATA.goods[g] && G.have(s, c, g) < v).map(([g, v]) => [g, Math.ceil(v - G.have(s, c, g))]);
     if (!short.length) return true;
-    const price = short.reduce((a, [g, n]) => a + n * G.marketRates(s, c, g).buy, 0);
+    const price = short.reduce((a, [g, n]) => a + (G.priceQuote ? G.priceQuote(s, c, g, n, 'buy').total : n * G.marketRates(s, c, g).buy), 0);
     if (price + (cost.gold || 0) > goldFree(s, A)) return false;
     if (short.some(([g, n]) => (c.res[g] || 0) + n > G.storageCap(s, c))) return false;
+    const emp = s.empires.p, gold0 = emp.gold;
     for (const [g, n] of short) G.trade(s, c.id, g, n, 'buy');
-    alog(s, 'settle', `Bought ${short.map(([g, n]) => n + ' ' + gname(g)).join(', ')} in ${c.name} for the settlers (${Math.round(price)} gold)`);
+    alog(s, 'settle', `Bought ${short.map(([g, n]) => n + ' ' + gname(g)).join(', ')} in ${c.name} for the settlers (${Math.round(gold0 - emp.gold)} gold)`);
     return G.canAfford(s, c, cost);
   };
   const settleStep = (s, A) => {

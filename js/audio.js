@@ -571,7 +571,7 @@
     if (!btn || !pop) return;
     const r = btn.getBoundingClientRect(), w = pop.offsetWidth || 230;
     pop.style.top = Math.round(r.bottom + 6) + 'px';
-    pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))) + 'px';
+    pop.style.left = Math.round(Math.max(8, Math.min((document.documentElement.clientWidth || window.innerWidth) - w - 8, r.right - w))) + 'px';
   };
   const closePop = () => { if (pop) pop.classList.remove('on'); };
   window.addEventListener('resize', () => { if (pop && pop.classList.contains('on')) placePop(); });

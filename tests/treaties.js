@@ -1,7 +1,7 @@
 // Treaties, negotiation, war score and peace terms, vassals, AI diplomacy, save/load.  node tests/treaties.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/prices.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js','js/forge.js','js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/prices.js','js/patrols.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra!==undefined&&!cond?' '+extra:'')); };
@@ -103,7 +103,11 @@ ok('every treaty kind has name, icon, desc', DATA.treatyOrder.every(k=>{const K=
     const s2=fresh(); G.rel(s2,'a3').opinion=50; const before=(G.dynEligible(s2,'p')||[]).length+(G.dynEligible(s2,'a3')||[]).length;
     const t=G.signTreaty(s2,'marriage','p','a3');
     ok('a royal marriage puts a consort at court (dynasty.js)', !before || (t.wed && G.dynTie(s2,'p','a3')), 'eligible '+before);
-    ok('the AI ruler regard shows in the meter', G.evalDeal(s2,{ai:'a3',give:[],take:[],both:[T('trade')]}).parts.some(p=>p.key==='regard') || G.rulerRegard(s2,'a3','p')===0);
+    // deterministic rulers: both charming (shared trait, +10 regard), so the regard is clearly non-zero whatever traits were rolled
+    const Dp=G.dynasty(s2,'p'), Da=G.dynasty(s2,'a3'), rp=G.ruler(s2,'p'), ra=G.ruler(s2,'a3');
+    if (rp && ra) { rp.traits=['charming']; ra.traits=['charming']; Dp.regent=null; Da.regent=null; Dp.rev=(Dp.rev||0)+1; Da.rev=(Da.rev||0)+1; }
+    const rg=G.rulerRegard(s2,'a3','p'), rgPart=G.evalDeal(s2,{ai:'a3',give:[],take:[],both:[T('trade')]}).parts.find(p=>p.key==='regard');
+    ok('the AI ruler regard shows in the meter', !!(rp && ra) && rg>=4 && !!rgPart && rgPart.v===Math.round(rg*0.25), 'regard '+rg+' part '+JSON.stringify(rgPart));
   }
 }
 

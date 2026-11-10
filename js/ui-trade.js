@@ -43,7 +43,7 @@
       <td data-l="Every">${fmtTime(realSecs(r.every))}</td>
       <td data-l="Next">${when}${r.note ? `<div class="muted tr-sub">${esc(r.note)}</div>` : ''}</td>
       <td data-l="Risk">${riskHtml(rk)}</td>
-      <td data-l="Income per trip">${r.foreign && to ? '🪙 ' + G.routeIncome(S, city, to) : minor && to ? '🪙 ' + G.minorRouteQuote(S, city, to, r.goods.give).gold : '<span class="muted">—</span>'}</td>
+      <td data-l="Income per trip">${r.foreign && to ? '🪙 ' + (G.routeTripIncome ? G.routeTripIncome(S, r, city, to) : G.routeIncome(S, city, to)) : minor && to ? '🪙 ' + G.minorRouteQuote(S, city, to, r.goods.give).gold : '<span class="muted">—</span>'}</td>
       <td class="tr-ctl">
         <div class="row">
           <button class="small" data-act="trPause" data-r="${r.id}">${r.active ? '⏸ Pause' : '▶ Resume'}</button>

@@ -193,7 +193,8 @@ Object.assign(DATA.aiRulers, {
 Object.assign(DATA.homeland, {
   tide:  { terrain: { fertile: 0.35, plains: 0.25, lake: 0.2, forest: 0.2 }, seeks: { grain: 1, timber: 0.4, water: 0.15 } },
   veil:  { terrain: { forest: 0.5, fertile: 0.35, plains: 0.15 }, seeks: { timber: 0.7, grain: 0.7 } },
-  grave: { terrain: { hills: 0.45, plains: 0.3, mountain: 0.25 }, seeks: { stone: 1, ore: 0.7, grain: 0.3 } },
+  // a few groves among the barrows: with no forest at all the Gravebound were starved of timber for building
+  grave: { terrain: { hills: 0.4, plains: 0.25, mountain: 0.2, forest: 0.15 }, seeks: { stone: 1, ore: 0.6, grain: 0.3, timber: 0.3 } },
   wind:  { terrain: { mountain: 0.4, hills: 0.35, fertile: 0.15, plains: 0.1 }, seeks: { stone: 0.8, ore: 0.5, grain: 0.7 } },
 });
 

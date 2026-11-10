@@ -977,6 +977,13 @@ G.aiCityCap = s => Math.min(G.cityLimit(s), { small: 7, normal: 10, large: 12 }[
 G.nextCityRenown = (s, owner) => G.citySlotRenown(s, G.citySlotsUsed(s, owner));
 G.canFoundCity = (s, owner) => G.renown(s, owner) >= G.nextCityRenown(s, owner);
 G.oasisSlots = city => Math.min(4, 1 + Math.floor(G.lvl(city, 'townhall') / 5));
+// which of the victor's cities takes a won oasis: the city the troops came from if it can hold it, else the nearest
+// of the realm's cities with the reach and a free oasis slot (null if none can)
+G.oasisClaimer = (s, owner, tile, home) => {
+  const can = c => c && c.owner === owner && (c.oases || []).length < G.oasisSlots(c) && dist(c, tile) <= G.cityReach(s, c) + 1.5;
+  if (can(home)) return home;
+  return G.citiesOf(s, owner).filter(can).sort((a, b) => dist(a, tile) - dist(b, tile))[0] || null;
+};
 
 // ---------------------------------------------------------------------
 // Location: yields of a site from the terrain around it (radius 2)
@@ -1731,12 +1738,13 @@ G.resolveMove = (s, m) => {
       extra = G.unitsCount(site.units) ? 'The surviving outlaws scattered and the camp was razed. Others will gather elsewhere.' : 'The camp was razed. Other outlaws will gather elsewhere.';
     }
     if (tile.ruin && r.win && m.type !== 'adventure') { site.units = null; site.readyAt = s.time + 3600 * G.pace(s).time; extra = 'The ruins were cleared, but only a hero can find their hidden treasures.'; }
-    if (tile.oasis && r.win && home && mode === 'attack') {
-      if ((home.oases || []).length < G.oasisSlots(home) && dist(home, tile) <= G.cityReach(s, home) + 1.5) {
-        claimOasis(s, tile, home);
-        extra = `The oasis now belongs to ${home.name} (+25% ${DATA.goods[tile.oasis.bonus].name}).`;
+    if (tile.oasis && r.win && mode === 'attack') {
+      const holder = G.oasisClaimer(s, m.owner, tile, home);
+      if (holder) {
+        claimOasis(s, tile, holder);
+        extra = `The oasis now belongs to ${holder.name} (+25% ${DATA.goods[tile.oasis.bonus].name}).`;
         G.log(s, m.owner, extra, 'good');
-      } else extra = `${home.name} could not hold the oasis: it must lie within ${(G.cityReach(s, home) + 1.5).toFixed(1)} tiles (a city's reach grows with its population) and the city needs a free oasis slot.`;
+      } else extra = `None of your cities could hold the oasis: one must lie within its reach of the oasis (it grows with population) and have a free oasis slot.`;
     }
     G.report(s, [m.owner], `${r.win ? 'Victory' : 'Defeat'} at ${name} (${m.x}, ${m.y})`, r.win ? 'win' : 'loss',
       { att: me.name, def: name === 'the brigand camp' ? 'Brigands' : 'Wild beasts', A: r.A, D: r.D, attSent: m.units, attLost: r.attLost, defHad, defLost: r.defLost, loot, extra, tactics: r.tactics });
@@ -1751,8 +1759,9 @@ G.resolveMove = (s, m) => {
     if (!oc || oc.owner === m.owner) { G.sendHome(s, m, m.units); return; }
     for (const h of G.hostileHooks) h(s, m.owner, oc.owner, m.type);
     let extra = 'No defenders were present.';
-    if (mode === 'attack' && home && (home.oases || []).length < G.oasisSlots(home) && dist(home, tile) <= G.cityReach(s, home) + 1.5) {
-      claimOasis(s, tile, home); extra = `The oasis was taken from ${oc.name}.`;
+    const holder = mode === 'attack' ? G.oasisClaimer(s, m.owner, tile, home) : null;
+    if (holder) {
+      claimOasis(s, tile, holder); extra = `The oasis was taken from ${oc.name} and now belongs to ${holder.name}.`;
       G.log(s, oc.owner, `An oasis of ${oc.name} was seized by ${me.name}!`, 'bad');
     }
     G.report(s, [m.owner, oc.owner], `${me.name} marched on an oasis of ${oc.name}`, m.owner === 'p' ? 'win' : 'loss',

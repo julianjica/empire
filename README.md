@@ -49,6 +49,7 @@ node tests/intercept.js            # clickable columns, meeting points, field ba
 node tests/roads.js                # roads worn by traffic, paving, decay, faster paths, fords and bridges
 node tests/quarters.js             # city quarters: slots, tile types, yields, territory, burn raids, AI growth
 node tests/prices.js               # supply-and-demand prices: equilibrium, trade impact, seasons, wars, regional arbitrage, limits
+node tests/patrols.js              # road patrols, ambush and interception cover, upkeep, risk levels, Protector of the Trade
 node tests/warplan.js              # AI wars only when declared, warnings, war aims, campaigns, peace
 node tests/automation.js           # delegation by domain, presets, reserves, decisions inbox
 node tests/cli.js                  # keyboard console: commands, fuzzy names, completion, confirmations

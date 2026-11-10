@@ -636,7 +636,8 @@ G.aiSellMana = (s, owner, gold, keep = 0) => {
     const rate = G.marketRates(s, c, 'mana').sell;
     const spare = Math.max(0, manaOf(s, owner) - keep);
     const n = Math.floor(Math.min(c.res.mana || 0, spare, (gold - got) / rate + 1));
-    if (n > 0 && G.trade(s, c.id, 'mana', n, 'sell') === null) got += n * rate;
+    const emp = s.empires[owner], gold0 = emp.gold;
+    if (n > 0 && G.trade(s, c.id, 'mana', n, 'sell') === null) got += emp.gold - gold0;   // what the sale really fetched (price impact included)
   }
   return got;
 };

@@ -363,9 +363,11 @@
           const price = G.marketRates(s, c, nd.g).buy;
           const n = Math.floor(Math.min(nd.unmet, room, (emp.gold - o.reserve) / price));
           if (n < 1) continue;
+          const g0 = emp.gold;   // what the trade really cost, price impact included (js/prices.js)
           if (G.trade(s, c.id, nd.g, n, 'buy') === null) {
-            o.stats.bought += n; o.stats.spent += n * price; nd.unmet -= n;
-            logLine(s, o, `Bought ${n} ${gname(nd.g)} for ${c.name} (${Math.round(n * price)} gold, ${nd.why})`);
+            const paid = Math.max(0, g0 - emp.gold);
+            o.stats.bought += n; o.stats.spent += paid; nd.unmet -= n;
+            logLine(s, o, `Bought ${n} ${gname(nd.g)} for ${c.name} (${Math.round(paid)} gold, ${nd.why})`);
           }
         }
       }
@@ -379,10 +381,11 @@
             if (res < e.cap * L.sellAbove || !((e.net[g] || 0) > 0)) continue;
             const n = Math.floor(res - e.cap * L.sellTo);
             if (n < 1) continue;
-            const price = G.marketRates(s, c, g).sell;
+            const g0 = emp.gold;   // what the sale really fetched, price impact included (js/prices.js)
             if (G.trade(s, c.id, g, n, 'sell') === null) {
-              o.stats.sold += n; o.stats.earned += n * price;
-              logLine(s, o, `Sold ${n} ${gname(g)} from ${c.name} that had no room (+${Math.round(n * price)} gold)`);
+              const got = Math.max(0, emp.gold - g0);
+              o.stats.sold += n; o.stats.earned += got;
+              logLine(s, o, `Sold ${n} ${gname(g)} from ${c.name} that had no room (+${Math.round(got)} gold)`);
             }
           }
         }

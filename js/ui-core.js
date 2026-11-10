@@ -380,7 +380,8 @@ const renderResTip = () => {
   const r = anchor.getBoundingClientRect(), w = resPopEl.offsetWidth || 320, h = resPopEl.offsetHeight || 200;
   const below = r.bottom - 1, top = below + h > window.innerHeight - 8 && r.top - h > 8 ? r.top - h + 1 : below;
   resPopEl.style.top = Math.round(Math.max(8, top)) + 'px';
-  resPopEl.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.left))) + 'px';
+  const vw = document.documentElement.clientWidth || window.innerWidth;   // without the scrollbar
+  resPopEl.style.left = Math.round(Math.max(8, Math.min(vw - w - 8, r.left))) + 'px';
 };
 const closeResTip = () => { if (!UI.resTip) return; UI.resTip = null; renderResTip(); $app.querySelectorAll('.top .tip-on').forEach(el => el.classList.remove('tip-on')); };
 const resAnchorOf = t => t && t.closest && t.closest('.top [data-good]');
@@ -1324,7 +1325,7 @@ const renderPop = () => {
   if (btn && window.innerWidth > 700) {
     const r = btn.getBoundingClientRect(), w = popEl.offsetWidth || 280;
     popEl.style.top = Math.round(r.bottom + 6) + 'px';
-    popEl.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w))) + 'px';
+    popEl.style.left = Math.round(Math.max(8, Math.min((document.documentElement.clientWidth || window.innerWidth) - w - 8, r.right - w))) + 'px';
   } else { popEl.style.top = ''; popEl.style.left = ''; }
 };
 const openPop = which => { UI.pop = UI.pop === which ? null : which; render(true); renderPop(); };

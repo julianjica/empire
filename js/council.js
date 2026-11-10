@@ -547,9 +547,11 @@
         if (cv && (cv.inbound > 0 || (cv.frac >= 0.5 && s.time - rw[gd] < C.realmWaitMins * 60 * paceT(s)))) { govNote(s, g, 'wait:' + gd, `Waiting for ${gnm(gd)} by caravan${cv.from ? ' from ' + cv.from.name : ''} instead of buying`); continue; }
       }
       if (g.rwait) delete g.rwait[gd];
-      const price = n * G.marketRates(s, city, gd).buy;
+      // the expected bill at today's local price, price impact included (prices.js); the log reports what was really paid
+      const price = G.priceQuote ? G.priceQuote(s, city, gd, n, 'buy').total : n * G.marketRates(s, city, gd).buy;
       if (emp.gold - price < (g.reserve || 0) + 100) continue;
-      if (G.trade(s, city.id, gd, n, 'buy') === null) govLog(s, g, `Bought ${n} ${DATA.goods[gd].name.toLowerCase()} for upkeep (${Math.round(price)} gold)`);
+      const gold0 = emp.gold;
+      if (G.trade(s, city.id, gd, n, 'buy') === null) govLog(s, g, `Bought ${n} ${DATA.goods[gd].name.toLowerCase()} for upkeep (${Math.round(gold0 - emp.gold)} gold)`);
     }
   };
   // idle builders and nothing affordable: buy the missing goods for a good work, but only from a rich treasury.
@@ -571,12 +573,14 @@
       const need = (gd, v) => v + (gd === 'grain' && !GRAIN_B.includes(c.t) ? floor : 0);
       const short = Object.entries(st.cost).filter(([gd, v]) => gd !== 'gold' && G.have(s, city, gd) < need(gd, v)).map(([gd, v]) => [gd, Math.ceil(need(gd, v) - G.have(s, city, gd))]);
       if (!short.length || short.some(([gd, n]) => (city.res[gd] || 0) + n > e.cap)) continue;
-      const price = short.reduce((a, [gd, n]) => a + n * G.marketRates(s, city, gd).buy, 0) + (st.cost.gold || 0);
+      const price = short.reduce((a, [gd, n]) => a + (G.priceQuote ? G.priceQuote(s, city, gd, n, 'buy').total : n * G.marketRates(s, city, gd).buy), 0) + (st.cost.gold || 0);
       const key = (c.t === 'townhall' && G.lvl(city, 'townhall') < C.thFree) || (c.t === 'warehouse' && /storage/.test(c.why || ''));
       if (price > (key ? free : free * C.buyShare)) continue;
+      const gold0 = emp.gold;
       for (const [gd, n] of short) G.trade(s, city.id, gd, n, 'buy');
+      const paid = gold0 - emp.gold;
       if (!G.buildStatus(s, city, c.t).ok) return false;
-      govNote(s, g, 'buy', `Bought ${short.map(([gd, n]) => n + ' ' + gnm(gd)).join(', ')} for ${bname(c.t)} ${st.level} (${Math.round(price - (st.cost.gold || 0))} gold) rather than leave the builders idle`);
+      govNote(s, g, 'buy', `Bought ${short.map(([gd, n]) => n + ' ' + gnm(gd)).join(', ')} for ${bname(c.t)} ${st.level} (${Math.round(paid)} gold) rather than leave the builders idle`);
       return true;
     }
     return false;

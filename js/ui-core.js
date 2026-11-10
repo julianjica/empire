@@ -362,7 +362,7 @@ const resTipHtml = (g) => {
     <table class="rt-sum"><tr><td>Net per minute</td><td class="${net < -0.05 ? 'bad' : net > 0.05 ? 'good' : ''}"><b>${fmtRate(net)}</b></td></tr>
       <tr><td>${isGold ? 'Treasury' : 'Stock'}</td><td>${fmt(stock)}${isGold ? '' : ' / ' + fmt(cap)}</td></tr>
       <tr><td></td><td class="muted">${eta}</td></tr></table>
-    ${hint}${wear}`;
+    ${hint}${wear}${G.priceUI ? G.priceUI.tip(S, city, g) : ''}`;
 };
 const renderResTip = () => {
   if (!resPopEl) { resPopEl = document.createElement('div'); resPopEl.id = 'ecResPop'; resPopEl.setAttribute('role', 'tooltip'); document.body.appendChild(resPopEl); }
@@ -677,8 +677,8 @@ const renderMarket = city => {
     <table><tr><th>Good</th><th>Stock</th><th>Sell for</th><th>Buy for</th><th>Amount</th><th></th></tr>
     ${visibleGoods().map(g => {
       const r = G.marketRates(S, city, g); const k = 'mkt_' + g;
-      return `<tr><td>${DATA.goods[g].icon} ${DATA.goods[g].name}</td><td>${fmt(city.res[g] || 0)}</td><td>🪙 ${r.sell.toFixed(2)}</td><td>🪙 ${r.buy.toFixed(2)}</td>
-        <td><input type="number" min="0" step="50" data-k="${k}" value="${esc(UI.form[k] || 100)}"></td>
+      return `<tr><td>${DATA.goods[g].icon} ${DATA.goods[g].name}${G.priceUI ? G.priceUI.cell(S, city, g) : ''}</td><td>${fmt(city.res[g] || 0)}</td><td>🪙 ${r.sell.toFixed(2)}</td><td>🪙 ${r.buy.toFixed(2)}</td>
+        <td><input type="number" min="0" step="50" data-k="${k}" value="${esc(UI.form[k] || 100)}">${G.priceUI ? `<div class="px-q" data-quote="${g}">${G.priceUI.quote(S, city, g, G.priceUI.amountOf(S, g))}</div>` : ''}</td>
         <td class="row"><button class="small" data-act="sell" data-g="${g}">Sell</button><button class="small" data-act="buy" data-g="${g}">Buy</button></td></tr>`;
     }).join('')}</table></div>` + extras(MARKET_EXTRAS, city);
 };

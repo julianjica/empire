@@ -48,6 +48,7 @@ node tests/magi.js                # the circle of magi: recruiting, court and wa
 node tests/intercept.js            # clickable columns, meeting points, field battles, recall, AI interception
 node tests/roads.js                # roads worn by traffic, paving, decay, faster paths, fords and bridges
 node tests/quarters.js             # city quarters: slots, tile types, yields, territory, burn raids, AI growth
+node tests/prices.js               # supply-and-demand prices: equilibrium, trade impact, seasons, wars, regional arbitrage, limits
 node tests/warplan.js              # AI wars only when declared, warnings, war aims, campaigns, peace
 node tests/automation.js           # delegation by domain, presets, reserves, decisions inbox
 node tests/cli.js                  # keyboard console: commands, fuzzy names, completion, confirmations

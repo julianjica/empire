@@ -1,7 +1,7 @@
 // Trade routes: internal and foreign routes, income, opinion, war, ambushes, escorts, AI, save/load.  node tests/traderoutes.js
 const fs=require('fs');
 global.localStorage={_:{},getItem(k){return this._[k]||null},setItem(k,v){this._[k]=v},removeItem(k){delete this._[k]}};
-const files=['js/data.js','js/races2.js','js/engine.js','js/research.js',...['js/forge.js'].filter(f=>fs.existsSync(f)),'js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
+const files=['js/data.js','js/races2.js','js/engine.js','js/research.js',...['js/forge.js'].filter(f=>fs.existsSync(f)),'js/hero.js','js/diplomacy.js','js/events.js','js/calamities.js','js/culture.js','js/traditions.js','js/wonders.js','js/seasons.js','js/religion.js','js/traderoutes.js','js/rivalheroes.js','js/magic.js','js/arcana.js','js/magi.js','js/espionage.js','js/minors.js','js/chronicle.js','js/council.js','js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/prices.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f=>fs.existsSync(f));
 eval(files.map(f=>fs.readFileSync(f,'utf8')).join('\n')+`
 let fails=0;
 const ok=(name,cond,extra)=>{ if(!cond) fails++; console.log((cond?'PASS ':'FAIL ')+name+(extra?' '+extra:'')); };
@@ -172,13 +172,13 @@ const flight=(s,r)=>s.moves.some(m=>m.route===r.id);
   const q=G.minorRouteQuote(s,c,mi,{ore:200});
   const r=G.createRoute(s,'p',c.id,mi.id,{give:{ore:200},every:5,escort:{militia:5}});
   ok('route to a free city opens', typeof r==='object' && r.to.kind==='minor' && r.to.id===mi.id && !r.foreign && G.routeDest(s,r)===mi, typeof r==='string'?r:JSON.stringify(r.to));
-  ok('quote: influence and gold per trip', q.inf>0 && q.gold>0 && q.goodsPay===50, JSON.stringify(q));
+  ok('quote: influence and gold per trip', q.inf>0 && q.gold>0 && q.goodsPay===Math.round((G.priceValue?G.priceValue(s,mi,{ore:200}):100)*0.5), JSON.stringify(q));   // goods paid at the free city's prices (js/prices.js)
   const rk=G.routeRisk(s,r); ok('risk works for a free city route', rk && rk.chance===0 && Array.isArray(rk.camps));
   r.every=1e9;   // a single trip
   const inf0=G.minorInf(s,mi,'p'), g0=s.empires.p.gold;
   let n=0; while(!(r.trips>=1 && !flight(s,r)) && n++<600) run(s,5);
   ok('caravan delivers: influence rises', r.trips===1 && G.minorInf(s,mi,'p')>inf0+1, inf0.toFixed(1)+' -> '+G.minorInf(s,mi,'p').toFixed(1)+' trips '+r.trips);
-  ok('merchant republic pays trade gold and for the goods', r.income>=q.gold-1 && s.empires.p.gold>=g0+r.income-1 && r.influence>0, 'income '+r.income+' gold '+Math.round(g0)+' -> '+Math.round(s.empires.p.gold));
+  ok('merchant republic pays trade gold and for the goods', r.income>G.minorRouteIncome(s,c,mi) && Math.abs(r.income-q.gold)<=q.gold*0.3 && s.empires.p.gold>=g0+r.income-1 && r.influence>0, 'income '+r.income+' gold '+Math.round(g0)+' -> '+Math.round(s.empires.p.gold));
   ok('escort came home', c.units.militia===20 && !flight(s,r), 'militia '+c.units.militia);
   ok('the goods were delivered (taken from the city)', r.delivered===200, 'delivered '+r.delivered);
   const far={...mi,kind:'merchant'}, plain={...mi,kind:'temple'};

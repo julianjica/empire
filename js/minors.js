@@ -495,7 +495,7 @@ const arriveTrade = (s, m, mi) => {
   let d = 0;
   if (value > 0) d = addInf(s, mi, m.owner, giftGain(s, mi, m.owner, value) * M.caravanBonus);
   let paid = 0;
-  if (mi.kind === 'merchant' && value > 0) { paid = Math.round(value * 0.5); s.empires[m.owner].gold += paid; }
+  if (mi.kind === 'merchant' && value > 0) { paid = Math.round((G.priceValue ? G.priceValue(s, mi, gifts) : value) * 0.5); s.empires[m.owner].gold += paid; }   // at the free city's prices (js/prices.js)
   for (const [g, v] of Object.entries(gifts)) if (v > 0 && DATA.goods[g]) mi.stores[g] = (mi.stores[g] || 0) + v * 0.5;
   if (value > 0) G.log(s, m.owner, `🐪 Your caravan reached ${mi.name} (+${d.toFixed(1)} influence${paid ? `, the guilds paid ${paid} gold` : ''}).`, 'good');
   updatePatron(s, mi);

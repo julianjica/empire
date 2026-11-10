@@ -451,7 +451,7 @@
     const value = valueOf(gifts);
     const d = value > 0 && MI ? G.minorAddInfluence(s, mi, r.owner, value / (MI.giftDiv * G.minorScale(s)) * MI.caravanBonus * T.minorInf) : 0;
     for (const [g, v] of Object.entries(gifts)) if (v > 0 && DATA.goods[g]) mi.stores[g] = (mi.stores[g] || 0) + v * 0.5;
-    const gold = G.minorRouteIncome(s, from, mi) + (mi.kind === 'merchant' ? Math.round(value * T.minorGoodsPay) : 0);
+    const gold = G.minorRouteQuote(s, from, mi, gifts).gold;   // distance income + what a merchant republic pays for the goods (at its prices, js/prices.js)
     const me = s.empires[r.owner];
     me.gold += gold; me.tradeIncome = (me.tradeIncome || 0) + gold;
     r.income += gold; r.influence = (r.influence || 0) + d; r.trips++;

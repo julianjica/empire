@@ -3,7 +3,7 @@
 const fs = require('fs');
 global.localStorage = { _: {}, getItem(k) { return this._[k] ?? null; }, setItem(k, v) { this._[k] = String(v); }, removeItem(k) { delete this._[k]; } };
 const hours = +(process.argv[2] || 6);
-const files = ['js/data.js', 'js/races2.js', 'js/engine.js', 'js/research.js', 'js/forge.js', 'js/hero.js', 'js/diplomacy.js', 'js/events.js', 'js/calamities.js', 'js/culture.js', 'js/traditions.js', 'js/wonders.js', 'js/seasons.js', 'js/religion.js', 'js/traderoutes.js', 'js/rivalheroes.js', 'js/magic.js','js/arcana.js','js/magi.js', 'js/espionage.js', 'js/minors.js', 'js/chronicle.js', 'js/council.js', 'js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f => fs.existsSync(f));
+const files = ['js/data.js', 'js/races2.js', 'js/engine.js', 'js/research.js', 'js/forge.js', 'js/hero.js', 'js/diplomacy.js', 'js/events.js', 'js/calamities.js', 'js/culture.js', 'js/traditions.js', 'js/wonders.js', 'js/seasons.js', 'js/religion.js', 'js/traderoutes.js', 'js/rivalheroes.js', 'js/magic.js','js/arcana.js','js/magi.js', 'js/espionage.js', 'js/minors.js', 'js/chronicle.js', 'js/council.js', 'js/storylets.js','js/autoexplore.js','js/generals.js','js/monsters.js','js/logistics.js','js/prices.js','js/roads.js','js/quarters.js','js/intercept.js','js/warplan.js','js/automation.js','js/dynasty.js'].filter(f => fs.existsSync(f));
 eval(files.map(f => fs.readFileSync(f, 'utf8')).join('\n') + `
 if (typeof initRaces2 === 'function') initRaces2();
 let fails = 0;

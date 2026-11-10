@@ -507,6 +507,25 @@ if(!QUICK){
   ok('the start screen passes the Delegate preset to G.newGame', /^preset=delegate wrapped=false opts=automation$/.test(line), line+' '+(out.stderr||'').slice(0,300));
 }
 
+// ---- garrisons: any governor trains them, and their size follows the city and its borders ----
+{ const s=fresh('hearth'); const c=rich(s); G.setGovernor(s,c.id,{focus:'balanced'});
+  for(const b of ['townhall','barracks']) c.buildings[b]=Math.max(c.buildings[b]||0,3);
+  c.pop=800; only(s,'military',{garrison:true});
+  const g=s.council.gov[c.id];
+  ok('a big calm city keeps more than the minimum reserve', g.troops>=16, g.troops);
+  const calm=G.autoGarrisonTarget(s,c);
+  const foe=Object.values(s.empires).find(e=>e.id!=='p'&&!e.dead);
+  if(foe){ const fc=G.citiesOf(s,foe.id)[0]; const sv={x:fc.x,y:fc.y}; fc.x=c.x+3; fc.y=c.y; s.rel=s.rel||{}; s.rel[foe.id]=Object.assign(s.rel[foe.id]||{},{status:'war'});
+    ok('a city at war on the border keeps a larger garrison', G.autoGarrisonTarget(s,c)>calm, G.autoGarrisonTarget(s,c)+' vs '+calm); fc.x=sv.x; fc.y=sv.y; s.rel[foe.id].status='peace'; }
+  G.autoSet(s,'military','size','flat'); ok('"Minimum reserve only" keeps the flat reserve', G.autoGarrisonTarget(s,c)===G.automation(s).res.garrison);
+  G.autoSet(s,'military','size','grow');
+  const before=Object.values(c.train||{}).flat().length+Object.keys(c.units).length;
+  G.councilGovern&&G.councilGovern(s); run(s,3);
+  const sold=Object.entries(c.units).reduce((a,[u,k])=>a+(DATA.units[u]&&DATA.units[u].at&&DATA.units[u].type!=='civ'?k:0),0)+Object.values(c.train||{}).flat().reduce((a,q)=>a+(q.left||0),0);
+  ok('a Balanced governor trains the garrison automation asks for', sold>0, 'soldiers+queued '+sold);
+  g.troops=200; G.autoSet(s,'military','garrison',true); ok("the player's own higher garrison is kept", g.troops===200, g.troops);
+}
+
 console.log(fails?fails+' FAILED':'ALL PASS');
 if(fails) process.exitCode=1;
 `);

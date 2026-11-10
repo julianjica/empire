@@ -475,7 +475,7 @@
     return n;
   };
   const govTrain = (s, city, g, e) => {
-    if (g.focus !== 'military' || !(g.troops > 0)) return;
+    if (!(g.troops > 0)) return;
     const have = defendersOf(s, city);
     if (have >= g.troops) return;
     let cs = 0.3;

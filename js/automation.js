@@ -10,7 +10,8 @@
 //               the player (inbox) unless allowed or preferred
 //    traditions auto-adopt along a pillar (G.aiTraditionScore), forks wait for the player unless
 //               allowed or preferred; hold ceremonies (seasonal decisions and on-demand customs)
-//    military   garrisons through governors' training, reinforce threatened cities (and march the
+//    military   garrisons through governors' training (sized by each city's people and danger, never below the
+//               reserve), reinforce threatened cities (and march the
 //               troops home once the threat has been gone a while), intercept
 //               (or only alert), clear brigand camps when strongly favoured, forge upgrades
 //    hero       spend points by a build, adventure to ruins when idle and healthy, generals ride to the army
@@ -60,7 +61,8 @@
       pol: [['pillar', 'Pillar', [['auto', 'Best fit']]], ['forks', 'At a fork', [['ask', 'Ask me'], ['auto', 'Choose for me']]]] },
     military: { icon: '🛡️', name: 'Military', every: 15, desc: 'Keeps garrisons, moves troops to threatened cities, meets columns in the field, clears camps and forges upgrades.',
       sw: { garrison: 'Keep garrisons (governors train)', balance: 'Reinforce threatened cities', camps: 'Clear nearby camps', forge: 'Forge upgrades with surplus' },
-      pol: [['defend', 'Defence', [['off', 'Off'], ['alert', 'Alert me'], ['act', 'Intercept when strong']]]] },
+      pol: [['defend', 'Defence', [['off', 'Off'], ['alert', 'Alert me'], ['act', 'Intercept when strong']]],
+        ['size', 'Garrison size', [['grow', 'Grows with each city and its borders'], ['strong', 'Strong (war footing)'], ['flat', 'Minimum reserve only']]]] },
     hero: { icon: '🦸', name: 'Hero & generals', every: 30, desc: 'Spends hero points by a build, adventures when idle and healthy, sends idle generals to the main army.',
       sw: { points: 'Spend points', adventure: 'Adventure to ruins', generals: 'Generals join the army' },
       pol: [['build', 'Build', [['balanced', 'Balanced'], ['warrior', 'Warrior'], ['leader', 'Leader'], ['guardian', 'Guardian'], ['steward', 'Steward'], ['mage', 'Mage']]]] },
@@ -85,7 +87,7 @@
     research: { on: false, focus: 'recommended' },
     grimoire: { on: false, ench: false, buffs: false, focus: 'balanced', forks: 'ask' },
     traditions: { on: false, cer: false, pillar: 'auto', forks: 'ask' },
-    military: { garrison: false, balance: false, camps: false, forge: false, defend: 'off' },
+    military: { garrison: false, balance: false, camps: false, forge: false, defend: 'off', size: 'grow' },
     hero: { points: false, adventure: false, generals: false, build: 'balanced' },
     magi: { on: false, budget: '400' },
     economy: { govNew: false, supply: false, market: false, buyRest: false, focus: 'balanced', buyCap: '25' },
@@ -121,7 +123,9 @@
   // settleRange / settleSafe / settleEscort: how far settlers look, how close danger may come to a site, and within what
   // distance of the site or the road hostiles call for an escort (share of the spare garrison)
   const AUTO = G.AUTO = { DOMAINS, ORDER, PRESETS, RES, MINOR, IMPORTANT, logMax: 80, inRatio: 1.7, campRatio: 2.5, advWin: 0.6, adoptGrace: 0,
-    returnCalm: 10, settleRange: 9, settleSafe: 3, settleEscort: 6, escortShare: 0.5 };
+    returnCalm: 10, settleRange: 9, settleSafe: 3, settleEscort: 6, escortShare: 0.5,
+    // garrison share of a city's people by danger [calm, hostile neighbour, war]; borderReach: tiles to a foreign city that make a border
+    garrisonShare: { grow: [0.02, 0.05, 0.09], strong: [0.05, 0.09, 0.14] }, borderReach: 14 };
 
   // pillar and governor-focus choices come from the tables other modules define
   const fillChoices = () => {
@@ -136,7 +140,7 @@
   // fill in whatever a partial or older s.automation lacks (domains added later, switches, maps, reserves), keeping
   // every value it has; checked once per object (a loaded save is a new object, so it is checked again)
   const FILLED = new WeakSet();
-  const MAPS = ['next', 'seen', 'known', 'alerted', 'reinf', 'forkPref', 'aforkPref', 'lent', 'stats'];
+  const MAPS = ['next', 'seen', 'known', 'alerted', 'reinf', 'forkPref', 'aforkPref', 'lent', 'stats', 'gar'];
   const isObj = x => !!x && typeof x === 'object' && !Array.isArray(x);
   const fill = A => {
     const base = BASE();
@@ -262,11 +266,45 @@
   };
   const focusName = f => (DATA.govFocus && DATA.govFocus[f] ? DATA.govFocus[f].name : f).toLowerCase();
   const govReserve = (s, A, cityId) => { const g = s.council && s.council.gov && s.council.gov[cityId]; if (g && (g.reserve || 0) < A.res.gold) G.setGovernor(s, cityId, { reserve: A.res.gold }); };
+  // how much danger a city faces: 2 = a realm at war with us (or a column on its way) within reach, 1 = a hostile neighbour, 0 = calm
+  const hostileTo = (s, id) => {
+    const e = s.empires[id], r = s.rel && s.rel[id];
+    if (!e || e.dead || id === 'p') return 0;
+    if (r && r.status === 'war') return 2;
+    if (r && (r.status === 'peace' || r.status === 'alliance')) return 0;
+    if (r && r.opinion <= -20) return 1;
+    try { return G.hostility(s, id, 'p') > 0.6 ? 1 : 0; } catch (e2) { return 0; }
+  };
+  const dangerOf = (s, c, hot) => {
+    if (hot.has(c.id)) return 2;
+    let d = 0;
+    for (const o of Object.values(s.cities)) {
+      if (o.owner === 'p' || dist(o, c) > AUTO.borderReach) continue;
+      d = Math.max(d, hostileTo(s, o.owner));
+      if (d === 2) break;
+    }
+    return d;
+  };
+  // the garrison a city should keep: never below the reserve, and with 'grow'/'strong' a share of its people by danger
+  G.autoGarrisonTarget = (s, c, hot) => {
+    const A = G.automation(s), rates = AUTO.garrisonShare[A.d.military.size];
+    if (!rates) return A.res.garrison;
+    const share = rates[dangerOf(s, c, hot || threatened(s))];
+    return Math.min(500, Math.max(A.res.garrison, Math.round((c.pop || 0) * share)));
+  };
+  // raise each governor's garrison to its target; lower it again only if the stewards set it (the player's own higher number stays)
   const garrisons = (s, A) => {
     if (!G.setGovernor || !s.council) return;
+    const hot = threatened(s);
     for (const c of G.citiesOf(s, 'p')) {
       const g = s.council.gov && s.council.gov[c.id];
-      if (g && g.on && (g.troops || 0) < A.res.garrison) { G.setGovernor(s, c.id, { troops: A.res.garrison }); alog(s, 'military', `${c.name}'s governor will keep ${A.res.garrison} soldiers`); }
+      if (!g || !g.on) continue;
+      const want = G.autoGarrisonTarget(s, c, hot), have = g.troops || 0;
+      const ours = A.gar[c.id] === have;
+      if (have === want || (have > want && !ours)) continue;
+      G.setGovernor(s, c.id, { troops: want });
+      A.gar[c.id] = want;
+      if (Math.abs(want - have) >= 5 || have < A.res.garrison) alog(s, 'military', `${c.name}'s governor will keep ${want} soldiers${want > have ? '' : ' (calmer now)'}`);
     }
   };
 
